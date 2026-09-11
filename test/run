@@ -313,36 +313,59 @@ test_rm_removes_the_worktree_and_keeps_the_branch() {
   git rev-parse -q --verify "refs/heads/t/$id-add-the-widget" > /dev/null
 }
 
-test_main_commits_onto_the_branch_the_checkout_is_on() {
+test_main_codes_in_a_worktree_and_lands_on_the_local_main() {
+  git commit -q --allow-empty -m "not pushed yet"
   id=$(new "fix the widget" -p main)
   t run $id
   eq "$(step $id)" done
-  eq "$(t path $id)" "$(realpath "$tmp/repo")"
+  [ "$(t path $id)" != "$(realpath "$tmp/repo")" ]
   eq "$(git branch --show-current)" main
-  eq "$(git log -1 --format=%s)" "fix the widget"
-  not git rev-parse -q --verify "refs/heads/t/$id-fix-the-widget"
-  t rm $id 2> /dev/null
-  [ -f impl.txt ]                                          # rm leaves the checkout alone
+  eq "$(git log -2 --format=%s | paste -sd,)" "fix the widget,not pushed yet"   # built on it, fast-forwarded
+  eq "$(cat impl.txt)" change                              # the checkout moved along
 }
 
-test_main_waits_for_a_clean_checkout_and_runs_one_task_at_a_time() {
+test_main_waits_while_your_uncommitted_work_is_in_the_way() {
   echo mine > notes.txt
-  a=$(new "task a" -p main)
-  b=$(new "task b" -p main)
-  t run $a
-  eq "$(step $a)" 10-implement                            # your uncommitted work stays yours
-  eq "$(git rev-list --count HEAD)" 1
-  rm notes.txt
-  ( exec 9> "$(dir $a)/lock"; flock 9; sleep 2 ) &
+  echo mine > impl.txt                                     # the task writes impl.txt too
+  id=$(new "fix the widget" -p main)
+  t run $id
+  eq "$(step $id)" 40-merge
+  eq "$(cat "$(dir $id)/runs/40-merge")" 0                 # waiting isn't a run
+  eq "$(cat impl.txt)" mine
+  rm impl.txt
+  t run $id
+  eq "$(step $id)" done
+  eq "$(cat impl.txt)" change
+  eq "$(cat notes.txt)" mine                               # the rest of your work stays
+}
+
+test_main_resolves_conflicts_with_a_moved_main_and_tests_again() {
+  export SLOTS_opencode=1
+  id=$(new "fix the widget" -p main)
+  mkdir -p "$T_VAR/run"
+  ( exec 8> "$T_VAR/run/opencode.1"; flock 8; sleep 2 ) &
   sleep 0.5
-  t run $b
-  eq "$(step $b)" 10-implement                            # a has the checkout
+  t run $id                                                # makes the worktree, then waits for a slot
   wait
+  echo theirs > impl.txt && git add impl.txt && git commit -q -m "meanwhile on main"
+  echo noop > "$FAKE/merges"
+  t run $id
+  eq "$(step $id)" 40-merge
+  grep -q 'left conflict markers' "$(dir $id)/log/40-merge.log"
+  t run $id
+  eq "$(step $id)" done
+  grep -q '40-merge ok → 20-test' "$(dir $id)/history"
+  eq "$(sort impl.txt | paste -sd,)" "change,theirs"       # both sides, no markers
+  eq "$(git rev-parse HEAD)" "$(git rev-parse "t/$id-fix-the-widget")"
+}
+
+test_a_task_stacked_on_a_main_task_lands_on_main_too() {
+  a=$(new "parent work" -p main)
+  b=$(new "child work" --on $a)
   t run $a
   t run $b
-  eq "$(step $a)" done
   eq "$(step $b)" done
-  eq "$(git rev-list --count HEAD)" 3
+  eq "$(git log -2 --format=%s | paste -sd,)" "child work,parent work"
 }
 
 test_main_works_in_its_own_repo_from_anywhere() {
@@ -487,6 +510,12 @@ test_new_dry_shows_the_task_it_would_make() {
   grep -q '^starts *when task 1 is done' "$tmp/out"
   grep -q "^shares *task 1's worktree and lock" "$tmp/out"
   grep -q 'task 2 is already stacked here' "$tmp/out"
+}
+
+test_a_stray_file_among_the_tasks_does_not_stop_new_ones() {
+  mkdir -p "$T_VAR/tasks" && : > "$T_VAR/tasks/lock"
+  t new --dry "add the widget" | grep -q '^branch *t/0001-add-the-widget$'
+  eq "$(new "add the widget")" 0001
 }
 
 test_details_come_from_stdin_only_with_a_dash() {
@@ -674,6 +703,13 @@ test_the_board_starts_a_task_and_says_to_one_in_place() {
   grep -q 'use a fixture' "$(dir 0001)/feedback.md"
   [ ! -e "$(dir 0001)/hold" ]
   eq "$(cat "$T_UI/mode")" board
+}
+
+test_ui_new_form_preview_is_spaced_from_header() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{steps,pane,pick,def,args,repo,cli}
+  t ui --key ctrl-n + '' > /dev/null                         # enter the new form
+  t ui --pane + 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -A1 '^─' | grep -q '^$'
 }
 
 test_the_board_holds_renames_and_deletes_in_place() {

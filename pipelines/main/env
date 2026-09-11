@@ -1,6 +1,7 @@
-# main: local's steps in tick's own checkout, from any directory. Commits land on the branch it's on; nothing to merge.
-# One task at a time per checkout, and the implementer waits while the checkout has uncommitted changes.
+# main: local's steps in tick's own worktrees, from any directory, then merge onto tick's local main.
+# TRUNK is the branch tasks start from and merge lands on; the merger agent resolves conflicts with it.
 REPO=tick
-IN_PLACE=yes
+TRUNK=main
 CLI_implement=opencode
 CLI_review=opencode
+CLI_merge=opencode

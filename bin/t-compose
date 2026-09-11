@@ -41,7 +41,6 @@ rows=$(for p in $(pipelines "$def"); do
   f=$(flow "$p") note=
   [[ $f != *→* ]] || f=$(sed 's/ ([^)]*)//g' <<< "$f")       # who solves each step: the preview says
   [ "$p" != "$def" ] || note=default
-  [ "$(env_get "$T_ROOT/pipelines/$p/env" IN_PLACE)" != yes ] || note="in place"
   ! no_repo "$p" || note="no repo"
   printf '%-9s %s%*s %s%s%s\n' "$p" "$f" $((36 - ${#f})) '' "$C_DIM" "$note" "$C_OFF"
 done)

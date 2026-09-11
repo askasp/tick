@@ -31,6 +31,7 @@ if [ "${1:-}" = --pane ]; then
     new | stack)
       echo "$(strip "$C_BLUE" "$pick" $(pipelines "$(cat "$T_UI/def")"))  $C_PURPLE↹$d pipeline$o"
       rule "$d"
+      echo
       CLICOLOR_FORCE=1 exec t-compose --dry "$pick" "$q" ;;
     say)
       echo "$(strip "$C_YELLOW" "$pick" $(steps "$(cat "$t/pipeline")" | sed 's/^[0-9]*-//'))  $C_PURPLE↹$d restart step$o"
@@ -251,7 +252,7 @@ pos=1 i=1                               # start on the newest running task
 while read -r n _; do i=$((i + 1)); [ "$(state "$(tdir "$n")")" != running ] || pos=$((i - 1)); done < <(board -a)
 
 bash -c "$rows" | fzf --ansi --reverse --no-sort --sync --with-shell 'bash -c' --color "$T_FZF_COLORS" \
-  --prompt 'task> ' --pointer '▌' --gutter ' ' --info-command 'echo "$FZF_MATCH_COUNT/$FZF_TOTAL_COUNT"' \
+  --padding=1,0,0,0 --prompt 'task> ' --pointer '▌' --gutter ' ' --info-command 'echo "$FZF_MATCH_COUNT/$FZF_TOTAL_COUNT"' \
   --preview 't-ui --pane {1} {q}' --preview-window 'right,56%,wrap,border-left,~2,<60(down,60%,border-top)' \
   --bind "start:pos($pos)+bg-transform:t-ui --key focus {1} {q}" --bind "focus:bg-transform:t-ui --key focus {1} {q}" \
   --bind "load:transform:$onload" "${binds[@]}" \

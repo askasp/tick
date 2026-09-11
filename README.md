@@ -158,7 +158,7 @@ An agent's `mode` decides what it may touch:
 | --- | --- | --- |
 | `read` | read the repo | reviewer, answerer in `ask` |
 | `web` | read, search the web, fetch pages | answerer in `research` (`MODE_answer=web`) |
-| `edit` | read, edit files, run commands | implementer |
+| `edit` | read, edit files, run commands | implementer, merger |
 
 A new kind of question is a new agent plus a pipeline. For example, a
 security review of a repo:
@@ -178,17 +178,19 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 | --- | --- |
 | `local` (the default) | implement (opencode) → test → review (opencode) |
 | `feature` | implement (opencode) → test → review (opencode) → pr → ci |
-| `main` | local's steps in tick's own checkout, from any directory: commits land on its branch |
+| `main` | local's steps, then merge (opencode): tick only, from any directory; lands on its `main` |
 | `ask` | answer (opencode): reads the repo you're in and changes nothing |
 | `research` | answer (claude): searches the web; needs no repo |
 
 You pick one per task with `t new -p feature "…"`, and a repo can name its own
 default (see Repos).
 
-`main` has no worktree and no branch to merge. Its env says `IN_PLACE=yes`, so
-`t new` points `work` at the repo itself, and tasks in one checkout share a lock
-and run one at a time. The implementer waits while the checkout has
-uncommitted changes, so a commit never takes yours along.
+`main` works in a worktree of its own, like `local`, but branches from tick's
+local `main` (`TRUNK=main` in its env) and ends with `merge`. That step merges
+`main` into the task's branch, and the merger agent resolves any conflicts. If
+`main` had moved, the task goes through test and review again. Then `main`
+fast-forwards to the branch, and your checkout with it. git won't overwrite
+your uncommitted work, so while it's in the way, the step waits.
 
 ### Who solves each step
 

@@ -74,30 +74,25 @@ else
     die "${repo:-this directory} is not in a git repo: cd into one, pass -r NAME, or set T_REPO in etc/tick.conf"
   repo=${common%/.git} why=${why:-this directory}
   [ -n "$pipeline" ] || pipeline=$(profile_get "$(profile_of "$repo")" PIPELINE)
+  [ -n "$base" ] || base=$(env_get "$T_ROOT/pipelines/${pipeline:-$T_PIPELINE}/env" TRUNK)   # main: the local main it lands on
   [ -n "$base" ] || base=$(trunk "$repo") || die "can't tell the trunk of $repo; pass --base BRANCH"
 fi
 pipeline=${pipeline:-$T_PIPELINE}
 
-# IN_PLACE=yes (the main pipeline): no worktree; the task commits onto the branch the repo's checkout is on
-in_place=
-if [ -n "$repo" ] && [ "$(env_get "$T_ROOT/pipelines/$pipeline/env" IN_PLACE)" = yes ]; then
-  in_place=$(git -C "$repo" branch --show-current)
-  [ -n "$in_place" ] || die "$repo has no branch checked out, and $pipeline commits onto the one it's on"
-  base=$(git -C "$repo" rev-parse HEAD)
-fi
+last=$(ls "$T_TASKS" 2> /dev/null | grep -x '[0-9]*' | sort -n | tail -1 || true)   # tasks/ may hold a stray file
 
 if [ -n "$dry" ]; then                  # what it would make, while you can still change it (t compose's preview)
   d= o= g= r= y=
   if [ -t 1 ] || [ -n "${CLICOLOR_FORCE:-}" ]; then d=$C_DIM o=$C_OFF g=$C_GREEN r=$C_RED y=$C_YELLOW; fi
   row() { printf '%s%-10s%s%s\n' "$d" "$1" "$o" "$2"; }
-  n=$( (ls "$T_TASKS" 2> /dev/null || true) | sort -n | tail -1) n=$((10#${n:-0} + 1))
+  n=$((10#${last:-0} + 1))
   first=$(steps "$pipeline" | head -1) first=${first#*-}
   who=${cli:-$(solver "$pipeline" "$first")}
   if [ -n "$repo" ]; then
     rn=$(profile_of "$repo")
     row repo "${rn:-${repo##*/}}$d   ($why)$o"
     row pipeline "$pipeline"
-    row branch "${in_place:-t/$(printf %04d "$n")$(slug "$title")}"
+    row branch "t/$(printf %04d "$n")$(slug "$title")"
     row base "$base"
   else
     row pipeline "$pipeline"
@@ -152,8 +147,7 @@ fi
 
 # the next free id; mkdir is atomic, so two `t new` at once never share one
 mkdir -p "$T_TASKS"
-n=$(ls "$T_TASKS" | sort -n | tail -1)
-n=$((10#${n:-0}))
+n=$((10#${last:-0}))
 while :; do
   n=$((n + 1))
   mkdir "$T_TASKS/$(printf %04d "$n")" 2> /dev/null && break
@@ -165,7 +159,7 @@ cd "$T_TASKS/$id"
 if [ -n "$repo" ]; then
   echo "$repo" > repo
   echo "$base" > base
-  echo "${in_place:-t/$id$(slug "$title")}" > branch
+  echo "t/$id$(slug "$title")" > branch
 fi
 echo "$pipeline" > pipeline
 steps "$pipeline" | head -1 > step
@@ -177,9 +171,6 @@ if [ -n "$on" ]; then
   ln -s "../$p/work" work          # the parent's checkout...
   ln -s "../$p/lock" lock          # ...and its lock, so two tasks never run in it at once
   [ ! -f "$parent/env" ] || cp "$parent/env" env
-elif [ -n "$in_place" ]; then
-  ln -s "$repo" work
-  ln -s "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/tick-in-place.lock" lock   # one task per checkout
 else
   : > lock
 fi

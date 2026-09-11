@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# merge — land the task on TRUNK (main's: main). First TRUNK is merged into the task's branch, and the
+# merger agent resolves any conflicts; when that brings anything in, the task goes back to test, so what
+# lands is what was tested and reviewed. Then TRUNK fast-forwards to the branch, in the repo's checkout
+# when it's on TRUNK. git refuses to overwrite your uncommitted work there, and then the step waits.
+set -euo pipefail
+t=$PWD repo=$(cat repo) branch=$(cat branch)
+into=${TRUNK:?"no TRUNK= in the pipeline's env: the branch this step lands on"}
+cd -P work
+git merge --abort 2> /dev/null || true            # left over from a run that died
+
+if ! git merge-base --is-ancestor "$into" HEAD; then
+  if ! git merge -q --no-edit "$into"; then
+    mapfile -t files < <(git diff --name-only --diff-filter=U)
+    [ "${#files[@]}" -gt 0 ] || { echo "git merge $into failed without a conflict" >&2; exit 1; }
+    {
+      cat "$t/task.md"
+      printf '\n## Conflicts merging %s into this branch\n\n' "$into"
+      printf -- '- %s\n' "${files[@]}"
+    } | agent merger > /dev/null
+    left=$(grep -lsE '^(<<<<<<<|>>>>>>>)( |$)' -- "${files[@]}" || true)
+    if [ -n "$left" ]; then
+      git merge --abort
+      echo "the merger left conflict markers in: $left" >&2
+      exit 1
+    fi
+    git add -A
+    git commit -q --no-edit
+  fi
+  echo "merged $into into $branch; it goes through test and review again before it lands"
+  echo test > "$t/goto"
+  exit 0
+fi
+
+if [ "$(git -C "$repo" branch --show-current)" = "$into" ]; then land=(merge -q --ff-only "$branch")
+else land=(fetch -q . "$branch:$into"); fi
+if ! git -C "$repo" "${land[@]}"; then
+  echo "$into can't move to $branch yet (git says why above); trying again next tick" >&2
+  exit 75
+fi
+echo "landed on $into"

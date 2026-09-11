@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # A stand-in for `opencode run --format json`, so tests never call a model.
-# Same knobs as test/fake/claude, plus $FAKE/names for agents/namer; edit mode is any run without `--agent plan`.
+# Same knobs as test/fake/claude, plus $FAKE/names for agents/namer and $FAKE/merges for agents/merger
+# (noop leaves the conflict; else it keeps both sides). Edit mode is any run without `--agent plan`.
 set -eu
 pop() {
   local line=
@@ -18,7 +19,13 @@ printf '%s\n=====\n' "$prompt" >> "$FAKE/$mode.prompts"
 [ -z "${FAKE_SLEEP:-}" ] || sleep "$FAKE_SLEEP"
 if [ -n "${FAKE_REPLAY:-}" ]; then cat "$FAKE_REPLAY"; exit 0; fi
 
-if [ $mode = edit ]; then
+if [ $mode = edit ] && [[ $prompt == *"## Conflicts merging"* ]]; then
+  if [ "$(pop merges resolve)" != noop ]; then
+    awk 'f && /^- / { print substr($0, 3) } /^## Conflicts merging/ { f = 1 }' <<< "$prompt" |
+      while IFS= read -r f; do sed -i '/^\(<<<<<<<\|=======\|>>>>>>>\)/d' "$f"; done
+  fi
+  text="Kept both sides."
+elif [ $mode = edit ]; then
   line=$(pop impl change)
   [ "$line" = noop ] || echo "$line" >> impl.txt
   text="Edited impl.txt."
