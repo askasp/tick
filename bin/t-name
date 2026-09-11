@@ -4,11 +4,12 @@
 # t new does this itself for a title longer than 40 characters. task.md keeps the whole title.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
-t=$(task_dir "${1:-}")
-n=$((10#${t##*/})) name=${2:-}
+task=$(task_dir "${1:-}")
+n=$(task_num "$task") name=${2:-}
 if [ -z "$name" ]; then
-  name=$(cd "$t" && agent namer < task.md 2> /dev/null |
-    awk '!done && NF { gsub(/[`*#"]/, ""); gsub(/^ +| +$/, ""); print substr($0, 1, 50); done = 1 }') || name=
+  answer=$(cd "$task" && agent namer < task.md 2> /dev/null) || answer=
+  name=$(grep -m1 '[^[:space:]]' <<< "$answer" | tr -d '`*#"' | sed 's/^ *//; s/ *$//' || true)
+  name=${name:0:50}
 fi
 [ -n "$name" ] || die "no name came back for task $n; give it one yourself: t name $n \"...\""
-echo "$name" > "$t/name.tmp" && mv "$t/name.tmp" "$t/name"
+echo "$name" > "$task/name.tmp" && mv "$task/name.tmp" "$task/name"

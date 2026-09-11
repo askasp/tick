@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 # t keys [TASK] — the line t ui's header shows for a task: where it is, and the keys worth pressing now
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
-t=$(task_dir "${1:-}") || exit 1
-n=$((10#${t##*/})) st=$(state "$t") step=$(cat "$t/step")
-who=$(solver "$(cat "$t/pipeline")" "${step#*-}" "$t")
-d= k= c= o=
-if [ -t 1 ] || [ -n "${CLICOLOR_FORCE:-}" ]; then d=$C_DIM k=$C_PURPLE c=$C_TEXT o=$C_OFF; fi
+task=$(task_dir "${1:-}") || exit 1
+n=$(task_num "$task") st=$(state "$task") step=$(cat "$task/step")
+step=${step#*-}
+who=$(solver "$(cat "$task/pipeline")" "$step" "$task")
+terminal_colors
 
 case $st in
-  running) where="${step#*-}${who:+ ($who)}  $(age "$t")" ;;
-  ready)   where="next tick  ${step#*-}" ;;
-  HOLD)    where="HELD  ${step#*-}  $(age "$t")" ;;
+  running) where="$step${who:+ ($who)}  $(age "$task")" ;;
+  ready)   where="next tick  $step" ;;
+  HOLD)    where="HELD  $step  $(age "$task")" ;;
   after*)  where="queued behind ${st#after }" ;;
-  *)       where=$(status "$t") ;;
+  *)       where=$(status "$task") ;;
 esac
 
 keys=
-for a in $(offers "$t"); do
-  label=$a key=$(awk -v a="$a" '$1 == a { print $2 }' <<< "$ACTIONS")
-  [ "$a" != hold ] || [ "$st" != HOLD ] || label=resume
-  [ "$a" != log ] || [[ $st != after* ]] || label="log ${st#after }"      # nothing to watch here yet
-  if [ -z "$keys" ]; then keys="$k⏎$c $label"; else keys+="  $k^${key#ctrl-}$c $label"; fi
+for action in $(offers "$task"); do
+  label=$action key=$(awk -v a="$action" '$1 == a { print $2 }' <<< "$ACTIONS")
+  if [ "$action" = hold ] && [ "$st" = HOLD ]; then label=resume; fi
+  if [ "$action" = log ] && [[ $st == after* ]]; then label="log ${st#after }"; fi      # nothing to watch here yet
+  if [ -z "$keys" ]; then keys="$C_PURPLE⏎$C_TEXT $label"; else keys+="  $C_PURPLE^${key#ctrl-}$C_TEXT $label"; fi
 done
-echo "$keys  $k?$c more$o     ${d}task $n  $where$o"      # keys first: a narrow list cuts the end
+echo "$keys  $C_PURPLE?$C_TEXT more$C_OFF     ${C_DIM}task $n  $where$C_OFF"      # keys first: a narrow list cuts the end

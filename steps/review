@@ -11,7 +11,8 @@ base=$(cat base)
   printf '```\n'
 } | (cd -P work && agent reviewer) > review.md
 
-case $(grep -oE '^VERDICT: *(approve|changes)' review.md | tail -1 || true) in
+verdict=$(grep -oE '^VERDICT: *(approve|changes)' review.md | tail -1 || true)
+case $verdict in
   *approve) ;;
   *changes) cp review.md feedback.md; echo implement > goto ;;
   *)        echo "the review has no VERDICT line" >&2; exit 1 ;;

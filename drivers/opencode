@@ -5,11 +5,11 @@
 #   Anything else (read, web) uses its read-only "plan" agent. AGENT_MODEL is provider/model.
 #   drivers/opencode --resume ID    opens that session interactively (t attach)
 set -euo pipefail
-[ "${1:-}" != --resume ] || exec opencode -s "$2"
+if [ "${1:-}" = --resume ]; then exec opencode -s "$2"; fi
 
 args=(run --format json)
-[ "${AGENT_MODE:-}" = edit ] || args+=(--agent plan)
-[ -z "${AGENT_MODEL:-}" ] || args+=(-m "$AGENT_MODEL")
+if [ "${AGENT_MODE:-}" != edit ]; then args+=(--agent plan); fi
+if [ -n "${AGENT_MODEL:-}" ]; then args+=(-m "$AGENT_MODEL"); fi
 
 raw=$(mktemp)
 trap 'rm -f "$raw"' EXIT
