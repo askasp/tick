@@ -6,26 +6,26 @@ case ${1:-} in
   commands)
     for f in "$T_ROOT"/bin/t-*; do echo "${f##*/t-}:$(sed -n '2s/^.* — //p' "$f")"; done
     for d in "$T_ROOT"/pipelines/*/; do
-      d=${d%/}
-      [ -e "$T_ROOT/bin/t-${d##*/}" ] || echo "${d##*/}:new task: $(flow "${d##*/}")"
+      p=$(basename "$d")
+      if [ ! -e "$T_ROOT/bin/t-$p" ]; then echo "$p:new task: $(flow "$p")"; fi
     done ;;
-  pipelines) for d in "$T_ROOT"/pipelines/*/; do d=${d%/}; echo "${d##*/}:$(flow "${d##*/}")"; done ;;
+  pipelines)
+    for d in "$T_ROOT"/pipelines/*/; do p=$(basename "$d"); echo "$p:$(flow "$p")"; done ;;
   repos)
     for d in "$T_ROOT"/repos/*/; do
-      d=${d%/}
       [ -f "$d/env" ] || continue
-      p=$(profile_get "${d##*/}" PIPELINE)
-      echo "${d##*/}:$(profile_get "${d##*/}" REPO)  (pipeline ${p:-$T_PIPELINE})"
+      r=$(basename "$d") p=$(profile_get "$(basename "$d")" PIPELINE)
+      echo "$r:$(profile_get "$r" REPO)  (pipeline ${p:-$T_PIPELINE})"
     done
     for d in "$T_REPOS"/*/; do
-      if [ -e "$d/.git" ]; then d=${d%/}; echo "${d##*/}:$d"; fi
+      if [ -e "$d/.git" ]; then echo "$(basename "$d"):${d%/}"; fi
     done ;;
   clis)      ls "$T_ROOT/drivers" ;;
   tasks)
     for t in "$T_TASKS"/*/; do
-      [ -f "$t/step" ] || continue
       t=${t%/}
-      echo "$((10#${t##*/})):$(name "$t")  ($(cat "$t/step"), $(state "$t"))"
+      [ -f "$t/step" ] || continue
+      echo "$(task_num "$t"):$(name "$t")  ($(cat "$t/step"), $(state "$t"))"
     done ;;
   steps)     t=$(task_dir "${2:?usage: t complete steps TASK}") && steps "$(cat "$t/pipeline")" | sed 's/^[0-9]*-//' ;;
   *)         die "usage: t complete commands|pipelines|repos|clis|tasks|steps TASK" ;;

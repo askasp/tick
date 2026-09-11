@@ -10,7 +10,7 @@
 set -uo pipefail
 task=$(task_dir "${1:-}") || exit 1
 cd "$task" || exit 1
-id=${task##*/} n=$((10#${task##*/}))
+id=${task##*/} n=$(task_num "$task")
 
 # One runner per task. A stacked task's lock is a symlink to its parent's, so this is
 # also one runner per worktree. The kernel drops the lock when we die, even on kill -9
@@ -27,14 +27,14 @@ note() { echo "$(date '+%F %T') $*" | tee -a history >&2; }
 
 while :; do
   step=$(cat step) pipeline=$(cat pipeline)
-  [ "$step" != done ] || exit 0
-  [ ! -e hold ] || exit 0
+  if [ "$step" = done ] || [ -e hold ]; then exit 0; fi
   if [ -f after ]; then                           # stacked: wait for the task below
     parent=$(cat after)
     if [ ! -f "$T_TASKS/$parent/step" ]; then
-      echo "task $parent, which this one is stacked on, is gone" > hold; exit 0
+      echo "task $parent, which this one is stacked on, is gone" > hold
+      exit 0
     fi
-    [ "$(cat "$T_TASKS/$parent/step")" = done ] || exit 0
+    if [ "$(cat "$T_TASKS/$parent/step")" != done ]; then exit 0; fi
   fi
 
   run=$(( $(cat "runs/$step" 2> /dev/null || echo 0) + 1 ))

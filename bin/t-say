@@ -8,24 +8,26 @@
 set -euo pipefail
 at=
 if [ $# -eq 1 ]; then msg=$1 task=$(task_dir ""); else task=$(task_dir "${1:-}") msg=${2:-} at=${3:-}; fi
-n=$((10#${task##*/})) first=$(steps "$(cat "$task/pipeline")" | head -1)
+n=$(task_num "$task") first=$(steps "$(cat "$task/pipeline")" | head -1)
 flock -n "$task/lock" true || die "task $n is running; say it when it stops, or: t hold $n"
 
 if [ -z "$msg" ] && [ -t 0 ] && command -v fzf > /dev/null && [ "${T_PICKER:-fzf}" = fzf ]; then
   rows=$(steps "$(cat "$task/pipeline")" | while read -r s; do
-    note="restarts here"; [ "$s" != "$first" ] || note="starts over"
+    note="restarts here"
+    if [ "$s" = "$first" ]; then note="starts over"; fi
     printf '%-10s %s%s%s\n' "${s#*-}" "$C_DIM" "$note" "$C_OFF"
   done)
   preview='. "$T_ROOT/lib/tick.sh"; t=$(tdir '"$n"') s={1}
     echo "${C_DIM}task '"$n"'$C_OFF  $(name "$t")  $C_DIM$(cat "$t/branch" 2> /dev/null)$C_OFF"; status "$t"
     echo "${C_DIM}goes to feedback.md; the task restarts at$C_OFF $s ${C_DIM}on the next tick$C_OFF"; echo
     CLICOLOR_FORCE=1 t-log '"$n"' | tail -n 60'
-  k=$C_PURPLE c=$C_TEXT
+  keys="$C_PURPLE⏎$C_TEXT say   $C_PURPLE↑↓$C_TEXT the step it restarts at   ${C_PURPLE}esc$C_TEXT cancel$C_OFF"
   out=$(printf '%s\n' "$rows" | fzf --disabled --ansi --reverse --no-sort --with-shell 'bash -c' --color "$T_FZF_COLORS" \
-    --prompt "say to $n> " --pointer '▌' --gutter ' ' --info hidden --print-query \
-    --header "$k⏎$c say   $k↑↓$c the step it restarts at   ${k}esc$c cancel$C_OFF" \
+    --prompt "say to $n> " --pointer '▌' --gutter ' ' --info hidden --print-query --header "$keys" \
     --preview "$preview" --preview-window 'right,60%,border-left,wrap,follow,~4,<50(down,60%,border-top)') || exit 0
-  msg=$(sed -n 1p <<< "$out") at=$(sed -n 2p <<< "$out") at=${at%% *}
+  mapfile -t typed <<< "$out"
+  msg=${typed[0]} at=${typed[1]:-}
+  at=${at%% *}
 elif [ -z "$msg" ]; then
   [ -t 0 ] || die 'usage: t say [TASK] "what to change"'
   echo "task $n  $(name "$task")"

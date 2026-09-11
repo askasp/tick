@@ -5,7 +5,7 @@
 #   AGENT_MODEL picks the model.
 #   drivers/claude --resume ID    opens that conversation interactively (t attach)
 set -euo pipefail
-[ "${1:-}" != --resume ] || exec claude --resume "$2"
+if [ "${1:-}" = --resume ]; then exec claude --resume "$2"; fi
 
 sid=$(uuidgen)
 args=(-p --session-id "$sid" --output-format stream-json --verbose)
@@ -15,7 +15,7 @@ case ${AGENT_MODE:-read} in
   web)  args+=(--tools Read,Grep,Glob,WebSearch,WebFetch --allowedTools WebSearch,WebFetch) ;;
   *)    args+=(--tools Read,Grep,Glob) ;;
 esac
-[ -z "${AGENT_MODEL:-}" ] || args+=(--model "$AGENT_MODEL")
+if [ -n "${AGENT_MODEL:-}" ]; then args+=(--model "$AGENT_MODEL"); fi
 
 echo "session: claude $sid $PWD" >&2
 raw=$(mktemp)

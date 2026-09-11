@@ -16,8 +16,10 @@ files+=(history)
 # to wait (exit 75) keeps its number, so it goes out together with the run after it.
 story() {
   local f have=()
-  for f in "${files[@]}"; do [ ! -f "$f" ] || have+=("$f"); done
-  [ ${#have[@]} -gt 0 ] || return 0
+  for f in "${files[@]}"; do
+    if [ -f "$f" ]; then have+=("$f"); fi
+  done
+  if [ ${#have[@]} -eq 0 ]; then return 0; fi
   awk 'function pending(s) { return p[s] < n[s] }
        function start(s)   { return at[s, p[s] + 1] }
        function emit(s)    { p[s]++; printf "%s", run[s, p[s]] }
@@ -50,19 +52,27 @@ paint() {
   if [ -n "${NO_COLOR:-}" ] || { [ ! -t 1 ] && [ -z "${CLICOLOR_FORCE:-}" ]; }; then cat; return; fi
   # a digest: a tool call is one quiet line (✎ when it edits), and an agent's own words get a bar. The
   # hold space remembers whether this run is an agent's (it logged a session): its plain lines are its words.
-  local b=$'\e[1m' when='[0-9]{4}-[0-9-]+ [0-9:]+ '
-  sed -u -E -e 's/\x1b\[[0-9;]*m//g' -e '/^=== /{x;s/.*//;x}' -e "s/^=== .*/\n$b&$C_OFF/;t" \
-    -e '/^session: /{x;s/.*/agent/;x}' -e "s/^session: .*/$C_DIM&$C_OFF/;t" \
-    -e "s/^($when.* ok → .*)/$C_GREEN\1$C_OFF/;t" -e "s/^($when.*(failed|hold).*)/$C_RED\1$C_OFF/;t" \
-    -e "s/^($when.*)/$b\1$C_OFF/;t" -e "s/^HOLD: .*/$C_RED&$C_OFF/;t" \
+  local bold=$'\e[1m' when='[0-9]{4}-[0-9-]+ [0-9:]+ '
+  sed -u -E \
+    -e 's/\x1b\[[0-9;]*m//g' \
+    -e '/^=== /{x;s/.*//;x}' \
+    -e "s/^=== .*/\n$bold&$C_OFF/;t" \
+    -e '/^session: /{x;s/.*/agent/;x}' \
+    -e "s/^session: .*/$C_DIM&$C_OFF/;t" \
+    -e "s/^($when.* ok → .*)/$C_GREEN\1$C_OFF/;t" \
+    -e "s/^($when.*(failed|hold).*)/$C_RED\1$C_OFF/;t" \
+    -e "s/^($when.*)/$bold\1$C_OFF/;t" \
+    -e "s/^HOLD: .*/$C_RED&$C_OFF/;t" \
     -e "s/^  · (edit|write|patch|Edit|Write|MultiEdit|NotebookEdit)( |\$)/$C_GREEN✎$C_OFF \1  /;t" \
-    -e "s/^  · ([^ ]*) ?/$C_DIM·$C_OFF \1  /;t" -e "s/^ *! /$C_YELLOW!$C_OFF /;t" \
-    -e '/^$/b' -e x -e "/^agent\$/{x;s/^/$C_BLUE▌$C_OFF /;b" -e '}' -e x
+    -e "s/^  · ([^ ]*) ?/$C_DIM·$C_OFF \1  /;t" \
+    -e "s/^ *! /$C_YELLOW!$C_OFF /;t" \
+    -e '/^$/b' \
+    -e x -e "/^agent\$/{x;s/^/$C_BLUE▌$C_OFF /;b" -e '}' -e x
 }
 
 {
   story
-  [ ! -f hold ] || echo "HOLD: $(head -1 hold)"
+  if [ -f hold ]; then echo "HOLD: $(head -1 hold)"; fi
   ls log/*.log > /dev/null 2>&1 || echo "(no step has run yet)"
-  [ -z "$follow" ] || tail -q -n 0 -F "${files[@]}" 2> /dev/null
+  if [ -n "$follow" ]; then tail -q -n 0 -F "${files[@]}" 2> /dev/null; fi
 } | if [ -t 1 ] && [ -z "$follow" ]; then paint | LESS=${LESS-FRX} less +G; else paint; fi
