@@ -1,0 +1,16 @@
+{"type":"system","subtype":"hook_started","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317"}
+{"type":"system","subtype":"hook_started","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317"}
+{"type":"system","subtype":"hook_response","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317"}
+{"type":"system","subtype":"hook_response","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317"}
+{"type":"system","subtype":"init","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317"}
+{"type":"system","subtype":"thinking_tokens","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317"}
+{"type":"system","subtype":"thinking_tokens","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317"}
+{"type":"assistant","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317","message":{"role":"assistant","content":[{"type":"thinking","thinking":""}]}}
+{"type":"assistant","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01YVeFDb5Fc91wpLC9o3aduj","name":"Read","input":{"file_path":"/etc/hostname"},"caller":{"type":"direct"}}]}}
+{"type":"system","subtype":"permission_denied","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317"}
+{"type":"user","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01YVeFDb5Fc91wpLC9o3aduj","content":"(trimmed)"}]}}
+{"type":"system","subtype":"thinking_tokens","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317"}
+{"type":"system","subtype":"thinking_tokens","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317"}
+{"type":"assistant","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317","message":{"role":"assistant","content":[{"type":"thinking","thinking":""}]}}
+{"type":"assistant","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317","message":{"role":"assistant","content":[{"type":"text","text":"I've requested permission to read `/etc/hostname`. Please approve the permission prompt to proceed."}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"I've requested permission to read `/etc/hostname`. Please approve the permission prompt to proceed.","session_id":"557d83e6-46c0-432f-8ce9-fcff89e75317","permission_denials":[{"tool_name":"Read","tool_use_id":"toolu_01YVeFDb5Fc91wpLC9o3aduj","tool_input":{"file_path":"/etc/hostname"}}]}

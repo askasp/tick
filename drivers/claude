@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# drivers/claude — one Claude Code turn without a terminal.
+#   prompt on stdin → answer on stdout; progress and "session: claude ID DIR" on stderr
+#   AGENT_MODE=edit may change files; anything else may only read. AGENT_MODEL picks the model.
+#   drivers/claude --resume ID    opens that conversation interactively (t attach)
+set -euo pipefail
+[ "${1:-}" != --resume ] || exec claude --resume "$2"
+
+sid=$(uuidgen)
+args=(-p --session-id "$sid" --output-format stream-json --verbose)
+if [ "${AGENT_MODE:-}" = edit ]; then
+  # without a permission mode claude -p edits nothing, and still exits 0
+  args+=(--permission-mode "${CLAUDE_EDIT_MODE:-acceptEdits}")
+else
+  args+=(--tools Read,Grep,Glob)
+fi
+[ -z "${AGENT_MODEL:-}" ] || args+=(--model "$AGENT_MODEL")
+
+echo "session: claude $sid $PWD" >&2
+raw=$(mktemp)
+trap 'rm -f "$raw"' EXIT
+
+# stream-json so a long turn shows its progress in the log instead of looking hung
+claude "${args[@]}" | tee "$raw" | jq --unbuffered -rR 'fromjson? |
+  select(.type == "assistant") | .message.content[]? |
+  if .type == "text" then .text
+  elif .type == "tool_use" then "  · \(.name) \(.input.file_path // .input.command // .input.pattern // "" | tostring | .[:120])"
+  else empty end' >&2
+
+jq -rR 'fromjson? | select(.type == "result") | .permission_denials[]? |
+  "  ! denied: \(.tool_name) \(.tool_input.file_path // .tool_input.command // "")"' "$raw" >&2
+jq -rR 'fromjson? | select(.type == "result") | .result // empty' "$raw"
+# no result line, or an error result → fail
+jq -eR 'fromjson? | select(.type == "result") | .is_error | not' "$raw" > /dev/null

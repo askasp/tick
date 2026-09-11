@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# t — the task board. `t CMD ARGS` runs bin/t-CMD; plain `t` shows the board.
+here=$(dirname "$(readlink -f "$0")")
+cmd=${1:-ls}
+[ $# -eq 0 ] || shift
+[ ! -x "$here/t-$cmd" ] || exec "$here/t-$cmd" "$@"
+
+[ "$cmd" = help ] || echo "t: no command '$cmd'" >&2
+echo "usage:" >&2
+for f in "$here"/t-*; do sed -n '2s/^# /  /p' "$f" >&2; done
+[ "$cmd" = help ]

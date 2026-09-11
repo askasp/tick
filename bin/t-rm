@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# t rm ID — delete a task and its worktree (the branch stays)
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+task=$(task_dir "${1:?usage: t rm ID}")
+id=${task##*/}
+flock -n "$task/lock" true || die "task $id is running; t hold $id, and remove it when it stops"
+for other in "$T_TASKS"/*/; do
+  if [ "$(cat "$other/after" 2> /dev/null)" = "$id" ]; then
+    die "task $(basename "$other") is stacked on $id; remove that one first"
+  fi
+done
+
+branch=$(cat "$task/branch")
+if [ -d "$task/work" ] && [ ! -L "$task/work" ]; then
+  git -C "$(cat "$task/repo")" worktree remove --force "$task/work"
+fi
+rm -rf "$task"
+echo "t: removed task $id; branch $branch is still there" >&2

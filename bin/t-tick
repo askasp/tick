@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# t tick — start `t run` in the background for every unfinished task (cron does this each minute)
+#
+#   * * * * * $HOME/git/tick/bin/t tick
+#
+# It returns at once. A task that is already running, held, or queued behind
+# another one makes its `t run` exit straight away.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+
+for task in "$T_TASKS"/*/; do
+  [ -f "$task/step" ] || continue
+  if [ "$(cat "$task/step")" = done ] || [ -e "$task/hold" ]; then continue; fi
+  setsid "$T_ROOT/bin/t-run" "$task" < /dev/null > /dev/null 2>&1 &
+done

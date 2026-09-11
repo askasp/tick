@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# t resume ID [STEP] — lift a hold and reset the run counts, optionally at another step
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+task=$(task_dir "${1:?usage: t resume ID [STEP]}")
+id=${task##*/}
+cd "$task"
+flock -n lock true || die "task $id is running"
+
+if [ -n "${2:-}" ]; then
+  s=$(find_step "$(cat pipeline)" "$2")
+  [ -n "$s" ] || die "no step '$2'; $(cat pipeline) has: $(steps "$(cat pipeline)" | xargs)"
+  echo "$s" > step.tmp && mv step.tmp step
+fi
+rm -rf hold runs
+echo "$(date '+%F %T') resumed at $(cat step)" >> history
+echo "t: $id resumes at $(cat step) on the next tick, or now: t run $id" >&2

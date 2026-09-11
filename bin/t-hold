@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# t hold ID [reason] — pause a task; the tick leaves it alone until `t resume`
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+task=$(task_dir "${1:?usage: t hold ID [reason]}") || exit 1
+echo "${2:-held by hand}" > "$task/hold"
+flock -n "$task/lock" true || echo "t: the step that is running now finishes first" >&2

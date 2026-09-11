@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# t say ID "what to change" — send a task back to implement with your notes (done tasks too)
+#
+# Your notes go into feedback.md: the same file the review, the tests and CI
+# write when they send a task back.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+task=$(task_dir "${1:?usage: t say ID \"what to change\"}")
+[ -n "${2:-}" ] || die 'usage: t say ID "what to change"'
+flock -n "$task/lock" true || die "task ${task##*/} is running; say it when it stops, or: t hold ${task##*/}"
+
+printf '%s\n' "$2" >> "$task/feedback.md"
+exec "$T_ROOT/bin/t-resume" "${task##*/}" implement

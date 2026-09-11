@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# t new "what to do" [-p PIPELINE] [--on ID] [--cli claude|opencode] [--test CMD] [-r REPO] — create a task (details on stdin)
+#
+# A task gets its own worktree, on a new branch off the trunk (origin's main when
+# there is one). With --on ID it is stacked instead: it shares that task's worktree,
+# branches from that task's branch, and waits until that task is done.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+
+pipeline= on= cli= test= repo=. base= title=
+while [ $# -gt 0 ]; do
+  case $1 in
+    -p)     pipeline=$2; shift ;;
+    --on)   on=$2; shift ;;
+    --cli)  cli=$2; shift ;;
+    --test) test=$2; shift ;;
+    --base) base=$2; shift ;;
+    -r)     repo=$2; shift ;;
+    -*)     die "unknown flag $1" ;;
+    *)      title=$1 ;;
+  esac
+  shift
+done
+[ -n "$title" ] || die 'usage: t new "what to do" [-p PIPELINE] [--on ID]'
+[ -z "$cli" ] || [ -x "$T_ROOT/drivers/$cli" ] || die "no driver '$cli'; there are: $(ls "$T_ROOT/drivers" | xargs)"
+
+trunk() {   # origin's copy first: a local main may be behind
+  git -C "$1" symbolic-ref -q --short refs/remotes/origin/HEAD && return
+  local b
+  for b in origin/main origin/master main master; do
+    if git -C "$1" rev-parse -q --verify "$b^{commit}" > /dev/null; then echo "$b"; return; fi
+  done
+  return 1
+}
+
+if [ -n "$on" ]; then
+  parent=$(task_dir "$on")
+  repo=$(cat "$parent/repo")
+  base=$(cat "$parent/branch")
+  pipeline=${pipeline:-$(cat "$parent/pipeline")}
+else
+  common=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2> /dev/null) ||
+    die "$repo is not in a git repo (cd into one, or use -r REPO)"
+  repo=${common%/.git}
+  [ -n "$base" ] || base=$(trunk "$repo") || die "can't tell the trunk of $repo; pass --base BRANCH"
+fi
+pipeline=${pipeline:-$T_PIPELINE}
+[ -d "$T_ROOT/pipelines/$pipeline" ] || die "no pipeline '$pipeline'; there are: $(ls "$T_ROOT/pipelines" | xargs)"
+
+# the next free id; mkdir is atomic, so two `t new` at once never share one
+mkdir -p "$T_TASKS"
+n=$(ls "$T_TASKS" | sort -n | tail -1)
+n=$((10#${n:-0}))
+while :; do
+  n=$((n + 1))
+  mkdir "$T_TASKS/$(printf %04d "$n")" 2> /dev/null && break
+done
+id=$(printf %04d "$n")
+cd "$T_TASKS/$id"
+
+slug=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-40 | sed 's/^-*//; s/-*$//')
+{ echo "# $title"; if [ ! -t 0 ]; then echo; cat; fi; } > task.md
+echo "$repo" > repo
+echo "$base" > base
+echo "t/$id${slug:+-$slug}" > branch
+echo "$pipeline" > pipeline
+steps "$pipeline" | head -1 > step
+mkdir log
+
+if [ -n "$on" ]; then
+  p=${parent##*/}
+  echo "$p" > after
+  ln -s "../$p/work" work          # the parent's checkout...
+  ln -s "../$p/lock" lock          # ...and its lock, so two tasks never run in it at once
+  [ ! -f "$parent/env" ] || cp "$parent/env" env
+else
+  : > lock
+fi
+[ -z "$cli" ] || echo "AGENT_CLI=$cli" >> env
+[ -z "$test" ] || printf 'TEST_CMD=%q\n' "$test" >> env
+
+echo "$id"
+echo "t: task $id is queued at $(cat step)${on:+ behind $on}; the tick starts it, or now: t run $id" >&2

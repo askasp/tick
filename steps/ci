@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# ci — wait for the PR's checks. Pending: exit 75, and the tick asks again in a minute.
+# Failed: the failing logs become feedback.md, and the task goes back to implement.
+set -uo pipefail
+t=$PWD
+waited=$(( $(date +%s) - $(stat -c %Y pushed) ))
+
+out=$(cd work && gh pr checks "$(cat pr)" 2>&1)
+code=$?
+echo "$out"
+
+case $code in
+  0) exit 0 ;;
+  8) if [ "$waited" -gt "${CI_TIMEOUT:-7200}" ]; then echo "CI has been pending for ${waited}s" > hold; fi
+     exit 75 ;;                                   # gh's "checks pending"
+esac
+if grep -q 'no checks reported' <<< "$out"; then
+  [ "$waited" -gt 300 ] || exit 75                # GitHub may not have registered them yet
+  echo "this repo reports no checks; counting that as passed"
+  exit 0
+fi
+if ! grep -qE $'\t(fail|failure)\t' <<< "$out"; then
+  echo "gh pr checks failed (exit $code) without a failing check" >&2
+  exit 1
+fi
+
+{
+  echo "CI fails on the pull request. Make it pass."
+  echo '```'
+  echo "$out"
+  for run in $(grep -oE 'actions/runs/[0-9]+' <<< "$out" | sort -u | cut -d/ -f3); do
+    (cd work && gh run view "$run" --log-failed) 2>&1 | tail -80
+  done
+  echo '```'
+} > "$t/feedback.md"
+echo implement > "$t/goto"

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# t path ID — print the task's worktree:  cd "$(t path 42)"
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+task=$(task_dir "${1:?usage: t path ID}") || exit 1
+readlink -f "$task/work"

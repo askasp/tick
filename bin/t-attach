@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# t attach ID — continue the task's last agent conversation yourself (claude or opencode)
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+task=$(task_dir "${1:?usage: t attach ID}") || exit 1
+id=${task##*/}
+cd "$task" || exit 1
+# a conversation belongs to the process that runs it; claude won't resume one that is still open
+flock -n lock true || die "task $id is running; watch it with: t log $id -f"
+
+# every driver logs "session: CLI ID DIR" when its agent starts; take the newest
+line=$(cat $(ls -tr log/*.log 2> /dev/null) /dev/null | grep '^session: ' | tail -1)
+[ -n "$line" ] || die "no agent has run in task $id yet"
+read -r _ cli sid dir <<< "$line"
+cd "$dir" || die "$dir is gone"
+echo "t: $cli session $sid in $dir" >&2
+echo "t: afterwards, commit what you changed, then: t resume $id [STEP]" >&2
+exec "$T_ROOT/drivers/$cli" --resume "$sid"

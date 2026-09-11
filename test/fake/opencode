@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# A stand-in for `opencode run --format json`, so tests never call a model.
+# Same knobs as test/fake/claude; edit mode is any run without `--agent plan`.
+set -eu
+pop() {
+  local line=
+  if [ -s "$FAKE/$1" ]; then line=$(head -1 "$FAKE/$1"); sed -i 1d "$FAKE/$1"; fi
+  echo "${line:-$2}"
+}
+[ "${1:-}" = run ] || { echo "fake opencode only does 'run'" >&2; exit 2; }
+
+prompt=$(cat)
+mode=edit
+[[ " $* " != *" --agent plan "* ]] || mode=read
+echo "$*" >> "$FAKE/opencode.calls"
+printf '%s\n=====\n' "$prompt" >> "$FAKE/$mode.prompts"
+
+[ -z "${FAKE_SLEEP:-}" ] || sleep "$FAKE_SLEEP"
+if [ -n "${FAKE_REPLAY:-}" ]; then cat "$FAKE_REPLAY"; exit 0; fi
+
+if [ $mode = edit ]; then
+  line=$(pop impl change)
+  [ "$line" = noop ] || echo "$line" >> impl.txt
+  text="Edited impl.txt."
+else
+  text="Read the diff.
+
+VERDICT: $(pop verdicts approve)"
+fi
+s=ses_fake$$
+jq -nc --arg s $s '{type: "step_start", sessionID: $s, part: {type: "step-start"}}'
+jq -nc --arg s $s '{type: "tool_use", sessionID: $s, part: {type: "tool", tool: "edit", state: {status: "completed", title: "impl.txt"}}}'
+jq -nc --arg s $s --arg t "$text" '{type: "text", sessionID: $s, part: {type: "text", text: $t}}'
+jq -nc --arg s $s '{type: "step_finish", sessionID: $s, part: {type: "step-finish", reason: "stop"}}'

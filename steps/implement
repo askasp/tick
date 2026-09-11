@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# implement — the implementer agent changes the code in the task's worktree; this script commits.
+# Reads task.md, plus feedback.md when a later step (or you, with `t say`) sent the task back.
+set -euo pipefail
+t=$PWD repo=$(cat repo) base=$(cat base) branch=$(cat branch)
+
+if [ ! -e work ]; then
+  # First run: a new worktree on a new branch off the base. One git at a time per repo,
+  # because two tasks starting in the same tick would otherwise race on its refs.
+  (
+    flock 7
+    case $base in
+      origin/*) git -C "$repo" fetch -q origin || echo "fetch failed; branching from the local copy of $base" >&2 ;;
+    esac
+    if git -C "$repo" rev-parse -q --verify "refs/heads/$branch" > /dev/null; then
+      git -C "$repo" worktree add -q "$t/work" "$branch"
+    else
+      git -C "$repo" worktree add -q --no-track -b "$branch" "$t/work" "$base"
+    fi
+  ) 7> "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/tick.lock"
+fi
+
+cd work
+if [ "$(git branch --show-current)" != "$branch" ]; then
+  # stacked: the worktree belongs to the task below; put our own branch on top of its branch
+  [ -z "$(git status --porcelain)" ] || { echo "the worktree has uncommitted changes; not switching to $branch" >&2; exit 1; }
+  git switch -q "$branch" 2> /dev/null || git switch -q -c "$branch" "$base"
+fi
+before=$(git rev-parse HEAD)
+
+{
+  cat "$t/task.md"
+  if [ -s "$t/feedback.md" ]; then printf '\n## Feedback to address\n\n'; cat "$t/feedback.md"; fi
+} | agent implementer
+
+git add -A
+git diff --cached --quiet || git commit -q -m "$(sed -n '1s/^# //p' "$t/task.md")"
+if [ "$(git rev-parse HEAD)" = "$before" ]; then
+  echo "the implementer changed nothing" >&2
+  exit 1
+fi
+if [ -f "$t/feedback.md" ]; then mv "$t/feedback.md" "$t/log/feedback.$(date +%s).md"; fi

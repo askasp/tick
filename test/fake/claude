@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# A stand-in for `claude -p --output-format stream-json`, so tests never call a model.
+#   edit mode (--permission-mode given): appends the next line of $FAKE/impl to impl.txt
+#     (default "change"; the line "noop" changes nothing)
+#   read mode: replies "VERDICT: <next line of $FAKE/verdicts>" (default approve)
+#   FAKE_REPLAY=FILE prints a recorded real stream instead; FAKE_SLEEP=N takes N seconds
+set -eu
+pop() {
+  local line=
+  if [ -s "$FAKE/$1" ]; then line=$(head -1 "$FAKE/$1"); sed -i 1d "$FAKE/$1"; fi
+  echo "${line:-$2}"
+}
+
+prompt=$(cat)
+mode=read
+[[ " $* " != *" --permission-mode "* ]] || mode=edit
+echo "$*" >> "$FAKE/claude.calls"
+printf '%s\n=====\n' "$prompt" >> "$FAKE/$mode.prompts"
+sid=none
+for ((i = 1; i < $#; i++)); do [ "${!i}" != --session-id ] || { j=$((i + 1)); sid=${!j}; }; done
+
+[ -z "${FAKE_SLEEP:-}" ] || sleep "$FAKE_SLEEP"
+if [ -n "${FAKE_REPLAY:-}" ]; then cat "$FAKE_REPLAY"; exit 0; fi
+
+if [ $mode = edit ]; then
+  line=$(pop impl change)
+  [ "$line" = noop ] || echo "$line" >> impl.txt
+  tool=Edit text="Edited impl.txt."
+else
+  tool=Read text="Read the diff.
+
+VERDICT: $(pop verdicts approve)"
+fi
+jq -nc --arg s "$sid" '{type: "system", subtype: "init", session_id: $s}'
+jq -nc --arg s "$sid" --arg n "$tool" '{type: "assistant", session_id: $s, message: {content: [{type: "tool_use", name: $n, input: {file_path: "impl.txt"}}]}}'
+jq -nc --arg s "$sid" --arg t "$text" '{type: "assistant", session_id: $s, message: {content: [{type: "text", text: $t}]}}'
+jq -nc --arg s "$sid" --arg t "$text" '{type: "result", subtype: "success", is_error: false, result: $t, session_id: $s, permission_denials: []}'

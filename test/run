@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+# test/run [PATTERN] — every test (or those matching PATTERN), with fake claude/opencode/gh on PATH.
+# Never calls a model. Each test runs under set -e with its own T_VAR and a toy repo that has
+# a bare "origin" and a `make test` that fails while impl.txt ends in BROKEN.
+root=$(cd "$(dirname "$0")/.." && pwd)
+export PATH=$root/test/fake:$root/bin:$PATH
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
+unset T_VAR T_PIPELINE MAX_RUNS SLOTS_claude SLOTS_opencode AGENT_CLI AGENT_MODEL
+
+eq()   { [ "$1" = "$2" ] || { echo "expected '$2', got '$1'" >&2; return 1; }; }
+not()  { if "$@"; then echo "should have failed: $*" >&2; return 1; fi; }
+new()  { t new "$@" < /dev/null 2> /dev/null; }
+dir()  { echo "$T_VAR/tasks/$1"; }
+step() { cat "$(dir "$1")/step"; }
+wait_done() {
+  local i id all
+  for i in $(seq 150); do
+    all=1
+    for id; do [ "$(step "$id")" = done ] || all=; done
+    [ -z "$all" ] || return 0
+    sleep 0.2
+  done
+  echo "timed out waiting for $*" >&2; t ls -a >&2; return 1
+}
+
+setup() {
+  tmp=$(mktemp -d)
+  export T_VAR=$tmp/var FAKE=$tmp/fake
+  mkdir -p "$FAKE"
+  git init -q --bare -b main "$tmp/origin.git"
+  git init -q -b main "$tmp/repo"
+  cd "$tmp/repo"
+  printf 'test:\n\t@! tail -1 impl.txt 2>/dev/null | grep -q BROKEN\n' > Makefile
+  git add Makefile && git commit -q -m init
+  git remote add origin "$tmp/origin.git"
+  git push -q -u origin main 2> /dev/null
+  git remote set-head origin main
+}
+
+test_scripts_parse() {
+  for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
+}
+
+test_help_lists_the_commands() {
+  t help 2>&1 | grep -q 't new'
+  t help 2>&1 | grep -q 't resume'
+}
+
+test_a_task_runs_to_done_in_its_own_worktree() {
+  id=$(new "add the widget")
+  eq "$id" 0001
+  eq "$(step $id)" 10-implement
+  t run $id
+  eq "$(step $id)" done
+  w=$(t path $id)
+  eq "$w" "$(readlink -f "$(dir $id)/work")"
+  eq "$(git -C "$w" branch --show-current)" t/0001-add-the-widget
+  eq "$(git -C "$w" rev-list --count origin/main..HEAD)" 1
+  eq "$(git -C "$w" log -1 --format=%s)" "add the widget"
+  grep -q '30-review ok → done' "$(dir $id)/history"
+}
+
+test_review_feedback_reaches_the_implementer() {
+  printf 'changes\napprove\n' > "$FAKE/verdicts"
+  id=$(new "add the widget")
+  t run $id
+  eq "$(step $id)" done
+  eq "$(cat "$(dir $id)/runs/10-implement")" 2
+  grep -q 'Feedback to address' "$FAKE/edit.prompts"
+  grep -q 'VERDICT: changes' "$FAKE/edit.prompts"
+  ls "$(dir $id)"/log/feedback.*.md > /dev/null          # archived once it was addressed
+  [ ! -e "$(dir $id)/feedback.md" ]
+}
+
+test_failing_tests_go_back_to_the_implementer() {
+  printf 'BROKEN\nfixed\n' > "$FAKE/impl"
+  id=$(new "add the widget")
+  t run $id
+  eq "$(step $id)" done
+  grep -q 'The tests fail' "$FAKE/edit.prompts"
+  grep -q '20-test ok → 10-implement' "$(dir $id)/history"
+}
+
+test_a_step_that_never_gets_past_holds_the_task() {
+  printf 'changes\nchanges\nchanges\nchanges\n' > "$FAKE/verdicts"
+  id=$(new "add the widget")
+  t run $id
+  eq "$(step $id)" 10-implement
+  grep -q 'ran 3 times' "$(dir $id)/hold"
+  t ls | grep -q HOLD
+  t run $id
+  eq "$(cat "$(dir $id)/runs/10-implement")" 3            # held: nothing ran
+  t resume $id 2> /dev/null
+  t run $id                                               # one more "changes", then approve
+  eq "$(step $id)" done
+}
+
+test_an_implementer_that_changes_nothing_fails() {
+  printf 'noop\nnoop\nnoop\n' > "$FAKE/impl"
+  id=$(new "add the widget")
+  t run $id; t run $id; t run $id
+  eq "$(step $id)" 10-implement
+  [ ! -e "$(dir $id)/hold" ]
+  grep -q 'changed nothing' "$(dir $id)/log/10-implement.log"
+  t run $id
+  [ -e "$(dir $id)/hold" ]
+}
+
+test_tasks_run_in_parallel_worktrees_off_main() {
+  a=$(new "task a")
+  b=$(new "task b")
+  t tick
+  wait_done $a $b
+  wa=$(t path $a) wb=$(t path $b)
+  [ "$wa" != "$wb" ]
+  git -C "$wa" merge-base --is-ancestor origin/main HEAD
+  git -C "$wb" merge-base --is-ancestor origin/main HEAD
+  not git -C "$wb" merge-base --is-ancestor "t/$a-task-a" HEAD
+}
+
+test_a_stacked_task_waits_then_builds_on_its_parent() {
+  a=$(new "parent work")
+  b=$(new "child work" --on $a)
+  t run $b
+  eq "$(step $b)" 10-implement                            # queued behind $a
+  t ls | grep "^$b" | grep -q "after $a"
+  t run $a
+  eq "$(step $a)" done
+  t run $b
+  eq "$(step $b)" done
+  eq "$(t path $b)" "$(t path $a)"                        # one worktree
+  w=$(t path $b)
+  eq "$(git -C "$w" branch --show-current)" "t/$b-child-work"
+  git -C "$w" merge-base --is-ancestor "t/$a-parent-work" HEAD
+  eq "$(git -C "$w" rev-list --count "t/$a-parent-work..HEAD")" 1
+  eq "$(cat "$(dir $b)/base")" "t/$a-parent-work"
+  grep -q "git diff t/$a-parent-work...HEAD" "$FAKE/read.prompts"   # its review saw only its own diff
+}
+
+test_a_stack_never_runs_two_steps_in_one_worktree() {
+  a=$(new "parent work")
+  b=$(new "child work" --on $a)
+  t run $a
+  ( exec 9> "$(dir $a)/lock"; flock 9; sleep 2 ) &
+  sleep 0.5
+  t run $b
+  eq "$(step $b)" 10-implement                            # its parent's lock is its lock
+  wait
+  t run $b
+  eq "$(step $b)" done
+}
+
+test_full_agent_slots_mean_try_again_later() {
+  export SLOTS_claude=1
+  mkdir -p "$T_VAR/run"
+  ( exec 8> "$T_VAR/run/claude.1"; flock 8; sleep 2 ) &
+  sleep 0.5
+  id=$(new "add the widget")
+  t run $id
+  eq "$(step $id)" 10-implement
+  eq "$(cat "$(dir $id)/runs/10-implement")" 0            # waiting isn't a run
+  grep -q 'slots busy' "$(dir $id)/log/10-implement.log"
+  wait
+  t run $id
+  eq "$(step $id)" done
+}
+
+test_a_killed_run_is_picked_up_again() {
+  id=$(new "add the widget")
+  FAKE_SLEEP=5 setsid t run $id > /dev/null 2>&1 &
+  sleep 1
+  t ls | grep "^$id" | grep -q running
+  fuser -s -k "$(dir $id)/lock"                           # like a reboot: everything in the run dies
+  sleep 0.3
+  eq "$(step $id)" 10-implement
+  t run $id                                               # the kernel dropped the lock; nothing to clean
+  eq "$(step $id)" done
+  eq "$(cat "$(dir $id)/runs/10-implement")" 2
+}
+
+test_feature_pipeline_opens_a_pr_and_waits_for_ci() {
+  printf 'pending\nfail\npass\n' > "$FAKE/checks"
+  id=$(new "add the widget" -p feature)
+  t run $id
+  eq "$(step $id)" 50-ci                                  # checks pending: waiting
+  eq "$(cat "$(dir $id)/runs/50-ci")" 0
+  eq "$(cat "$(dir $id)/pr")" https://github.com/example/repo/pull/1
+  git --git-dir="$tmp/origin.git" rev-parse -q --verify "refs/heads/t/$id-add-the-widget" > /dev/null
+  t run $id                                               # fails → implement → … → pushed again → passes
+  eq "$(step $id)" done
+  grep -q 'FAIL test_widget' "$FAKE/edit.prompts"
+  eq "$(grep -c '^pr create' "$FAKE/gh.calls")" 1         # the second push reuses the PR
+  eq "$(git --git-dir="$tmp/origin.git" rev-list --count "main..t/$id-add-the-widget")" 2
+}
+
+test_opencode_can_do_the_coding() {
+  id=$(new "add the widget" --cli opencode)
+  t run $id
+  eq "$(step $id)" done
+  grep -q '^session: opencode ses_' "$(dir $id)/log/10-implement.log"
+  grep -q -- '--agent plan' "$FAKE/opencode.calls"        # the reviewer only reads
+  [ ! -e "$FAKE/claude.calls" ]
+}
+
+test_say_sends_a_done_task_back_with_your_notes() {
+  id=$(new "add the widget")
+  t run $id
+  eq "$(step $id)" done
+  t say $id "also handle the empty case" 2> /dev/null
+  eq "$(step $id)" 10-implement
+  t run $id
+  eq "$(step $id)" done
+  grep -q 'also handle the empty case' "$FAKE/edit.prompts"
+}
+
+test_rm_removes_the_worktree_and_keeps_the_branch() {
+  id=$(new "add the widget")
+  t run $id
+  w=$(t path $id)
+  t rm $id 2> /dev/null
+  [ ! -e "$w" ]
+  [ ! -e "$(dir $id)" ]
+  git rev-parse -q --verify "refs/heads/t/$id-add-the-widget" > /dev/null
+}
+
+test_drivers_read_real_cli_output() {
+  fx=$root/test/fixtures
+  out=$(echo hi | FAKE_REPLAY=$fx/claude-read.jsonl "$root/drivers/claude" 2> "$tmp/err")
+  eq "$out" "$(jq -r 'select(.type == "result") | .result' "$fx/claude-read.jsonl")"
+  grep -q '· Read /etc/hostname' "$tmp/err"
+  grep -q '^session: claude ' "$tmp/err"
+  echo hi | FAKE_REPLAY=$fx/claude-denied.jsonl AGENT_MODE=edit "$root/drivers/claude" > /dev/null 2> "$tmp/err"
+  grep -q '! denied: Write' "$tmp/err"
+  out=$(echo hi | FAKE_REPLAY=$fx/opencode-edit.jsonl AGENT_MODE=edit "$root/drivers/opencode" 2> "$tmp/err")
+  [ -n "$out" ]
+  grep -q '^session: opencode ses_' "$tmp/err"
+  grep -q '· write' "$tmp/err"
+  not bash -c "echo hi | FAKE_REPLAY=$fx/opencode-error.jsonl '$root/drivers/opencode' > /dev/null 2>&1"
+}
+
+pass=0 failed=()
+for name in $(declare -F | awk '{ print $3 }' | grep '^test_' | grep -- "${1:-.}"); do
+  log=$(mktemp)
+  ( set -e; setup; "$name" ) > "$log" 2>&1
+  if [ $? -eq 0 ]; then
+    pass=$((pass + 1)); echo "ok    $name"
+  else
+    failed+=("$name"); echo "FAIL  $name"; tail -25 "$log" | sed 's/^/      /'
+  fi
+done
+echo
+echo "$pass passed, ${#failed[@]} failed"
+[ ${#failed[@]} -eq 0 ]

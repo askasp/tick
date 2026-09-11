@@ -1,0 +1,16 @@
+{"type":"system","subtype":"hook_started","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f"}
+{"type":"system","subtype":"hook_started","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f"}
+{"type":"system","subtype":"hook_response","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f"}
+{"type":"system","subtype":"hook_response","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f"}
+{"type":"system","subtype":"init","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f"}
+{"type":"system","subtype":"thinking_tokens","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f"}
+{"type":"system","subtype":"thinking_tokens","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f"}
+{"type":"assistant","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f","message":{"role":"assistant","content":[{"type":"thinking","thinking":""}]}}
+{"type":"assistant","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01LSnASkGKRgF5eHEut1SFof","name":"Write","input":{"file_path":"/tmp/x/cc/hello.txt","content":"hi"},"caller":{"type":"direct"}}]}}
+{"type":"system","subtype":"permission_denied","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f"}
+{"type":"user","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01LSnASkGKRgF5eHEut1SFof","content":"(trimmed)"}]}}
+{"type":"system","subtype":"thinking_tokens","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f"}
+{"type":"system","subtype":"thinking_tokens","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f"}
+{"type":"assistant","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f","message":{"role":"assistant","content":[{"type":"thinking","thinking":""}]}}
+{"type":"assistant","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f","message":{"role":"assistant","content":[{"type":"text","text":"Grant write permission to proceed."}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"Grant write permission to proceed.","session_id":"78c0bf79-087e-4e8e-abe2-f6b8aa40b26f","permission_denials":[{"tool_name":"Write","tool_use_id":"toolu_01LSnASkGKRgF5eHEut1SFof","tool_input":{"file_path":"/tmp/x/cc/hello.txt","content":"hi"}}]}

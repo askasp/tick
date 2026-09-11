@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# A stand-in for gh. `pr checks` answers with the next line of $FAKE/checks:
+# pass | pending | fail (default pass), with gh's exit codes (0, 8, 1).
+set -eu
+pop() {
+  local line=
+  if [ -s "$FAKE/$1" ]; then line=$(head -1 "$FAKE/$1"); sed -i 1d "$FAKE/$1"; fi
+  echo "${line:-$2}"
+}
+echo "$*" >> "$FAKE/gh.calls"
+link=https://github.com/example/repo/actions/runs/7/job/1
+
+case "$1 $2" in
+  "pr create") cat > /dev/null; echo https://github.com/example/repo/pull/1 ;;
+  "pr checks")
+    case $(pop checks pass) in
+      pass)    printf 'build\tpass\t1m2s\t%s\n' $link ;;
+      pending) printf 'build\tpending\t0\t%s\n' $link; exit 8 ;;
+      fail)    printf 'build\tfail\t1m2s\t%s\n' $link; exit 1 ;;
+    esac ;;
+  "run view")  echo "FAIL test_widget: expected 2, got 3" ;;
+  *)           echo "fake gh: unhandled: $*" >&2; exit 1 ;;
+esac

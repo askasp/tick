@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# t ls [-a] — the board: every unfinished task, its step and its state (-a adds done tasks)
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+
+row() { printf '%-5s %-8s %-13s %-10s %s\n' "$@"; }
+row ID PIPE STEP STATE TITLE
+for t in "$T_TASKS"/*/; do
+  [ -f "$t/step" ] || continue
+  t=${t%/} why=
+  step=$(cat "$t/step")
+  if [ "$step" = done ]; then
+    [ "${1:-}" = -a ] || continue
+    state=done
+  elif [ -e "$t/hold" ]; then
+    state=HOLD why=$(head -1 "$t/hold")
+  elif [ -f "$t/after" ] && [ "$(cat "$T_TASKS/$(cat "$t/after")/step" 2> /dev/null)" != done ]; then
+    state="after $(cat "$t/after")"
+  elif ! flock -n "$t/lock" true 2> /dev/null; then
+    state=running
+  else
+    state=ready
+  fi
+  row "${t##*/}" "$(cat "$t/pipeline")" "$step" "$state" "$(title "$t")"
+  [ -z "$why" ] || echo "      ↳ $why"
+done

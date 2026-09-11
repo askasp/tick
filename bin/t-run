@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# t run ID — run a task's steps one after another, in this terminal, until it has to wait
+#
+# This is the whole scheduler. The tick runs it for every task each minute.
+# A step's exit code decides what happens next:
+#   0    done: go to the next step, or to the one the step wrote into ./goto
+#   75   not yet (CI running, no free agent slot): same step, next tick
+#   *    failed: same step, next tick; after MAX_RUNS runs of one step, the task holds
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -uo pipefail
+task=$(task_dir "${1:?usage: t run ID}") || exit 1
+cd "$task" || exit 1
+id=${task##*/}
+
+# One runner per task. A stacked task's lock is a symlink to its parent's, so this is
+# also one runner per worktree. The kernel drops the lock when we die, even on kill -9
+# or a reboot, so there is no pid file to go stale.
+exec 9> lock
+flock -n 9 || exit 0
+
+[ ! -f env ] || { set -a; . ./env; set +a; }
+export TASK_ID=$id
+mkdir -p log runs
+note() { echo "$(date '+%F %T') $*" | tee -a history >&2; }
+
+while :; do
+  step=$(cat step) pipeline=$(cat pipeline)
+  [ "$step" != done ] || exit 0
+  [ ! -e hold ] || exit 0
+  if [ -f after ]; then                           # stacked: wait for the task below
+    parent=$(cat after)
+    if [ ! -f "$T_TASKS/$parent/step" ]; then
+      echo "task $parent, which this one is stacked on, is gone" > hold; exit 0
+    fi
+    [ "$(cat "$T_TASKS/$parent/step")" = done ] || exit 0
+  fi
+
+  n=$(( $(cat "runs/$step" 2> /dev/null || echo 0) + 1 ))
+  if [ "$n" -gt "$MAX_RUNS" ]; then
+    echo "$step ran $MAX_RUNS times without getting past it; read: t log $id, then: t resume $id" > hold
+    note "$id hold: $step ran $MAX_RUNS times"
+    exit 0
+  fi
+  echo "$n" > "runs/$step"                      # counted before it runs, so a crash counts too
+
+  rm -f goto
+  echo "=== $(date '+%F %T') $step, run $n" >> "log/$step.log"
+  "$T_ROOT/pipelines/$pipeline/$step" < /dev/null 2>&1 | tee -a "log/$step.log"
+  code=${PIPESTATUS[0]}
+
+  case $code in
+    0)  next=$(next_step "$pipeline" "$step")
+        if [ -f goto ]; then
+          next=$(find_step "$pipeline" "$(cat goto)")
+          if [ -z "$next" ]; then
+            echo "$step asked to go to '$(cat goto)', which $pipeline doesn't have" > hold; exit 0
+          fi
+        fi
+        echo "$next" > step.tmp && mv step.tmp step
+        note "$id $step ok → $next" ;;
+    75) echo $((n - 1)) > "runs/$step"          # waiting isn't a run
+        exit 0 ;;
+    *)  note "$id $step failed (exit $code); it runs again on the next tick"
+        exit 0 ;;
+  esac
+done

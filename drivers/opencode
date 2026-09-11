@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# drivers/opencode — one opencode turn without a terminal.
+#   prompt on stdin → answer on stdout; progress and "session: opencode ID DIR" on stderr
+#   AGENT_MODE=edit uses opencode's default agent, which edits and runs commands.
+#   Anything else uses its read-only "plan" agent. AGENT_MODEL is provider/model.
+#   drivers/opencode --resume ID    opens that session interactively (t attach)
+set -euo pipefail
+[ "${1:-}" != --resume ] || exec opencode -s "$2"
+
+args=(run --format json)
+[ "${AGENT_MODE:-}" = edit ] || args+=(--agent plan)
+[ -z "${AGENT_MODEL:-}" ] || args+=(-m "$AGENT_MODEL")
+
+raw=$(mktemp)
+trap 'rm -f "$raw"' EXIT
+
+# every event carries the session id; log it once, from the first
+opencode "${args[@]}" | tee "$raw" | jq --unbuffered -nrR --arg dir "$PWD" '
+  foreach (inputs | fromjson?) as $e (0; . + 1;
+    (if . == 1 then "session: opencode \($e.sessionID) \($dir)" else empty end),
+    ($e | if .type == "text" then .part.text
+          elif .type == "tool_use" then "  · \(.part.tool) \(.part.state.title // "")"
+          elif .type == "error" then "  ! \(.error.data.message // .error.name)"
+          else empty end))' >&2
+
+jq -nrR '[inputs | fromjson? | select(.type == "text") | .part.text] | last // empty' "$raw"
+! grep -q '"type":"error"' "$raw"

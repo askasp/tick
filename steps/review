@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# review — the reviewer agent reads the task and the diff. On "changes", its review becomes
+# feedback.md and the task goes back to implement.
+set -euo pipefail
+base=$(cat base)
+
+{
+  cat task.md
+  printf '\n## The change (git diff %s...HEAD)\n\n```diff\n' "$base"
+  git -C work diff "$base...HEAD"
+  printf '```\n'
+} | (cd work && agent reviewer) > review.md
+cat review.md
+
+case $(grep -oE '^VERDICT: *(approve|changes)' review.md | tail -1 || true) in
+  *approve) ;;
+  *changes) cp review.md feedback.md; echo implement > goto ;;
+  *)        echo "the review has no VERDICT line" >&2; exit 1 ;;
+esac
