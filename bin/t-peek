@@ -2,65 +2,96 @@
 # t peek [TASK] [show|steps|log|diff] — what t ui's pane shows: a running task's live log, else its details.
 # steps: how each step went, the file it runs, and every setting the steps see, with the env file it came from.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
-t=$(task_dir "${1:-}") || exit 1
-id=${t##*/} n=$((10#${t##*/})) st=$(state "$t") step=$(cat "$t/step")
-[ ! -t 1 ] || export CLICOLOR_FORCE=1
-mode=$(pane "$t" "${2:-}") m= d= k= o= g= y= r=
-if [ -n "${CLICOLOR_FORCE:-}" ]; then
-  d=$C_DIM k=$C_PURPLE o=$C_OFF g=$C_GREEN y=$C_YELLOW r=$C_RED
-  case $mode in log) m=$C_YELLOW ;; diff) m=$C_GREEN ;; *) m=$C_BLUE ;; esac
-fi
-tabs=$(strip "$m" "$mode" show steps log $([ "$(pane_next "$t" log)" != diff ] || echo diff))
+task=$(task_dir "${1:-}") || exit 1
+id=${task##*/} n=$(task_num "$task") st=$(state "$task") step=$(cat "$task/step")
+if [ -t 1 ]; then export CLICOLOR_FORCE=1; fi
+terminal_colors
+mode=$(pane "$task" "${2:-}")
+case $mode in log) tab_color=$C_YELLOW ;; diff) tab_color=$C_GREEN ;; *) tab_color=$C_BLUE ;; esac
+tabs=(show steps log)
+if [ "$(pane_next "$task" log)" = diff ]; then tabs+=(diff); fi
 
 case $st in                             # two lines the pane keeps at its top: what this is, and a rule
-  done)   about="$(cat "$t/pipeline") · $(status "$t")" ;;
+  done)   about="$(cat "$task/pipeline") · $(status "$task")" ;;
   after*) about="queued behind ${st#after }" ;;
-  *)      who=$(solver "$(cat "$t/pipeline")" "${step#*-}" "$t")
-          about="$step${who:+ · $who} · $(age "$t")" ;;
+  *)      who=$(solver "$(cat "$task/pipeline")" "${step#*-}" "$task")
+          about="$step${who:+ · $who} · $(age "$task")" ;;
 esac
-echo "$tabs $d$n · $about   $k↹$d next  $k^d ^u$d scroll$o"
-rule "$d"
+echo "$(strip "$tab_color" "$mode" "${tabs[@]}") ${C_DIM}$n · $about   $C_PURPLE↹$C_DIM next  $C_PURPLE^d ^u$C_DIM scroll$C_OFF"
+rule "$C_DIM"
 
-col() { printf %s "$1"; [ "${#1}" -ge "$2" ] || printf "%$(($2 - ${#1}))s" ''; }
+# how often step $1 ran, and how its last run ended: 2 ok → review
+runs_of() {
+  cat "$task/history" 2> /dev/null | awk -v step="$1" '
+    $4 == step && ($5 == "ok" || $5 == "failed") {
+      runs++
+      sub(/^[^ ]+ [^ ]+ [^ ]+ [^ ]+ /, ""); sub(/;.*/, ""); sub(/→ [0-9]+-/, "→ ")
+      last = $0
+    }
+    END { print runs + 0, last }'
+}
+
+# the comment lines a script starts with, after its #!
+header() {
+  local line
+  while IFS= read -r line; do
+    [[ $line == '#'* ]] || break
+    line=${line#\#}
+    echo "${line# }"
+  done < <(tail -n +2 "$1")
+}
 
 # ✓ 20-test  2 runs  ok → review  → steps/test · 3 pipelines: the file is theirs too, so editing it changes them all
-pipeline() {
-  local p s mark=✓ now c runs end e f shared w links files keys src
-  p=$(cat "$t/pipeline") w=$(steps "$p" | wc -L)
-  links=$(for f in "$T_ROOT"/pipelines/*/[0-9]*; do readlink -f "$f"; done)
-  for s in $(steps "$p"); do
-    if [ "$s" = "$step" ]; then now=▶ mark=·; else now=$mark; fi
-    case $now in ✓) c=$g ;; ▶) c=$y ;; *) c=$d ;; esac
-    read -r runs end < <(cat "$t/history" 2> /dev/null | awk -v s="$s" '$4 == s && ($5 == "ok" || $5 == "failed") {
-      k++; sub(/^[^ ]+ [^ ]+ [^ ]+ [^ ]+ /, ""); sub(/;.*/, ""); sub(/→ [0-9]+-/, "→ "); l = $0 } END { print k + 0, l }')
-    case $end in ok*) e=$g ;; *) e=$r ;; esac
-    if [ "$s" = "$step" ] && [ "$st" = running ]; then end=running e=$y
-    elif [ "$s" = "$step" ] && [ "$st" = HOLD ]; then end=held e=$r; fi
+step_rows() {
+  local pipeline each mark=✓ now now_color runs end end_color file shared width links
+  pipeline=$(cat "$task/pipeline") width=$(steps "$pipeline" | wc -L)
+  links=$(for file in "$T_ROOT"/pipelines/*/[0-9]*; do readlink -f "$file"; done)
+  for each in $(steps "$pipeline"); do
+    if [ "$each" = "$step" ]; then now=▶ mark=·; else now=$mark; fi
+    case $now in ✓) now_color=$C_GREEN ;; ▶) now_color=$C_YELLOW ;; *) now_color=$C_DIM ;; esac
+    read -r runs end < <(runs_of "$each")
+    case $end in ok*) end_color=$C_GREEN ;; *) end_color=$C_RED ;; esac
+    if [ "$each" = "$step" ] && [ "$st" = running ]; then end=running end_color=$C_YELLOW
+    elif [ "$each" = "$step" ] && [ "$st" = HOLD ]; then end=held end_color=$C_RED
+    fi
     case $runs in 0) runs=— ;; 1) runs="1 run" ;; *) runs="$runs runs" ;; esac
-    f=$(readlink -f "$T_ROOT/pipelines/$p/$s") shared=$(grep -cxF "$f" <<< "$links")
-    [ "$shared" -le 1 ] && shared= || shared=" · $shared pipelines"
-    echo "$c$now$o $(col "$s" "$w")  $(col "$runs" 7)  $e$(col "$end" 15)$o  $d→ ${f#"$T_ROOT"/}$shared$o"
+    file=$(readlink -f "$T_ROOT/pipelines/$pipeline/$each")
+    shared=$(grep -cxF "$file" <<< "$links")
+    if [ "$shared" -gt 1 ]; then shared=" · $shared pipelines"; else shared=; fi
+    echo "$now_color$now$C_OFF $(pad "$width" "$each")  $(pad 7 "$runs")  $end_color$(pad 15 "$end")$C_OFF  $C_DIM→ ${file#"$T_ROOT"/}$shared$C_OFF"
   done
-  [ "$step" = done ] || { echo; awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$T_ROOT/pipelines/$p/$step"; }
-  echo
-  echo "${d}settings   pipeline → repo → task$o"
-  mapfile -t files < <(env_files "$t")
-  keys=$(for f in "${files[@]}"; do [ ! -f "$f" ] || grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' "$f"; done | tr -d = | awk '!seen[$0]++')
-  [ -n "$keys" ] || echo "  ${d}none$o"
-  w=$(wc -L <<< "$keys")
+  if [ "$step" != done ]; then
+    echo
+    header "$T_ROOT/pipelines/$pipeline/$step"
+  fi
+}
+
+# every setting the steps see, and the env file it comes from: TEST_CMD  make test  task
+settings() {
+  local files keys width key file from
+  mapfile -t files < <(env_files "$task")
+  keys=$(for file in "${files[@]}"; do
+    if [ -f "$file" ]; then grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' "$file"; fi
+  done | tr -d = | awk '!seen[$0]++')
+  echo "${C_DIM}settings   pipeline → repo → task$C_OFF"
+  if [ -z "$keys" ]; then echo "  ${C_DIM}none$C_OFF"; return; fi
+  width=$(wc -L <<< "$keys")
   (
-    load_env "$t" > /dev/null 2>&1
+    load_env "$task" > /dev/null 2>&1
     for key in $keys; do
-      for f in "${files[@]}"; do ! grep -q "^$key=" "$f" 2> /dev/null || src=$f; done
-      src=${src%/env} src=${src#"$T_ROOT"/}; [ "$src" != "$t" ] || src=task
-      echo "  $(col "$key" "$w")  ${!key:-}  $d$src$o"
+      for file in "${files[@]}"; do
+        if grep -q "^$key=" "$file" 2> /dev/null; then from=$file; fi
+      done
+      from=${from%/env}
+      if [ "$from" = "$task" ]; then from=task; fi
+      echo "  $(pad "$width" "$key")  ${!key:-}  $C_DIM${from#"$T_ROOT"/}$C_OFF"
     done
   )
 }
 
 case $mode in
   log)   exec t-log "$id" -f ;;
-  steps) pipeline ;;
+  steps) step_rows; echo; settings ;;
   diff)  t-diff "$id" --color=always 2>&1 | if command -v delta > /dev/null; then delta --paging=never; else cat; fi ;;
   *)     t-show "$id" | sed '/^  next:$/,/^$/d' ;;               # the board's header has the keys
 esac

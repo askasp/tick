@@ -178,13 +178,22 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 | pipeline | steps |
 | --- | --- |
 | `local` (the default) | implement (opencode) → test → review (opencode) |
-| `feature` | implement (opencode) → test → review (opencode) → pr → ci |
+| `feature` | plan (opencode) → implement (opencode) → test → review (opencode) → pr → ci |
 | `main` | local's steps, then merge (opencode): tick only, from any directory; lands on its `main` |
 | `ask` | answer (opencode): reads the repo you're in and changes nothing |
 | `research` | answer (claude): searches the web; needs no repo |
 
 You pick one per task with `t new -p feature "…"`, and a repo can name its own
 default (see Repos).
+
+`feature` starts with **plan**: `agents/planner.md` reads the task and the repo
+and decides how many pull requests it needs. One is the default, and the
+answer nearly always. Only a change too big to review well, with seams that let
+each part merge on its own, becomes a stack of up to four: the task becomes
+part 1, and each later part is a task stacked on the one before it (`t new
+--on`), so its PR's base is the branch below. The parts run one after another,
+each once the one below has passed CI, and none of them is planned again.
+`plan.md` keeps what the planner said.
 
 `main` works in a worktree of its own, like `local`, but branches from tick's
 local `main` (`TRUNK=main` in its env) and ends with `merge`. That step merges
@@ -199,6 +208,7 @@ Each agent step's solver is set in its pipeline's `env`, by the step's name:
 
 ```sh
 # pipelines/feature/env
+CLI_plan=opencode
 CLI_implement=opencode
 CLI_review=opencode
 # MODEL_implement=vllm/qwen3-coder-next  # optional: pin a model for that step
@@ -331,7 +341,7 @@ morning:
   how many agents run at once.
 
 A task directory holds `task.md`, `name`, `pipeline`, `step`, `repo`, `base`,
-`branch`, `env`, `work/`, `feedback.md`, `review.md`, `hold`, `after`,
+`branch`, `env`, `work/`, `plan.md`, `feedback.md`, `review.md`, `hold`, `after`,
 `runs/`, `history` and `log/`. `grep . ~/.tick/tasks/0007/*` shows all of it.
 
 ## Commands

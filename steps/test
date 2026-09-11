@@ -3,27 +3,29 @@
 # The command is TEST_CMD (t new --test "npm test"), or else `make test` when the Makefile has one.
 # TEARDOWN, when the pipeline sets it, runs afterwards: stop the containers the tests needed.
 set -uo pipefail
-t=$PWD
+task=$PWD
 cd -P work || exit 1
 
 cmd=${TEST_CMD:-}
-if [ -z "$cmd" ] && [ -f Makefile ] && grep -q '^test:' Makefile; then cmd="make test"; fi
+if [ -z "$cmd" ] && grep -qs '^test:' Makefile; then cmd="make test"; fi
 if [ -z "$cmd" ]; then
   echo "no TEST_CMD for this task and no 'make test' in the repo: nothing to run"
   exit 0
 fi
 
-[ -z "${TEARDOWN:-}" ] || trap 'echo "\$ $TEARDOWN"; bash -c "$TEARDOWN"' EXIT   # whatever the tests started, pass or fail
+teardown() { echo "\$ $TEARDOWN"; bash -c "$TEARDOWN"; }
+if [ -n "${TEARDOWN:-}" ]; then trap teardown EXIT; fi     # whatever the tests started, pass or fail
+
 echo "\$ $cmd"
-if timeout "${TEST_TIMEOUT:-30m}" bash -c "$cmd" > "$t/test.out" 2>&1; then
-  tail -5 "$t/test.out"
+if timeout "${TEST_TIMEOUT:-30m}" bash -c "$cmd" > "$task/test.out" 2>&1; then
+  tail -5 "$task/test.out"
   exit 0
 fi
-tail -40 "$t/test.out"
+tail -40 "$task/test.out"
 {
   echo "The tests fail (\`$cmd\`). Make them pass. The last 80 lines of output:"
   echo '```'
-  tail -80 "$t/test.out"
+  tail -80 "$task/test.out"
   echo '```'
-} > "$t/feedback.md"
-echo implement > "$t/goto"
+} > "$task/feedback.md"
+echo implement > "$task/goto"

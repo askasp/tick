@@ -2,7 +2,7 @@
 # t attach [TASK] — continue the task's last agent conversation yourself (claude or opencode)
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 task=$(task_dir "${1:-}") || exit 1
-n=$((10#${task##*/}))
+n=$(task_num "$task")
 cd "$task" || exit 1
 # a conversation belongs to the process running it; claude won't resume one that is still open
 flock -n lock true || die "task $n is running; watch it with: t log $n -f"

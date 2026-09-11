@@ -2,44 +2,52 @@
 # implement — the implementer agent changes the code in the task's worktree; this script commits.
 # Reads task.md, plus feedback.md when a later step (or you, with `t say`) sent the task back.
 set -euo pipefail
-t=$PWD repo=$(cat repo) base=$(cat base) branch=$(cat branch)
+task=$PWD repo=$(cat repo) base=$(cat base) branch=$(cat branch)
+title=$(sed -n '1s/^# //p' task.md)
+
+# A worktree named after the repo and the task, not "work": repos derive ports and
+# container names from it (amino's dev-env.sh does).
+add_worktree() {
+  case $base in
+    origin/*) git -C "$repo" fetch -q origin || echo "fetch failed; branching from the local copy of $base" >&2 ;;
+  esac
+  if git -C "$repo" rev-parse -q --verify "refs/heads/$branch" > /dev/null; then
+    git -C "$repo" worktree add -q "$task/$1" "$branch"
+  else
+    git -C "$repo" worktree add -q --no-track -b "$branch" "$task/$1" "$base"
+  fi
+}
 
 if [ ! -e work ]; then
-  # First run: a new worktree on a new branch off the base. It gets a name of its own, not
-  # "work", because repos derive ports and container names from it (amino's dev-env.sh does).
-  # One git at a time per repo, because two tasks starting in one tick race on its refs.
-  dir=${repo##*/}-${t##*/}
-  [ -d "$dir" ] || (
-    flock 7
-    case $base in
-      origin/*) git -C "$repo" fetch -q origin || echo "fetch failed; branching from the local copy of $base" >&2 ;;
-    esac
-    if git -C "$repo" rev-parse -q --verify "refs/heads/$branch" > /dev/null; then
-      git -C "$repo" worktree add -q "$t/$dir" "$branch"
-    else
-      git -C "$repo" worktree add -q --no-track -b "$branch" "$t/$dir" "$base"
-    fi
-  ) 7> "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/tick.lock"
+  dir=${repo##*/}-${task##*/}
+  if [ ! -d "$dir" ]; then
+    # one git at a time per repo: two tasks starting in one tick race on its refs
+    repo_lock=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/tick.lock
+    (flock 7; add_worktree "$dir") 7> "$repo_lock"
+  fi
   ln -s "$dir" work
 fi
 
 cd -P work
 if [ "$(git branch --show-current)" != "$branch" ]; then
   # stacked: the worktree belongs to the task below; put our own branch on top of its branch
-  [ -z "$(git status --porcelain)" ] || { echo "the worktree has uncommitted changes; not switching to $branch" >&2; exit 1; }
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "the worktree has uncommitted changes; not switching to $branch" >&2
+    exit 1
+  fi
   git switch -q "$branch" 2> /dev/null || git switch -q -c "$branch" "$base"
 fi
 before=$(git rev-parse HEAD)
 
 {
-  cat "$t/task.md"
-  if [ -s "$t/feedback.md" ]; then printf '\n## Feedback to address\n\n'; cat "$t/feedback.md"; fi
+  cat "$task/task.md"
+  if [ -s "$task/feedback.md" ]; then printf '\n## Feedback to address\n\n'; cat "$task/feedback.md"; fi
 } | agent implementer > /dev/null
 
 git add -A
-git diff --cached --quiet || git commit -q -m "$(sed -n '1s/^# //p' "$t/task.md")"
+if ! git diff --cached --quiet; then git commit -q -m "$title"; fi
 if [ "$(git rev-parse HEAD)" = "$before" ]; then
   echo "the implementer changed nothing" >&2
   exit 1
 fi
-if [ -f "$t/feedback.md" ]; then mv "$t/feedback.md" "$t/log/feedback.$(date +%s).md"; fi
+if [ -f "$task/feedback.md" ]; then mv "$task/feedback.md" "$task/log/feedback.$(date +%s).md"; fi

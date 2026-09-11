@@ -6,8 +6,10 @@
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 
 if [ "${1:-}" = --dry ]; then           # the preview: pipeline $2, what you typed in $3, and $T_NEW's args, repo and cli
-  words "${3:-}"; mapfile -t extra < "$T_NEW/args"; r=$(cat "$T_NEW/repo") c=$(cat "$T_NEW/cli" 2> /dev/null)
-  exec t-new --dry -p "$2" ${r:+-r "$r"} ${c:+--cli "$c"} "${extra[@]}" "${flags[@]}" "$title"
+  words "${3:-}"
+  mapfile -t extra < "$T_NEW/args"
+  repo=$(cat "$T_NEW/repo") cli=$(cat "$T_NEW/cli" 2> /dev/null)
+  exec t-new --dry -p "$2" ${repo:+-r "$repo"} ${cli:+--cli "$cli"} "${extra[@]}" "${flags[@]}" "$title"
 fi
 command -v fzf > /dev/null || die "t compose needs fzf (sudo apt install fzf); without it: t new \"what to do\""
 
@@ -28,26 +30,25 @@ trap 'rm -rf "$T_NEW"' EXIT
 printf '%s' "$repo" > "$T_NEW/repo"
 : > "$T_NEW/args"
 : > "$T_NEW/cli"
-[ ${#extra[@]} -eq 0 ] || printf '%s\n' "${extra[@]}" > "$T_NEW/args"
+if [ ${#extra[@]} -gt 0 ]; then printf '%s\n' "${extra[@]}" > "$T_NEW/args"; fi
 
 def=$(default_pipeline "$repo") prompt="new> "
 if [ -n "$on" ]; then                   # a stack: its parent's pipeline, unless you pick another
   parent=$(task_dir "$on") || exit 1
-  def=$(cat "$parent/pipeline") prompt="stack on $((10#${parent##*/}))> "
+  def=$(cat "$parent/pipeline") prompt="stack on $(task_num "$parent")> "
 fi
 pick=${pick:-$def}
 
 rows=$(for p in $(pipelines "$def"); do
   f=$(flow "$p") note=
-  [[ $f != *→* ]] || f=$(sed 's/ ([^)]*)//g' <<< "$f")       # who solves each step: the preview says
-  [ "$p" != "$def" ] || note=default
-  ! no_repo "$p" || note="no repo"
-  printf '%-9s %s%*s %s%s%s\n' "$p" "$f" $((36 - ${#f})) '' "$C_DIM" "$note" "$C_OFF"
+  if [[ $f == *→* ]]; then f=$(sed 's/ ([^)]*)//g' <<< "$f"); fi     # who solves each step: the preview says
+  if [ "$p" = "$def" ]; then note=default; fi
+  if no_repo "$p"; then note="no repo"; fi
+  printf '%-9s ' "$p"; pad 36 "$f"; printf ' %s%s%s\n' "$C_DIM" "$note" "$C_OFF"
 done)
 pos=$(grep -n "^$pick " <<< "$rows" | cut -d: -f1)
 
-k=$C_PURPLE c=$C_TEXT
-keys="$k⏎$c create   $k^E$c details   $k^R$c repo   $k^A$c agent   ${k}esc$c cancel$C_OFF"
+keys="$C_PURPLE⏎$C_TEXT create   $C_PURPLE^E$C_TEXT details   $C_PURPLE^R$C_TEXT repo   $C_PURPLE^A$C_TEXT agent   ${C_PURPLE}esc$C_TEXT cancel$C_OFF"
 out=$(printf '%s\n' "$rows" | fzf --disabled --ansi --reverse --no-sort --sync --with-shell 'bash -c' \
   --color "$T_FZF_COLORS,header-border:#2a2e42" --prompt "$prompt" --pointer '▌' --gutter ' ' \
   --info hidden --no-separator --header "$keys" --header-border bottom --print-query --expect ctrl-e \
@@ -56,10 +57,12 @@ out=$(printf '%s\n' "$rows" | fzf --disabled --ansi --reverse --no-sort --sync -
   --bind 'ctrl-a:execute-silent[. "$T_ROOT/lib/tick.sh"; next_cli "$(cat "$T_NEW/cli")" > "$T_NEW/c" && mv "$T_NEW/c" "$T_NEW/cli"]+refresh-preview' \
   --bind 'ctrl-r:execute(t-complete repos | fzf --prompt "repo> " --height 40% --reverse --delimiter : --nth 1 | cut -d: -f1 > "$T_NEW/r" && mv "$T_NEW/r" "$T_NEW/repo")+refresh-preview') || exit 0
 
-q=$(sed -n 1p <<< "$out") key=$(sed -n 2p <<< "$out") p=$(sed -n 3p <<< "$out") r=$(cat "$T_NEW/repo") c=$(cat "$T_NEW/cli")
-words "$q"
-set -- -p "${p%% *}" ${r:+-r "$r"} ${c:+--cli "$c"} "${extra[@]}" "${flags[@]}"
-[ -n "$title" ] || set -- --edit "$@"   # no title yet: the editor asks for one
+mapfile -t picked <<< "$out"            # what you typed, the key that ended it, the pipeline's row
+query=${picked[0]} key=${picked[1]:-} row=${picked[2]:-}
+repo=$(cat "$T_NEW/repo") cli=$(cat "$T_NEW/cli")
+words "$query"
+set -- -p "${row%% *}" ${repo:+-r "$repo"} ${cli:+--cli "$cli"} "${extra[@]}" "${flags[@]}"
+if [ -z "$title" ]; then set -- --edit "$@"; fi   # no title yet: the editor asks for one
 case $key in
   ctrl-e) t-new --edit "$@" "$title" ;;
   *)      t-new "$@" "$title" ;;

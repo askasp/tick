@@ -29,13 +29,14 @@ search() {   # conversations that match a Front search and have activity since $
 }
 
 show() {   # one conversation's messages and comments since $since, oldest first, into mentioned or rest
-  local conv=$1 id msgs coms c hits=
+  local conv=$1 id msgs coms c hits= pile=rest
   id=$(jq -r .id <<< "$conv")
   msgs=$(get "/conversations/$id/messages?limit=25")
   coms=$(get "/conversations/$id/comments")
   for c in $(jq -r --arg me "$me" --argjson t "$since" '._results[] | select(.posted_at >= $t and .author.id != $me) | .id' <<< "$coms"); do
     if get "/comments/$c/mentions" | jq -e --arg me "$me" 'any(._results[]; .id == $me)' > /dev/null; then hits+=" $c"; fi
   done
+  if [ -n "$hits" ]; then pile=mentioned; fi
   {
     jq -r '"=== \(.subject // "(no subject)")  [\(.status), assigned to \(.assignee.email // "nobody")]"' <<< "$conv"
     printf '%s\n%s\n' "$msgs" "$coms" | jq -rs --argjson t "$since" --arg hits "$hits" '
@@ -44,12 +45,15 @@ show() {   # one conversation's messages and comments since $since, oldest first
       + (.[1]._results | map(select(.posted_at >= $t) | {t: .posted_at, s: "--- comment by \(.author.first_name) \(.author.last_name), \(.posted_at | when)\(if .id | IN($hits | split(" ")[]) then " — MENTIONS YOU" else "" end)\n\(.body)"}))
       | sort_by(.t)[].s'
     echo
-  } >> "$tmp/$([ -n "$hits" ] && echo mentioned || echo rest)"
+  } >> "$tmp/$pile"
 }
 
 me=$(get "/teammates/alt:email:$FRONT_EMAIL" | jq -r .id)
 convs=$({ search "mention:$me"; search "assignee:$me"; search "recipient:$FRONT_EMAIL"; } | jq -sc 'unique_by(.id) | sort_by(.updated_at) | reverse[]')
-[ -n "$convs" ] || { echo "Nothing new in Front since $(date -d "@$since" '+%a %d %b %H:%M')."; exit 0; }
+if [ -z "$convs" ]; then
+  echo "Nothing new in Front since $(date -d "@$since" '+%a %d %b %H:%M')."
+  exit 0
+fi
 while read -r conv; do show "$conv"; done <<< "$convs"
 
 cd /   # the agent reads every CLAUDE.md above its cwd, and tick's would confuse it

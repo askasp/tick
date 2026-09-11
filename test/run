@@ -241,6 +241,41 @@ test_feature_pipeline_opens_a_pr_and_waits_for_ci() {
   eq "$(git --git-dir="$tmp/origin.git" rev-list --count "main..t/$id-add-the-widget")" 2
 }
 
+test_a_feature_is_one_pull_request_unless_its_plan_splits_it() {
+  echo "Looks small to me." > "$FAKE/plan"
+  id=$(new "add the widget" -p feature)
+  t run $id
+  eq "$(step $id)" 05-plan                                # a plan without a PART line is no plan
+  grep -q 'no PART line' "$(dir $id)/log/05-plan.log"
+  t run $id                                               # the planner's default: one part
+  eq "$(step $id)" done
+  grep -q '^Decide how many pull requests' "$FAKE/read.prompts"
+  eq "$(cat "$(dir $id)/task.md")" "# add the widget"     # the task as it was asked
+  eq "$(ls "$T_VAR/tasks" | wc -l)" 1
+  eq "$(grep -c '^pr create' "$FAKE/gh.calls")" 1
+}
+
+test_a_plan_in_parts_becomes_a_stack_of_pull_requests() {
+  printf 'Three seams.\n\nPART: Add the widget table\nThe table only.\n\nPART: Show widgets\nA page.\n\nPART: Let users edit widgets\nA form.\n' > "$FAKE/plan"
+  a=$(new "build the whole widget feature" -p feature)
+  t run $a
+  eq "$(step $a)" done
+  eq "$(head -1 "$(dir $a)/task.md")" "# Add the widget table"   # it became part 1...
+  grep -q '^The table only' "$(dir $a)/task.md"
+  grep -q 'Part 1 of 3 of "build the whole widget feature"' "$(dir $a)/task.md"   # ...of the whole
+  eq "$(cat "$(dir 0002)/after")" "$a"
+  eq "$(cat "$(dir 0003)/after")" 0002
+  eq "$(head -1 "$(dir 0003)/task.md")" "# Let users edit widgets"
+  grep -q '^A form' "$(dir 0003)/task.md"
+  t run 2
+  t run 3
+  eq "$(step 0003)" done
+  eq "$(grep -c '^Decide how many pull requests' "$FAKE/read.prompts")" 1   # the parts came planned
+  grep -q "^pr create --head t/0002-show-widgets --base $(cat "$(dir $a)/branch") " "$FAKE/gh.calls"
+  grep -q '^pr create --head t/0003-let-users-edit-widgets --base t/0002-show-widgets ' "$FAKE/gh.calls"
+  eq "$(git -C "$(t path 3)" rev-list --count main..t/0003-let-users-edit-widgets)" 3   # one commit per part
+}
+
 test_opencode_codes_by_default_and_claude_on_request() {
   id=$(new "add the widget")
   t run $id
@@ -257,16 +292,16 @@ test_opencode_codes_by_default_and_claude_on_request() {
 
 test_each_step_runs_on_the_cli_its_pipeline_names() {
   echo MODEL_implement=vllm/test-model >> "$tmp/tick/pipelines/feature/env"
-  id=$(new "add the widget" -p feature)                   # feature: implement and review on opencode
+  id=$(new "add the widget" -p feature)                   # feature: plan, implement and review on opencode
   t run $id
   eq "$(step $id)" done
-  eq "$(grep -c . "$FAKE/opencode.calls")" 2
+  eq "$(grep -c . "$FAKE/opencode.calls")" 3
   grep -q -- '-m vllm/test-model' "$FAKE/opencode.calls"  # the step's model went with it
   [ ! -e "$FAKE/claude.calls" ]
   t show $id | grep -q 'implement (opencode)'
   id=$(new "add the gadget" -p feature --cli claude)      # --cli beats the pipeline
   t run $id
-  eq "$(grep -c . "$FAKE/claude.calls")" 2
+  eq "$(grep -c . "$FAKE/claude.calls")" 3
   not grep -q -- 'test-model' "$FAKE/claude.calls"        # opencode's model isn't claude's
 }
 
@@ -414,12 +449,12 @@ test_completion_offers_what_you_can_type() {
   profile
   export T_REPOS=$tmp
   t complete commands | grep -q '^new:create a task'
-  t complete pipelines | grep -q '^feature:implement (opencode) → test'
+  t complete pipelines | grep -q '^feature:plan (opencode) → implement (opencode) → test'
   t complete repos | grep -q '^toy:.*(pipeline feature)'
   t complete repos | grep -q "^repo:$tmp/repo"
   t complete clis | grep -qx opencode
   id=$(new "add the widget")
-  t complete tasks | grep -q '^1:add the widget  (10-implement, ready)'
+  t complete tasks | grep -q '^1:add the widget  (05-plan, ready)'
   t complete steps widget | grep -qx review
   zsh -n "$tmp/tick/completions/t.zsh"
 }

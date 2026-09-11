@@ -12,8 +12,13 @@ set -euo pipefail
 file=$T_ROOT/agents/${1:?usage: agent NAME < prompt}.md
 [ -f "$file" ] || die "no agent '$1'; there are: $(ls "$T_ROOT/agents" | sed 's/\.md$//' | xargs)"
 
-mode=$(awk 'NR == 1 { if ($0 != "---") exit; next } $0 == "---" { exit } /^mode:/ { sub(/^mode: */, ""); print; exit }' "$file")
-body() { awk 'NR == 1 && $0 == "---" { fm = 1; next } fm && $0 == "---" { fm = 0; next } !fm' "$file"; }
+if [ "$(head -1 "$file")" = --- ]; then
+  frontmatter=$(sed '1d; /^---$/,$d' "$file")
+  prompt=$(sed '1,/^---$/d' "$file")
+else
+  frontmatter= prompt=$(cat "$file")
+fi
+mode=$(sed -n 's/^mode: *//p' <<< "$frontmatter")
 
 step=${T_STEP:-}
 step=${step//[^a-zA-Z0-9_]/_}
@@ -29,13 +34,13 @@ export AGENT_MODE=$mode AGENT_MODEL=$model
 
 # At most SLOTS_<cli> of these at once. A slot is a lock file; the kernel frees it
 # when its holder dies. None free → 75, and the step runs again next tick.
-limit=SLOTS_$cli
-limit=${!limit:-2}
+slots_var=SLOTS_$cli
+slots=${!slots_var:-2}
 mkdir -p "$T_VAR/run"
-for i in $(seq "$limit"); do
+for i in $(seq "$slots"); do
   exec 8> "$T_VAR/run/$cli.$i"
   if flock -n 8; then break; fi
-  if [ "$i" -eq "$limit" ]; then echo "agent: all $limit $cli slots busy; trying again later" >&2; exit 75; fi
+  if [ "$i" -eq "$slots" ]; then echo "agent: all $slots $cli slots busy; trying again later" >&2; exit 75; fi
 done
 
-{ body; echo; cat; } | "$T_ROOT/drivers/$cli"
+{ echo "$prompt"; echo; cat; } | "$T_ROOT/drivers/$cli"
