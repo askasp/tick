@@ -24,6 +24,7 @@ t show discount                              # one task: where it is, and what y
 t log discount -f                            # watch it work
 t say discount "also validate it"            # send it back to the implementer
 t diff discount                              # read the change
+t name discount "Discount field"             # what the board calls it
 ```
 
 Wherever a command takes a TASK, you can give its number (`3`), a word from
@@ -50,6 +51,11 @@ shows one of:
 - `after N`: stacked on task N, and waiting for it
 - `held`: it needs you
 - `done`, or `answered` for a question
+
+A title longer than 40 characters doesn't fit, so `t new` has an agent
+(`agents/namer.md`) name the task in a few words, and the board shows that
+name instead. `t name 3 "…"` changes it, and `t show` still prints the whole
+title.
 
 ### One task
 
@@ -269,7 +275,7 @@ morning:
   know CLI flags. `SLOTS_claude` and `SLOTS_opencode` in `etc/tick.conf` cap
   how many agents run at once.
 
-A task directory holds `task.md`, `pipeline`, `step`, `repo`, `base`,
+A task directory holds `task.md`, `name`, `pipeline`, `step`, `repo`, `base`,
 `branch`, `env`, `work/`, `feedback.md`, `review.md`, `hold`, `after`,
 `runs/`, `history` and `log/`. `grep . ~/.tick/tasks/0007/*` shows all of it.
 
@@ -288,6 +294,7 @@ t attach [TASK]            resume the agent's conversation yourself
 t run [TASK]               run it now, in this terminal
 t hold [TASK] [why]        pause it
 t resume [TASK] [STEP]     unpause it, optionally at another step
+t name [TASK] ["name"]     what the board calls it; left out, an agent picks a short one
 t path [TASK]              its worktree:  cd "$(t path discount)"
 t rm [-f] [TASK]           delete the task and its worktree (the branch stays); -f stops its run first
 t doctor                   what's missing, and the pipelines

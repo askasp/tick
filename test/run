@@ -369,7 +369,23 @@ test_leaving_out_the_task_gives_a_menu() {
   grep -q "$T_VAR/tasks/$b/work" <<< "$out"
 }
 
+test_a_long_title_gets_a_short_name_for_the_board() {
+  echo "Fix the checkout" > "$FAKE/names"
+  a=$(new "the checkout page crashes when the cart holds more than ninety nine items")
+  b=$(new "add the widget")                               # short enough already: no agent
+  eq "$(grep -c . "$FAKE/opencode.calls")" 1
+  grep -q 'ninety nine items' "$FAKE/read.prompts"
+  out=$(t ls)
+  grep -q '^1 .* Fix the checkout$' <<< "$out"
+  grep -q '^2 .* add the widget$' <<< "$out"
+  eq "$(t path ninety)" "$T_VAR/tasks/$a/work"            # a word from the title still finds it
+  t show $a | grep -q 'ninety nine items'                 # show keeps the whole title
+  t name $a "Cart overflow"
+  t ls | grep -q '^1 .* Cart overflow$'
+}
+
 test_a_long_title_is_cut_to_fit_the_terminal() {
+  echo "fit the board to a narrow terminal, however long" > "$FAKE/names"
   new "add the widget" > /dev/null
   new "make the board fit a narrow terminal, however long the title" > /dev/null
   out=$(tty "stty cols 40; t ls" | tr -d '\r')
@@ -378,7 +394,7 @@ test_a_long_title_is_cut_to_fit_the_terminal() {
   out=$(printf '1\n' | T_PICKER=select tty "stty cols 40; t path" | tr -d '\r')
   grep -q '^2) .*…$' <<< "$out"
   [ "$(grep '^[12]) ' <<< "$out" | wc -L)" -le 40 ]
-  t ls | grep -q 'however long the title$'                  # piped, the whole title stays
+  t ls | grep -q 'however long$'                            # piped, the whole name stays
 }
 
 test_new_without_a_title_opens_the_editor() {

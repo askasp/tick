@@ -7,6 +7,7 @@
 # else $T_REPO. A pipeline with REPO=none (research) needs none. --now runs the task here, at once.
 # The pipeline is -p (or t PIPELINE "..."), else the repo's own (PIPELINE= in repos/NAME/env), else $T_PIPELINE.
 # --on TASK stacks it: that task's worktree, repo and pipeline, and it waits until that task is done.
+# A title longer than 40 characters gets a short name for the board from an agent (see t name).
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 
@@ -103,6 +104,7 @@ else
 fi
 [ -z "$cli" ] || echo "AGENT_CLI=$cli" >> env
 [ -z "$test" ] || printf 'TEST_CMD=%q\n' "$test" >> env
+[ "${#title}" -le 40 ] || "$T_ROOT/bin/t-name" "$n" > /dev/null || true
 
 if [ -n "$now" ]; then when="Running it now."
 elif [ -n "$on" ]; then when="It starts when task $((10#${parent##*/})) is done."

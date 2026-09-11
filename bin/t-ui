@@ -11,6 +11,7 @@ attach    take over the agent conversation
 run       run it now, in this terminal
 hold      pause it
 resume    unpause it
+name      change what the board calls it
 path      print its worktree
 rm        delete it and its worktree'
 ask() { local a; read -rp "$1 " a < /dev/tty; echo "$a"; }
@@ -29,6 +30,7 @@ while :; do
     say)  msg=$(ask "what should change?"); [ -z "$msg" ] || t-say "$id" "$msg" ;;
     stack) t-new --on "$id" ;;
     hold) t-hold "$id" "$(ask "why? (Enter: held by hand)")" ;;
+    name) t-name "$id" "$(ask "new name? (Enter: an agent picks one)")" ;;
     rm)   [ "$(ask "delete task $((10#$id)) and its worktree? [y/N]")" != y ] || t-rm "$id" ;;
     *)    "t-${act%% *}" "$id" ;;
   esac

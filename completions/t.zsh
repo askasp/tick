@@ -19,7 +19,7 @@ _t() {
   esac
   case $words[2] in
     new) reply=($new); _describe option reply ;;
-    show|log|diff|say|attach|run|hold|resume|path|rm)
+    show|log|diff|say|attach|run|hold|resume|name|path|rm)
       if (( CURRENT == 3 )); then
         _t_complete tasks; _describe task reply
       elif [[ $words[2] == resume ]] && (( CURRENT == 4 )); then

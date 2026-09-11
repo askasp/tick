@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# t name [TASK] ["name"] — what the board calls a task; left out, an agent reads the task and picks a short name
+#
+# t new does this itself for a title longer than 40 characters. task.md keeps the whole title.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+t=$(task_dir "${1:-}")
+n=$((10#${t##*/})) name=${2:-}
+if [ -z "$name" ]; then
+  name=$(cd "$t" && agent namer < task.md 2> /dev/null |
+    awk '!done && NF { gsub(/[`*#"]/, ""); gsub(/^ +| +$/, ""); print substr($0, 1, 50); done = 1 }') || name=
+fi
+[ -n "$name" ] || die "no name came back for task $n; give it one yourself: t name $n \"...\""
+echo "$name" > "$t/name.tmp" && mv "$t/name.tmp" "$t/name"

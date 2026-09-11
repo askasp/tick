@@ -25,7 +25,7 @@ case ${1:-} in
     for t in "$T_TASKS"/*/; do
       [ -f "$t/step" ] || continue
       t=${t%/}
-      echo "$((10#${t##*/})):$(title "$t")  ($(cat "$t/step"), $(state "$t"))"
+      echo "$((10#${t##*/})):$(name "$t")  ($(cat "$t/step"), $(state "$t"))"
     done ;;
   steps)     t=$(task_dir "${2:?usage: t complete steps TASK}") && steps "$(cat "$t/pipeline")" | sed 's/^[0-9]*-//' ;;
   *)         die "usage: t complete commands|pipelines|repos|clis|tasks|steps TASK" ;;

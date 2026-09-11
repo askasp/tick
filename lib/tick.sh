@@ -25,6 +25,9 @@ find_step() {
 
 title() { sed -n '1s/^# //p' "$1/task.md"; }
 
+# what the board calls a task: the short name `t name` gave it, else its title
+name() { cat "$1/name" 2> /dev/null || title "$1"; }
+
 # one setting from an env file
 env_get() { [ -f "$1" ] || return 0; (unset "$2"; . "$1" > /dev/null 2>&1; echo "${!2:-}"); }
 
@@ -128,7 +131,7 @@ rows() {
   esac
   if [ -f "$t/repo" ]; then repo=$(profile_of "$(cat "$t/repo")"); repo=${repo:-$(basename "$(cat "$t/repo")")}; fi
   p=$(progress "$t")
-  printf '%-4s %s%*s %-10s %-8.8s %s%s\n' "$((10#${t##*/}))" "$p" $((6 - ${#p})) '' "$word" "$repo" "${2:-}" "$(title "$t")"
+  printf '%-4s %s%*s %-10s %-8.8s %s%s\n' "$((10#${t##*/}))" "$p" $((6 - ${#p})) '' "$word" "$repo" "${2:-}" "$(name "$t")"
   for c in "$T_TASKS"/*/after; do
     [ "$(cat "$c" 2> /dev/null)" = "${t##*/}" ] && [[ $(state "${c%/after}") == after* ]] || continue
     rows "${c%/after}" "${2:+  }${2:-└ }"
@@ -171,7 +174,9 @@ task_dir() {
     return
   fi
   if [ -n "$arg" ] && [ -f "$arg/step" ]; then (cd "$arg" && pwd); return; fi
-  rows=$(board -a | grep -iF -- "$arg")
+  rows=$(board -a | while IFS= read -r row; do     # the board shows names, so match the titles too
+    if { echo "$row"; title "$(tdir "${row%% *}")"; } | grep -qiF -- "$arg"; then echo "$row"; fi
+  done)
   [ -n "$rows" ] || die "${arg:+no task matches '$arg'}${arg:-there are no tasks yet; start one: t new}"
   local choice=$rows id list
   if [ "$(wc -l <<< "$rows")" -gt 1 ]; then

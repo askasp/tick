@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # A stand-in for `opencode run --format json`, so tests never call a model.
-# Same knobs as test/fake/claude; edit mode is any run without `--agent plan`.
+# Same knobs as test/fake/claude, plus $FAKE/names for agents/namer; edit mode is any run without `--agent plan`.
 set -eu
 pop() {
   local line=
@@ -22,6 +22,8 @@ if [ $mode = edit ]; then
   line=$(pop impl change)
   [ "$line" = noop ] || echo "$line" >> impl.txt
   text="Edited impl.txt."
+elif [[ $prompt == "Name this task"* ]]; then
+  text=$(pop names "Widget work")
 else
   text="Read the diff.
 
