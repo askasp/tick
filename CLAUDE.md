@@ -47,9 +47,10 @@ how to change it.
 | to add | do this | touch the runner? |
 | --- | --- | --- |
 | a pipeline | `mkdir pipelines/NAME`, then `ln -s ../../steps/X NN-X` for each step | no |
-| a pipeline for one repo | `pipelines/NAME/env` with `REPO=` and settings like `TEST_CMD=` (sourced before each step) | no |
+| a pipeline for one repo | `pipelines/NAME/env` with `REPO=` and settings like `TEST_CMD=` (sourced before each step); `REPO=none` needs no repo | no |
 | a step | an executable in `steps/` that follows the contract below | no |
-| an agent | `agents/NAME.md`: frontmatter (`cli`, `mode`, `model`) and a prompt | no |
+| an agent | `agents/NAME.md`: frontmatter (`cli`, `mode`: read, web or edit, `model`) and a prompt | no |
+| a kind of question | an agent, plus a pipeline whose one step is `steps/answer` and whose env says `ANSWERER=NAME` | no |
 | an AI CLI | `drivers/NAME`, same contract as `drivers/claude` | no |
 | a command | `bin/t-NAME`. Line 2 is its help line (`# t NAME ARGS — what`) | no |
 | a setting | `etc/tick.conf`, as `: "${NAME:=default}"` | no |

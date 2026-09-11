@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# answer — the pipeline's $ANSWERER agent answers task.md into answer.md, in the task's repo if it has one.
+# A follow-up (t say) arrives as feedback.md, and the earlier answer goes along with it.
+set -euo pipefail
+
+{
+  cat task.md
+  if [ -s answer.md ]; then printf '\n## Your earlier answer\n\n'; cat answer.md; fi
+  if [ -s feedback.md ]; then printf '\n## Follow-up\n\n'; cat feedback.md; fi
+} | (if [ -f repo ]; then cd "$(cat repo)"; fi; agent "${ANSWERER:-explainer}") > answer.tmp
+
+[ -s answer.tmp ] || { echo "the agent gave no answer" >&2; exit 1; }
+mv answer.tmp answer.md
+if [ -f feedback.md ]; then mv feedback.md "log/feedback.$(date +%s).md"; fi

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t say [TASK] "what to change" — send a task back to implement with your notes (done tasks too)
+# t say [TASK] "notes" — back to its first step with your notes: a fix for code, a follow-up for a question
 #
 # The notes go into feedback.md, the same file the review, the tests and CI write.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
@@ -14,4 +14,4 @@ fi
 flock -n "$task/lock" true || die "task $n is running; say it when it stops, or: t hold $n"
 
 printf '%s\n' "$msg" >> "$task/feedback.md"
-exec "$T_ROOT/bin/t-resume" "$n" implement
+exec "$T_ROOT/bin/t-resume" "$n" "$(steps "$(cat "$task/pipeline")" | head -1)"

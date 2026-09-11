@@ -281,6 +281,43 @@ test_details_come_from_stdin_only_with_a_dash() {
   grep -q '^use tabs' "$(dir 0002)/task.md"
 }
 
+test_ask_answers_about_the_repo_and_changes_nothing() {
+  id=$(new -p ask "how do the tests run?")
+  t run $id
+  eq "$(step $id)" done
+  [ -s "$(dir $id)/answer.md" ]
+  [ ! -e "$(dir $id)/work" ]                              # no worktree
+  eq "$(git status --porcelain)" ""                       # the repo is untouched
+  grep -q -- '--tools Read,Grep,Glob$' "$FAKE/claude.calls"
+  t show $id | grep -q 'answer:'
+}
+
+test_research_needs_no_repo_and_may_search_the_web() {
+  cd /
+  id=$(new -p research "what changed in bash 5.3?")
+  [ ! -e "$(dir $id)/repo" ]
+  t run $id
+  eq "$(step $id)" done
+  [ -s "$(dir $id)/answer.md" ]
+  grep -q 'WebSearch' "$FAKE/claude.calls"
+}
+
+test_say_on_a_question_asks_a_follow_up() {
+  id=$(new -p ask "how do the tests run?")
+  t run $id
+  t say $id "and how do I run just one?" 2> /dev/null
+  eq "$(step $id)" 10-answer
+  t run $id
+  eq "$(step $id)" done
+  grep -q 'Your earlier answer' "$FAKE/read.prompts"
+  grep -q 'and how do I run just one?' "$FAKE/read.prompts"
+}
+
+test_new_now_runs_the_task_at_once() {
+  t new --now -p ask "how do the tests run?" < /dev/null > /dev/null 2>&1
+  eq "$(step 0001)" done
+}
+
 test_show_says_where_a_task_is_and_what_comes_next() {
   id=$(new "add the widget")
   out=$(t show $id)

@@ -82,6 +82,38 @@ $ t show 2
    with `-p feature`, review the PR it opened.
 6. Clean up with `t rm`. The branch stays.
 
+### Questions instead of code
+
+```sh
+cd ~/git/shop
+t new --now -p ask "How does checkout compute tax?"             # reads the repo, changes nothing
+t new --now -p research "What changed in Postgres 18 upgrades?" # searches the web, from anywhere
+t say 7 "and where is that tested?"                            # a follow-up
+t show 7                                                       # the question, the answer, the history
+```
+
+These are ordinary pipelines with one step, `answer`. The step pipes the
+question to the agent the pipeline's `env` names (`ANSWERER=explainer`, or
+`researcher`) and writes `answer.md`, which `t show` prints. Leave out `--now`
+and the tick answers it in the background instead.
+
+An agent's `mode` decides what it may touch:
+
+| mode | may | used by |
+| --- | --- | --- |
+| `read` | read the repo | explainer, reviewer |
+| `web` | read, search the web, fetch pages | researcher |
+| `edit` | read, edit files, run commands | implementer |
+
+A new kind of question is a new agent plus a pipeline. For example, a
+security review of a repo:
+
+```sh
+printf -- '---\ncli: claude\nmode: read\n---\nYou look for security problems in this repo…\n' > agents/auditor.md
+mkdir pipelines/audit && ln -s ../../steps/answer pipelines/audit/10-answer
+echo ANSWERER=auditor > pipelines/audit/env
+```
+
 ## Pipelines
 
 A pipeline is a directory of numbered links to scripts in `steps/`, like
@@ -91,6 +123,8 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 | --- | --- |
 | `local` (the default) | implement → test → review |
 | `feature` | implement → test → review → pr → ci |
+| `ask` | answer: reads the repo you're in and changes nothing |
+| `research` | answer: searches the web; needs no repo |
 
 You pick one per task with `t new -p feature "…"`.
 
@@ -174,8 +208,8 @@ Add a step with `chmod +x steps/lint`, then
 - **Parallel tasks and stacks.** Each `t new` gets its own worktree off the
   trunk, and those run in parallel. `t new --on 7 "…"` shares task 7's
   worktree and lock, branches from 7's branch, and waits until 7 is done.
-- **Agents.** `agents/*.md` are prompts with `cli`, `mode` and `model`
-  settings. `drivers/claude` and `drivers/opencode` are the only files that
+- **Agents.** `agents/*.md` are prompts with `cli`, `mode` (read, web or
+  edit) and `model` settings. `drivers/claude` and `drivers/opencode` are the only files that
   know CLI flags. `SLOTS_claude` and `SLOTS_opencode` in `etc/tick.conf` cap
   how many agents run at once.
 
@@ -187,7 +221,7 @@ A task directory holds `task.md`, `pipeline`, `step`, `repo`, `base`,
 
 ```
 t                          the board (interactive in a terminal)
-t new ["what to do" [-]] [-p PIPELINE] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO]
+t new ["what to do" [-]] [-p PIPELINE] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO] [--now]
 t ls [-a]                  the board as text; -a adds done tasks
 t show [TASK]              where it is, and what you can do next
 t log [TASK] [-f]          history and latest output

@@ -11,9 +11,9 @@ for other in "$T_TASKS"/*/; do
   fi
 done
 
-branch=$(cat "$task/branch")
+branch=$(cat "$task/branch" 2> /dev/null || true)
 if [ -d "$task/work" ] && [ ! -L "$task/work" ]; then
   git -C "$(cat "$task/repo")" worktree remove --force "$task/work"
 fi
 rm -rf "$task"
-echo "t: removed task $n; branch $branch is still there" >&2
+echo "t: removed task $n${branch:+; branch $branch is still there}" >&2

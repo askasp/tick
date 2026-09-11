@@ -25,11 +25,12 @@ find_step() {
 
 title() { sed -n '1s/^# //p' "$1/task.md"; }
 
-# the repo a pipeline is tied to: REPO= in pipelines/NAME/env
+# the repo a pipeline is tied to: REPO= in pipelines/NAME/env ("none": it needs no repo)
 pipeline_repo() {
   local env=$T_ROOT/pipelines/$1/env
   [ -f "$env" ] || return 0
-  (REPO=; . "$env" > /dev/null 2>&1; [ -z "$REPO" ] || realpath -m "$REPO")
+  (REPO=; . "$env" > /dev/null 2>&1
+   case $REPO in '') ;; none) echo none ;; *) realpath -m "$REPO" ;; esac)
 }
 
 # done | HOLD | after ID | running | ready

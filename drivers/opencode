@@ -2,7 +2,7 @@
 # drivers/opencode — one opencode turn without a terminal.
 #   prompt on stdin → answer on stdout; progress and "session: opencode ID DIR" on stderr
 #   AGENT_MODE=edit uses opencode's default agent, which edits and runs commands.
-#   Anything else uses its read-only "plan" agent. AGENT_MODEL is provider/model.
+#   Anything else (read, web) uses its read-only "plan" agent. AGENT_MODEL is provider/model.
 #   drivers/opencode --resume ID    opens that session interactively (t attach)
 set -euo pipefail
 [ "${1:-}" != --resume ] || exec opencode -s "$2"

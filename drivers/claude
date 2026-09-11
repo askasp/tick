@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # drivers/claude — one Claude Code turn without a terminal.
 #   prompt on stdin → answer on stdout; progress and "session: claude ID DIR" on stderr
-#   AGENT_MODE=edit may change files; anything else may only read. AGENT_MODEL picks the model.
+#   AGENT_MODE=edit may change files, web may also search the web, anything else only reads.
+#   AGENT_MODEL picks the model.
 #   drivers/claude --resume ID    opens that conversation interactively (t attach)
 set -euo pipefail
 [ "${1:-}" != --resume ] || exec claude --resume "$2"
 
 sid=$(uuidgen)
 args=(-p --session-id "$sid" --output-format stream-json --verbose)
-if [ "${AGENT_MODE:-}" = edit ]; then
+case ${AGENT_MODE:-read} in
   # without a permission mode claude -p edits nothing, and still exits 0
-  args+=(--permission-mode "${CLAUDE_EDIT_MODE:-acceptEdits}")
-else
-  args+=(--tools Read,Grep,Glob)
-fi
+  edit) args+=(--permission-mode "${CLAUDE_EDIT_MODE:-acceptEdits}") ;;
+  web)  args+=(--tools Read,Grep,Glob,WebSearch,WebFetch --allowedTools WebSearch,WebFetch) ;;
+  *)    args+=(--tools Read,Grep,Glob) ;;
+esac
 [ -z "${AGENT_MODEL:-}" ] || args+=(--model "$AGENT_MODEL")
 
 echo "session: claude $sid $PWD" >&2

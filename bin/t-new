@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# t new ["what to do" [-]] [-p PIPELINE] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO] — create a task
+# t new ["what to do" [-]] [-p PIPELINE] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO] [--now] — create a task
 #
 # No title: $EDITOR opens; line 1 is the title, the rest details for the agent.
 # A "-" reads the details from stdin instead:  cat spec.md | t new "Add proration" -
 # The repo is -r, else the repo the pipeline is tied to (REPO= in its env), else the repo you're in.
+# A pipeline with REPO=none (research) needs no repo at all. --now runs the task here, at once.
 # The pipeline is -p, else the one tied to that repo, else $T_PIPELINE.
 # --on TASK stacks it: that task's worktree, repo and pipeline, and it waits until that task is done.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 
-pipeline= on= cli= test= repo= base= title= details= stdin=
+pipeline= on= cli= test= repo= base= title= details= stdin= now=
 while [ $# -gt 0 ]; do
   case $1 in
     -p)     pipeline=$2; shift ;;
@@ -19,6 +20,7 @@ while [ $# -gt 0 ]; do
     --base) base=$2; shift ;;
     -r)     repo=$2; shift ;;
     -)      stdin=1 ;;
+    --now)  now=1 ;;
     -*)     die "unknown flag $1" ;;
     *)      title=$1 ;;
   esac
@@ -55,6 +57,8 @@ if [ -n "$on" ]; then
   repo=$(cat "$parent/repo")
   base=$(cat "$parent/branch")
   pipeline=${pipeline:-$(cat "$parent/pipeline")}
+elif [ -z "$repo" ] && [ -n "$pipeline" ] && [ "$(pipeline_repo "$pipeline")" = none ]; then
+  :
 else
   if [ -z "$repo" ] && [ -n "$pipeline" ]; then repo=$(pipeline_repo "$pipeline"); fi
   common=$(git -C "${repo:-.}" rev-parse --path-format=absolute --git-common-dir 2> /dev/null) ||
@@ -83,9 +87,11 @@ cd "$T_TASKS/$id"
 
 slug=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-40 | sed 's/^-*//; s/-*$//')
 { echo "# $title"; [ -z "$details" ] || printf '\n%s\n' "$details"; } > task.md
-echo "$repo" > repo
-echo "$base" > base
-echo "t/$id${slug:+-$slug}" > branch
+if [ -n "$repo" ]; then
+  echo "$repo" > repo
+  echo "$base" > base
+  echo "t/$id${slug:+-$slug}" > branch
+fi
 echo "$pipeline" > pipeline
 steps "$pipeline" | head -1 > step
 mkdir log
@@ -102,8 +108,10 @@ fi
 [ -z "$cli" ] || echo "AGENT_CLI=$cli" >> env
 [ -z "$test" ] || printf 'TEST_CMD=%q\n' "$test" >> env
 
-if [ -n "$on" ]; then when="It starts when task $((10#${parent##*/})) is done."
+if [ -n "$now" ]; then when="Running it now."
+elif [ -n "$on" ]; then when="It starts when task $((10#${parent##*/})) is done."
 elif crontab -l 2> /dev/null | grep -q 'bin/t tick'; then when="The next tick starts it, within a minute."
 else when="No cron tick is installed (see t doctor), so start it with: t run $n"; fi
 echo "$id"
-echo "t: task $n: pipeline $pipeline, repo ${repo##*/}, branch $(cat branch). $when" >&2
+echo "t: task $n: pipeline $pipeline${repo:+, repo ${repo##*/}, branch $(cat branch)}. $when" >&2
+[ -z "$now" ] || exec "$T_ROOT/bin/t-run" "$n"
