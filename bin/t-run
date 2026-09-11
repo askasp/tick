@@ -18,6 +18,7 @@ id=${task##*/} n=$(task_num "$task")
 exec 9> lock
 flock -n 9 || exit 0
 
+unset T_UI T_NEW    # the board's, when t ui started us: plan's t new would write into it after it closed
 set -a
 load_env "$task"
 set +a
