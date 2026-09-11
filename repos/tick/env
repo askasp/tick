@@ -1,0 +1,4 @@
+# tick itself: `t new -r tick "..."` from anywhere, or `t new` in ~/git/tick. Tasks commit straight onto its branch.
+REPO=~/git/tick
+PIPELINE=main
+TEST_CMD=test/run

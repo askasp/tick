@@ -70,6 +70,14 @@ else
 fi
 pipeline=${pipeline:-$T_PIPELINE}
 
+# IN_PLACE=yes (the main pipeline): no worktree; the task commits onto the branch the repo's checkout is on
+in_place=
+if [ -n "$repo" ] && [ "$(env_get "$T_ROOT/pipelines/$pipeline/env" IN_PLACE)" = yes ]; then
+  in_place=$(git -C "$repo" branch --show-current)
+  [ -n "$in_place" ] || die "$repo has no branch checked out, and $pipeline commits onto the one it's on"
+  base=$(git -C "$repo" rev-parse HEAD)
+fi
+
 # the next free id; mkdir is atomic, so two `t new` at once never share one
 mkdir -p "$T_TASKS"
 n=$(ls "$T_TASKS" | sort -n | tail -1)
@@ -86,7 +94,7 @@ slug=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' |
 if [ -n "$repo" ]; then
   echo "$repo" > repo
   echo "$base" > base
-  echo "t/$id${slug:+-$slug}" > branch
+  echo "${in_place:-t/$id${slug:+-$slug}}" > branch
 fi
 echo "$pipeline" > pipeline
 steps "$pipeline" | head -1 > step
@@ -98,6 +106,9 @@ if [ -n "$on" ]; then
   ln -s "../$p/work" work          # the parent's checkout...
   ln -s "../$p/lock" lock          # ...and its lock, so two tasks never run in it at once
   [ ! -f "$parent/env" ] || cp "$parent/env" env
+elif [ -n "$in_place" ]; then
+  ln -s "$repo" work
+  ln -s "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/tick-in-place.lock" lock   # one task per checkout
 else
   : > lock
 fi

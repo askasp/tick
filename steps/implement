@@ -24,6 +24,10 @@ if [ ! -e work ]; then
 fi
 
 cd -P work
+if [ "${IN_PLACE:-}" = yes ] && { [ -n "$(git status --porcelain)" ] || [ "$(git branch --show-current)" != "$branch" ]; }; then
+  echo "waiting for $PWD to be on $branch with nothing uncommitted: the commit would take your changes along" >&2
+  exit 75
+fi
 if [ "$(git branch --show-current)" != "$branch" ]; then
   # stacked: the worktree belongs to the task below; put our own branch on top of its branch
   [ -z "$(git status --porcelain)" ] || { echo "the worktree has uncommitted changes; not switching to $branch" >&2; exit 1; }

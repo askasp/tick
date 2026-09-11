@@ -126,11 +126,17 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 | --- | --- |
 | `local` (the default) | implement (opencode) → test → review (opencode) |
 | `feature` | implement (opencode) → test → review (opencode) → pr → ci |
+| `main` | local's steps in the repo's own checkout: commits land on its branch (tick's default) |
 | `ask` | answer (opencode): reads the repo you're in and changes nothing |
 | `research` | answer (claude): searches the web; needs no repo |
 
 You pick one per task with `t new -p feature "…"`, and a repo can name its own
 default (see Repos).
+
+`main` has no worktree and no branch to merge. Its env says `IN_PLACE=yes`, so
+`t new` points `work` at the repo itself, and tasks in one checkout share a lock
+and run one at a time. The implementer waits while the checkout has
+uncommitted changes, so a commit never takes yours along.
 
 ### Who solves each step
 

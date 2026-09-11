@@ -311,6 +311,38 @@ test_rm_removes_the_worktree_and_keeps_the_branch() {
   git rev-parse -q --verify "refs/heads/t/$id-add-the-widget" > /dev/null
 }
 
+test_main_commits_onto_the_branch_the_checkout_is_on() {
+  id=$(new "fix the widget" -p main)
+  t run $id
+  eq "$(step $id)" done
+  eq "$(t path $id)" "$(realpath "$tmp/repo")"
+  eq "$(git branch --show-current)" main
+  eq "$(git log -1 --format=%s)" "fix the widget"
+  not git rev-parse -q --verify "refs/heads/t/$id-fix-the-widget"
+  t rm $id 2> /dev/null
+  [ -f impl.txt ]                                          # rm leaves the checkout alone
+}
+
+test_main_waits_for_a_clean_checkout_and_runs_one_task_at_a_time() {
+  echo mine > notes.txt
+  a=$(new "task a" -p main)
+  b=$(new "task b" -p main)
+  t run $a
+  eq "$(step $a)" 10-implement                            # your uncommitted work stays yours
+  eq "$(git rev-list --count HEAD)" 1
+  rm notes.txt
+  ( exec 9> "$(dir $a)/lock"; flock 9; sleep 2 ) &
+  sleep 0.5
+  t run $b
+  eq "$(step $b)" 10-implement                            # a has the checkout
+  wait
+  t run $a
+  t run $b
+  eq "$(step $a)" done
+  eq "$(step $b)" done
+  eq "$(git rev-list --count HEAD)" 3
+}
+
 test_a_repo_by_name_brings_its_pipeline_and_its_tests() {
   profile
   cd /
