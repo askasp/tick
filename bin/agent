@@ -3,28 +3,27 @@
 #
 #   git diff | agent reviewer > review.md
 #
-# The file's frontmatter picks the CLI (cli: claude|opencode), whether it may edit
-# (mode: edit|read) and, optionally, the model. AGENT_CLI and AGENT_MODEL in the
-# environment override them; `t new --cli opencode` sets AGENT_CLI for one task.
+# The file says what the agent may do (mode: read, web or edit). Which CLI and model run it
+# is the pipeline's choice, per step: CLI_review=opencode, MODEL_review=... in its env.
+# AGENT_CLI and AGENT_MODEL override that (t new --cli sets AGENT_CLI for one task).
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 file=$T_ROOT/agents/${1:?usage: agent NAME < prompt}.md
 [ -f "$file" ] || die "no agent '$1'; there are: $(ls "$T_ROOT/agents" | sed 's/\.md$//' | xargs)"
 
-meta() {   # a "key: value" line from the frontmatter between the first two ---
-  awk -v k="$1" 'NR == 1 { if ($0 != "---") exit; next } $0 == "---" { exit }
-                 index($0, k ":") == 1 { sub(/^[^:]*: */, ""); print; exit }' "$file"
-}
+mode=$(awk 'NR == 1 { if ($0 != "---") exit; next } $0 == "---" { exit } /^mode:/ { sub(/^mode: */, ""); print; exit }' "$file")
 body() { awk 'NR == 1 && $0 == "---" { fm = 1; next } fm && $0 == "---" { fm = 0; next } !fm' "$file"; }
 
-own=$(meta cli)
-cli=${AGENT_CLI:-${own:-claude}}
+step=${T_STEP:-}
+step=${step//[^a-zA-Z0-9_]/_}
+cli_var=CLI_$step model_var=MODEL_$step
+planned=${!cli_var:-$T_CLI}
+cli=${AGENT_CLI:-$planned}
 model=${AGENT_MODEL:-}
-# a model pinned in the file belongs to the file's own CLI: claude's "opus" means nothing to opencode
-if [ -z "$model" ] && [ "$cli" = "${own:-claude}" ]; then model=$(meta model); fi
+# a model named for the step belongs to the step's own CLI: claude's "opus" means nothing to opencode
+if [ -z "$model" ] && [ "$cli" = "$planned" ]; then model=${!model_var:-}; fi
 [ -x "$T_ROOT/drivers/$cli" ] || die "no driver '$cli'; there are: $(ls "$T_ROOT/drivers" | xargs)"
-AGENT_MODE=$(meta mode)
-export AGENT_MODE AGENT_MODEL=$model
+export AGENT_MODE=$mode AGENT_MODEL=$model
 
 # At most SLOTS_<cli> of these at once. A slot is a lock file; the kernel frees it
 # when its holder dies. None free → 75, and the step runs again next tick.

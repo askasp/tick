@@ -6,7 +6,9 @@ n=$((10#${t##*/})) step=$(cat "$t/step") p=$(cat "$t/pipeline") st=$(state "$t")
 
 mark=✓ flow=
 for s in $(steps "$p"); do
-  if [ "$s" = "$step" ]; then flow+="▶ ${s#*-}  "; mark=·; else flow+="$mark ${s#*-}  "; fi
+  who=$(solver "$p" "${s#*-}" "$t")
+  name=${s#*-}${who:+ ($who)}
+  if [ "$s" = "$step" ]; then flow+="▶ $name  "; mark=·; else flow+="$mark $name  "; fi
 done
 
 echo "$n  $(title "$t")"

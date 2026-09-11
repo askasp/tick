@@ -1,5 +1,4 @@
 ---
-cli: claude
 mode: edit
 ---
 You are working in a git worktree, on a branch made for this one task. Do the task below.

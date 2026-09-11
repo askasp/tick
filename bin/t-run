@@ -47,7 +47,7 @@ while :; do
 
   rm -f goto
   echo "=== $(date '+%F %T') $step, run $run" >> "log/$step.log"
-  "$T_ROOT/pipelines/$pipeline/$step" < /dev/null 2>&1 | tee -a "log/$step.log"
+  T_STEP=${step#*-} "$T_ROOT/pipelines/$pipeline/$step" < /dev/null 2>&1 | tee -a "log/$step.log"
   code=${PIPESTATUS[0]}
 
   case $code in

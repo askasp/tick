@@ -1,5 +1,4 @@
 ---
-cli: claude
 mode: read
 ---
 You review a change before it goes any further. Below are the task and the diff.

@@ -1,5 +1,4 @@
 ---
-cli: claude
 mode: web
 ---
 You answer a question by searching the web and reading the pages you find.

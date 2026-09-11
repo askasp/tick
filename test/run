@@ -211,6 +211,21 @@ test_opencode_can_do_the_coding() {
   [ ! -e "$FAKE/claude.calls" ]
 }
 
+test_each_step_runs_on_the_cli_its_pipeline_names() {
+  echo MODEL_implement=vllm/test-model >> "$tmp/tick/pipelines/feature/env"
+  id=$(new "add the widget" -p feature)                   # feature: implement and review on opencode
+  t run $id
+  eq "$(step $id)" done
+  eq "$(grep -c . "$FAKE/opencode.calls")" 2
+  grep -q -- '-m vllm/test-model' "$FAKE/opencode.calls"  # the step's model went with it
+  [ ! -e "$FAKE/claude.calls" ]
+  t show $id | grep -q 'implement (opencode)'
+  id=$(new "add the gadget" -p feature --cli claude)      # --cli beats the pipeline
+  t run $id
+  eq "$(grep -c . "$FAKE/claude.calls")" 2
+  not grep -q -- 'test-model' "$FAKE/claude.calls"        # opencode's model isn't claude's
+}
+
 test_say_sends_a_done_task_back_with_your_notes() {
   id=$(new "add the widget")
   t run $id
@@ -321,11 +336,11 @@ test_new_now_runs_the_task_at_once() {
 test_show_says_where_a_task_is_and_what_comes_next() {
   id=$(new "add the widget")
   out=$(t show $id)
-  grep -q '▶ implement  · test  · review' <<< "$out"
+  grep -q '▶ implement (claude)  · test  · review (claude)' <<< "$out"
   grep -q 't run 1 ' <<< "$out"
   t run $id
   out=$(t show widget)
-  grep -q '✓ implement  ✓ test  ✓ review' <<< "$out"
+  grep -q '✓ implement (claude)  ✓ test  ✓ review (claude)' <<< "$out"
   grep -q 't diff 1 ' <<< "$out"
   t ls -a | grep -q '✓✓✓'
 }

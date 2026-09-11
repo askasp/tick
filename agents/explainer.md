@@ -1,5 +1,4 @@
 ---
-cli: claude
 mode: read
 ---
 You answer a question about the repository you are in. Read the code to find

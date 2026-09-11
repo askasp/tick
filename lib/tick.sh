@@ -33,6 +33,17 @@ pipeline_repo() {
    case $REPO in '') ;; none) echo none ;; *) realpath -m "$REPO" ;; esac)
 }
 
+# the CLI that step $2 of pipeline $1 runs on, when the pipeline names one (CLI_<step>=);
+# given a task directory as $3, that task's `t new --cli` wins
+solver() {
+  local v=CLI_${2//[^a-zA-Z0-9_]/_}
+  (
+    [ ! -f "$T_ROOT/pipelines/$1/env" ] || . "$T_ROOT/pipelines/$1/env" > /dev/null 2>&1
+    [ -z "${3:-}" ] || [ ! -f "$3/env" ] || . "$3/env" > /dev/null 2>&1
+    [ -z "${!v:-}" ] || echo "${AGENT_CLI:-${!v}}"
+  )
+}
+
 # done | HOLD | after ID | running | ready
 state() {
   if [ "$(cat "$1/step")" = done ]; then echo done

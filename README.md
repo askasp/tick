@@ -109,9 +109,9 @@ A new kind of question is a new agent plus a pipeline. For example, a
 security review of a repo:
 
 ```sh
-printf -- '---\ncli: claude\nmode: read\n---\nYou look for security problems in this repo…\n' > agents/auditor.md
+printf -- '---\nmode: read\n---\nYou look for security problems in this repo…\n' > agents/auditor.md
 mkdir pipelines/audit && ln -s ../../steps/answer pipelines/audit/10-answer
-echo ANSWERER=auditor > pipelines/audit/env
+printf 'ANSWERER=auditor\nCLI_answer=claude\n' > pipelines/audit/env
 ```
 
 ## Pipelines
@@ -121,12 +121,38 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 
 | pipeline | steps |
 | --- | --- |
-| `local` (the default) | implement → test → review |
-| `feature` | implement → test → review → pr → ci |
-| `ask` | answer: reads the repo you're in and changes nothing |
-| `research` | answer: searches the web; needs no repo |
+| `local` (the default) | implement (claude) → test → review (claude) |
+| `feature` | implement (opencode) → test → review (opencode) → pr → ci |
+| `ask` | answer (claude): reads the repo you're in and changes nothing |
+| `research` | answer (claude): searches the web; needs no repo |
 
 You pick one per task with `t new -p feature "…"`.
+
+### Who solves each step
+
+Each agent step's solver is set in its pipeline's `env`, by the step's name:
+
+```sh
+# pipelines/feature/env
+CLI_implement=opencode
+CLI_review=opencode
+# MODEL_implement=vllm/qwen3-coder-next  # optional: pin a model for that step
+```
+
+Without `MODEL_<step>`, the CLI's own default model runs: for opencode that's
+`vllm/laguna-s-2.1` from `~/.config/opencode/opencode.jsonc`, and for claude
+whatever `claude` defaults to.
+
+The first one set wins:
+
+1. `t new --cli claude "…"`: every step of that one task.
+2. `CLI_<step>=` in the pipeline's `env`: that step, in every task.
+3. `T_CLI` in `etc/tick.conf` (claude): any step the pipeline doesn't name.
+
+A pipeline can review twice with different solvers, because the key is the
+link's name, not the script's: add `ln -s ../../steps/review 35-second-review`
+and `CLI_second_review=claude`. `t show` and `t doctor` print the solver next
+to each step.
 
 ### A pipeline for one repo
 
@@ -143,7 +169,8 @@ pipelines/shop/
 ```sh
 REPO=~/git/shop          # `t new -p shop` works from any directory
 TEST_CMD="npm test"      # what the test step runs; without it, `make test` or nothing
-AGENT_CLI=opencode       # optional: code with opencode instead of claude
+CLI_implement=opencode   # who solves each agent step: claude or opencode
+CLI_review=claude
 ```
 
 When you stand in `~/git/shop`, a plain `t new` picks this pipeline. To make
@@ -208,8 +235,8 @@ Add a step with `chmod +x steps/lint`, then
 - **Parallel tasks and stacks.** Each `t new` gets its own worktree off the
   trunk, and those run in parallel. `t new --on 7 "…"` shares task 7's
   worktree and lock, branches from 7's branch, and waits until 7 is done.
-- **Agents.** `agents/*.md` are prompts with `cli`, `mode` (read, web or
-  edit) and `model` settings. `drivers/claude` and `drivers/opencode` are the only files that
+- **Agents.** `agents/*.md` are prompts with a `mode` (read, web or edit).
+  Which CLI and model solve a step is the pipeline's choice (`CLI_<step>=`). `drivers/claude` and `drivers/opencode` are the only files that
   know CLI flags. `SLOTS_claude` and `SLOTS_opencode` in `etc/tick.conf` cap
   how many agents run at once.
 

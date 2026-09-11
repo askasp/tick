@@ -1,0 +1,4 @@
+# feature: local's steps, then a pull request and its CI.
+# Who solves each agent step (claude or opencode). MODEL_<step>= picks a model for it.
+CLI_implement=opencode
+CLI_review=opencode
