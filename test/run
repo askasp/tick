@@ -110,7 +110,7 @@ test_a_step_that_never_gets_past_holds_the_task() {
   t run $id
   eq "$(step $id)" 10-implement
   grep -q 'ran 3 times' "$(dir $id)/hold"
-  t ls | grep -q held
+  t ls | grep -q 'HELD implement ran 3 times'
   t run $id
   eq "$(cat "$(dir $id)/runs/10-implement")" 3            # held: nothing ran
   t resume $id 2> /dev/null
@@ -164,10 +164,11 @@ test_a_stacked_task_waits_then_builds_on_its_parent() {
 test_a_stacked_task_sits_under_its_parent_until_that_is_done() {
   a=$(new "parent work")
   b=$(new "child work" --on $a)
-  t ls | grep -A1 "^$((10#$a)) " | grep -q "^$((10#$b)) .*└ child work$"
+  t ls | grep -A1 "^$((10#$a)) " | grep -q "^$((10#$b)) .*└ child work .*after $((10#$a))$"
+  t show $b | grep -q 'waiting for:'                      # and what its parent is doing
   t run $a
   out=$(t ls)
-  grep -q "^$((10#$b)) .* child work$" <<< "$out"
+  grep -q "^$((10#$b)) .* child work .*next tick$" <<< "$out"
   not grep -q └ <<< "$out"
 }
 
@@ -213,7 +214,7 @@ test_a_killed_run_is_picked_up_again() {
   id=$(new "add the widget")
   FAKE_SLEEP=5 setsid t run $id > /dev/null 2>&1 &
   sleep 1
-  t ls | grep "^$((10#$id)) " | grep -q running
+  t ls | grep "^$((10#$id)) " | grep -q ' implement: '     # running: its step's latest line
   fuser -s -k "$(dir $id)/lock"                           # like a reboot: everything in the run dies
   sleep 0.3
   eq "$(step $id)" 10-implement
@@ -422,12 +423,12 @@ test_a_long_title_gets_a_short_name_for_the_board() {
   eq "$(grep -c . "$FAKE/opencode.calls")" 1
   grep -q 'ninety nine items' "$FAKE/read.prompts"
   out=$(t ls)
-  grep -q '^1 .* Fix the checkout$' <<< "$out"
-  grep -q '^2 .* add the widget$' <<< "$out"
+  grep -q '^1 .* Fix the checkout  ' <<< "$out"
+  grep -q '^2 .* add the widget  ' <<< "$out"
   eq "$(t path ninety)" "$T_VAR/tasks/$a/work"            # a word from the title still finds it
   t show $a | grep -q 'ninety nine items'                 # show keeps the whole title
   t name $a "Cart overflow"
-  t ls | grep -q '^1 .* Cart overflow$'
+  t ls | grep -q '^1 .* Cart overflow  '
 }
 
 test_a_long_title_is_cut_to_fit_the_terminal() {
@@ -440,7 +441,8 @@ test_a_long_title_is_cut_to_fit_the_terminal() {
   out=$(printf '1\n' | T_PICKER=select tty "stty cols 40; t path" | tr -d '\r')
   grep -q '^2) .*…$' <<< "$out"
   [ "$(grep '^[12]) ' <<< "$out" | wc -L)" -le 40 ]
-  t ls | grep -q 'however long$'                            # piped, the whole name stays
+  t ls | grep -q ' fit the board to a narrow t… '          # piped too, the title column has a width
+  t show 2 | grep -q 'however long'                         # show keeps it whole
 }
 
 test_new_without_a_title_opens_the_editor() {
@@ -449,9 +451,42 @@ test_new_without_a_title_opens_the_editor() {
 printf 'add the widget\n\n## Context\nuse tabs\n' > "$1"
 EOF
   chmod +x "$tmp/ed"
-  EDITOR=$tmp/ed tty "t new" > /dev/null < /dev/null
+  EDITOR=$tmp/ed T_PICKER=select tty "t new" > /dev/null < /dev/null   # without fzf; with it, t compose
   eq "$(head -1 "$(dir 0001)/task.md")" "# add the widget"
   grep -q '^## Context' "$(dir 0001)/task.md"            # markdown headings survive
+  cat > "$tmp/ed" << 'EOF'
+#!/bin/sh
+grep -q '^fix the gadget$' "$1" && grep -q '^# tick: repo · local · branches from origin/main$' "$1" &&
+  printf 'fix the gadget\n\nuse spaces\n' > "$1"
+EOF
+  EDITOR=$tmp/ed tty "t new --edit 'fix the gadget'" > /dev/null < /dev/null   # compose's ^E: title and choices there
+  grep -q '^use spaces' "$(dir 0002)/task.md"
+}
+
+test_new_dry_shows_the_task_it_would_make() {
+  out=$(t new --dry "add the widget")
+  grep -q '^repo *repo   (this directory)$' <<< "$out"
+  grep -q '^pipeline *local$' <<< "$out"
+  grep -q '^branch *t/0001-add-the-widget$' <<< "$out"
+  grep -q '^base *origin/main$' <<< "$out"
+  grep -q '^cli *opencode  (CLI_implement)$' <<< "$out"
+  grep -q '^starts *only when you run it' <<< "$out"      # no cron tick here
+  grep -q '^t new \\$' <<< "$out"
+  [ ! -e "$T_VAR/tasks/0001" ]                            # it made nothing
+  out=$(t new --dry -p research "what changed in bash 5.3?")
+  grep -q '^repo *none needed$' <<< "$out"
+  grep -q '^cli *claude  (CLI_answer)$' <<< "$out"
+  grep -q '^t research \\$' <<< "$out"
+  echo "* * * * * $tmp/tick/bin/t tick" > "$FAKE/crontab"
+  t new --dry "$(printf 'x%.0s' {1..41})" > "$tmp/out"
+  grep -q '^starts *next tick' "$tmp/out"
+  grep -q 'an agent will pick a short one' "$tmp/out"
+  new "add the widget" > /dev/null
+  new "child work" --on 0001 > /dev/null
+  t new --dry --on 1 "more child work" > "$tmp/out"            # compose's preview for a stack
+  grep -q '^starts *when task 1 is done' "$tmp/out"
+  grep -q "^shares *task 1's worktree and lock" "$tmp/out"
+  grep -q 'task 2 is already stacked here' "$tmp/out"
 }
 
 test_details_come_from_stdin_only_with_a_dash() {
@@ -509,7 +544,9 @@ test_new_now_runs_the_task_at_once() {
 
 test_with_cron_a_new_task_starts_without_waiting_for_the_tick() {
   echo "* * * * * $tmp/tick/bin/t tick" > "$FAKE/crontab"
-  id=$(new "add the widget")
+  SECONDS=0
+  id=$(FAKE_SLEEP=2 new "add the widget")                # the run it starts takes seconds...
+  [ "$SECONDS" -lt 2 ]                                    # ...and t new doesn't wait for it (t ui's Enter would)
   wait_done $id
 }
 
@@ -542,6 +579,125 @@ test_diff_shows_the_change() {
   id=$(new "add the widget")
   t run $id
   t diff $id | grep -q '^+change'
+}
+
+test_log_shows_every_run_in_order_each_followed_by_how_it_ended() {
+  printf 'BROKEN\nfixed\n' > "$FAKE/impl"                 # the tests fail once: back to implement, in one second
+  id=$(new "add the widget")
+  t run $id
+  eq "$(t log $id | grep -oE '^=== .* run [0-9]+|ok → [0-9a-z-]+' | sed 's/^=== [^ ]* [^ ]* //' | paste -sd ' ')" \
+    "10-implement, run 1 ok → 20-test 20-test, run 1 ok → 10-implement 10-implement, run 2 ok → 20-test 20-test, run 2 ok → 30-review 30-review, run 1 ok → done"
+}
+
+test_log_f_follows_the_task_into_the_steps_still_to_come() {
+  id=$(new "add the widget")
+  timeout 20 t log $id -f > "$tmp/out" 2>&1 &
+  t run $id
+  for i in $(seq 50); do grep -q '30-review ok → done' "$tmp/out" && break; sleep 0.1; done
+  kill $!
+  grep -q '(no step has run yet)' "$tmp/out"
+  grep -q '20-test, run 1' "$tmp/out"
+  grep -q '30-review ok → done' "$tmp/out"
+}
+
+test_ui_on_a_task_offers_what_to_do_with_it() {
+  id=$(new "add the widget")
+  printf '7\nbusy\n' | T_PICKER=select PAGER=cat tty "t ui $id" > /dev/null   # 7) hold, and why
+  grep -q busy "$(dir $id)/hold"
+  (. "$tmp/tick/lib/tick.sh"; T_COLOR=1 board | grep -qF "${C_RED}HELD")   # the live board shows it in red
+  out=$(printf 'use a fixture\n' | T_PICKER=select tty "t ui $id say")   # say names the task and what happens next
+  grep -q 'starts over at 10-implement' <<< "$out"
+  grep -q 'use a fixture' "$(dir $id)/feedback.md"
+  t hold $id busy
+  tty "t ui $id hold" > /dev/null                         # its ctrl key again: it goes on
+  [ ! -e "$(dir $id)/hold" ]
+  not t ui $id nosuch 2> "$tmp/err"
+  grep -q 'there are: log say' "$tmp/err"
+  T_PICKER=select tty t | grep -q 'add the widget'        # no fzf: plain t prints the board
+}
+
+test_the_board_spells_out_the_steps_on_request() {
+  new "add the widget" > /dev/null
+  t ls | grep -q '^1   ▶··       —  repo'
+  T_STEPS=names t ls > "$tmp/out"                         # what ^f does on the live board
+  grep -q '^1   ▶ implement  · test  · review   —  repo' "$tmp/out"
+  h=$(head -1 "$tmp/out") r=$(sed -n 2p "$tmp/out")
+  h=${h%%REPO*} r=${r%%repo*}
+  eq "${#h}" "${#r}"                                      # the columns still line up
+}
+
+test_the_board_says_what_each_task_is_doing_and_for_how_long() {
+  printf 'noop\n' > "$FAKE/impl"
+  id=$(new "add the widget")
+  t ls | grep -q '^1 .*  —  repo .*next tick$'          # nothing ran yet
+  t run $id
+  t ls | grep -q '^1 .*<1m  repo .*next tick · implement: the implementer changed nothing$'
+  t hold $id "waiting on design"
+  t ls | grep -q 'HELD waiting on design$'
+  t keys $id | grep -q '⏎ say  ^l log  ^a attach  ^o resume'
+}
+
+test_the_pane_shows_details_log_or_diff() {
+  id=$(new "add the widget")
+  t run $id
+  t peek $id | grep -q '✓ implement'                     # done: its details,
+  not grep -q 'next:' <(t peek $id)                       # without the keys the header has
+  timeout 2 t peek $id log | grep -q '30-review ok → done'
+  t peek $id diff | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^+change'   # in color
+  t keys $id | grep -q '⏎ diff  ^t stack'
+}
+
+test_compose_takes_flags_typed_with_the_title() {
+  mkdir "$tmp/new"; : > "$tmp/new/args"; : > "$tmp/new/repo"
+  out=$(T_NEW=$tmp/new t compose --dry local "what changed in bash? -p research")
+  grep -q '^pipeline *research$' <<< "$out"
+  grep -q '"what changed in bash?"' <<< "$out"
+}
+
+test_the_board_starts_a_task_and_says_to_one_in_place() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{steps,pane,pick,def,args,repo,cli}
+  t ui --key ctrl-n + '' | grep -q 'change-prompt(new> )+disable-search'
+  eq "$(cat "$T_UI/pick")" local
+  t ui --key tab + '' > /dev/null                         # tab: the next pipeline
+  eq "$(cat "$T_UI/pick")" feature
+  t ui --pane + 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *feature'   # in color
+  t ui --key ctrl-a + '' > /dev/null                      # ^A: another agent than the pipeline's
+  t ui --pane + 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^cli *claude  (--cli)'
+  t ui --key enter + 'add the widget' | grep -q 'reload-sync'   # made; the reload's end puts the cursor on it
+  eq "$(cat "$T_UI/new")" 1
+  eq "$(cat "$(dir 0001)/pipeline")" feature
+  grep -q '^AGENT_CLI=claude$' "$(dir 0001)/env"
+  t hold 1 waiting
+  t ui --key enter 1 '' | grep -q 'change-prompt(say to 1> )'   # Enter on a held task: say to it
+  t ui --key enter 1 'use a fixture' > /dev/null
+  grep -q 'use a fixture' "$(dir 0001)/feedback.md"
+  [ ! -e "$(dir 0001)/hold" ]
+  eq "$(cat "$T_UI/mode")" board
+}
+
+test_the_board_holds_renames_and_deletes_in_place() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{steps,pane,pick,def,args,repo,cli}
+  new "add the widget" > /dev/null
+  new "fix the gadget" > /dev/null
+  t ui --key ctrl-o 1 '' | grep -q 'change-prompt(hold 1 because> )'
+  t ui --key enter 1 'waiting on design' > /dev/null
+  grep -q 'waiting on design' "$(dir 0001)/hold"
+  t ui --key ctrl-o 1 '' > /dev/null                    # held: ^o resumes it at once
+  [ ! -e "$(dir 0001)/hold" ]
+  t ui --key ctrl-e 1 '' | grep -q 'change-query~add the widget~'
+  t ui --key enter 1 'Widget' > /dev/null
+  eq "$(cat "$(dir 0001)/name")" Widget
+  t ui --key ctrl-x 1 '' > /dev/null
+  t ui --pane 1 '' | grep -q 'Deletes its directory'   # the pane says what goes before Enter does it
+  [ -d "$(dir 0001)" ]
+  t ui --key enter 1 '' > /dev/null
+  [ ! -e "$(dir 0001)" ]
+  eq "$(cat "$T_UI/new")" 2                              # the cursor goes to the next task
+  t ui --key '?' 2 '' > /dev/null
+  t ui --pane 2 '' | grep -q 'delete it and its worktree'
+  eq "$(cat "$T_UI/mode")" "help 2"
 }
 
 test_doctor_says_what_to_fix() {
@@ -602,6 +758,9 @@ test_drivers_read_real_cli_output() {
   [ -n "$out" ]
   grep -q '^session: opencode ses_' "$tmp/err"
   grep -q '· write' "$tmp/err"
+  printf '%s\n' '{"type":"tool_use","sessionID":"ses_x","part":{"tool":"glob","state":{"input":{"pattern":"**/*.sh"},"title":""}}}' > "$tmp/untitled.jsonl"
+  echo hi | FAKE_REPLAY=$tmp/untitled.jsonl "$root/drivers/opencode" > /dev/null 2> "$tmp/err"
+  grep -q '· glob \*\*/\*.sh' "$tmp/err"                  # no title: what it looked for
   not bash -c "echo hi | FAKE_REPLAY=$fx/opencode-error.jsonl '$root/drivers/opencode' > /dev/null 2>&1"
 }
 

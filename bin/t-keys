@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# t keys [TASK] — the line t ui's header shows for a task: where it is, and the keys worth pressing now
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+t=$(task_dir "${1:-}") || exit 1
+n=$((10#${t##*/})) st=$(state "$t") step=$(cat "$t/step")
+who=$(solver "$(cat "$t/pipeline")" "${step#*-}" "$t")
+d= k= c= o=
+if [ -t 1 ] || [ -n "${CLICOLOR_FORCE:-}" ]; then d=$C_DIM k=$C_PURPLE c=$C_TEXT o=$C_OFF; fi
+
+case $st in
+  running) where="${step#*-}${who:+ ($who)}  $(age "$t")" ;;
+  ready)   where="next tick  ${step#*-}" ;;
+  HOLD)    where="HELD  ${step#*-}  $(age "$t")" ;;
+  after*)  where="queued behind ${st#after }" ;;
+  *)       where=$(status "$t") ;;
+esac
+
+keys=
+for a in $(offers "$t"); do
+  label=$a key=$(awk -v a="$a" '$1 == a { print $2 }' <<< "$ACTIONS")
+  [ "$a" != hold ] || [ "$st" != HOLD ] || label=resume
+  [ "$a" != log ] || [[ $st != after* ]] || label="log ${st#after }"      # nothing to watch here yet
+  if [ -z "$keys" ]; then keys="$k⏎$c $label"; else keys+="  $k^${key#ctrl-}$c $label"; fi
+done
+echo "$keys  $k?$c more$o     ${d}task $n  $where$o"      # keys first: a narrow list cuts the end

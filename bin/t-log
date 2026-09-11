@@ -1,15 +1,68 @@
 #!/usr/bin/env bash
-# t log [TASK] [-f] — a task's history and its latest step's output (-f follows it live)
+# t log [TASK] [-f] — what a task's steps printed: every run in the order it ran, each followed by how
+# it ended. -f keeps following it through the steps still to come. In a terminal it pages, from the end.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 follow= arg=
 for a; do if [ "$a" = -f ]; then follow=1; else arg=$a; fi; done
 task=$(task_dir "$arg") || exit 1
 cd "$task" || exit 1
 
-[ ! -f history ] || cat history
-[ ! -f hold ] || echo "HOLD: $(cat hold)"
-latest=$(ls -t log/*.log 2> /dev/null | head -1)
-[ -n "$latest" ] || { echo "(no step has run yet)"; exit 0; }
-echo "--- $task/$latest"
-if [ -n "$follow" ]; then exec tail -n 40 -f "$latest"; fi
-tail -n 60 "$latest"
+files=()                              # a step that hasn't run has no log yet; tail -F waits for it
+for s in $(steps "$(cat pipeline)"); do files+=("log/$s.log"); done
+files+=(history)
+
+# Each step logs its runs ("=== DATE TIME step, run N") apart, and times are to the second, so
+# history, which says in order how each run ended, decides whose run comes next. A run that had
+# to wait (exit 75) keeps its number, so it goes out together with the run after it.
+story() {
+  local f have=()
+  for f in "${files[@]}"; do [ ! -f "$f" ] || have+=("$f"); done
+  [ ${#have[@]} -gt 0 ] || return 0
+  awk 'function pending(s) { return p[s] < n[s] }
+       function start(s)   { return at[s, p[s] + 1] }
+       function emit(s)    { p[s]++; printf "%s", run[s, p[s]] }
+       function before(when, or_at,  s, b) {    # every run started before `when`, oldest first
+         for (;;) {
+           b = ""
+           for (s in n) if (pending(s) && (start(s) < when || (or_at && start(s) == when)) && (b == "" || start(s) < start(b))) b = s
+           if (b == "") return
+           emit(b)
+         }
+       }
+       FILENAME != "history" {
+         if (FNR == 1) { s = FILENAME; n[s] = 0 }
+         if (/^=== [0-9-]+ [0-9:]+ /) { n[s]++; at[s, n[s]] = $2 " " $3; num[s, n[s]] = $NF }
+         else if (!n[s]) { n[s] = 1; at[s, 1] = "" }
+         run[s, n[s]] = run[s, n[s]] $0 "\n"
+         next
+       }
+       { s = "log/" $4 ".log"
+         if ((s in n) && pending(s)) {
+           before(start(s)); emit(s)
+           while (pending(s) && num[s, p[s] + 1] == num[s, p[s]] && start(s) <= $1 " " $2) emit(s)
+         } else before($1 " " $2, 1)
+         print }
+       END { before("~", 1) }' "${have[@]}"
+}
+
+# in a terminal (or with CLICOLOR_FORCE, as t ui's preview), runs stand out and tool calls step back
+paint() {
+  if [ -n "${NO_COLOR:-}" ] || { [ ! -t 1 ] && [ -z "${CLICOLOR_FORCE:-}" ]; }; then cat; return; fi
+  # a digest: a tool call is one quiet line (✎ when it edits), and an agent's own words get a bar. The
+  # hold space remembers whether this run is an agent's (it logged a session): its plain lines are its words.
+  local b=$'\e[1m' when='[0-9]{4}-[0-9-]+ [0-9:]+ '
+  sed -u -E -e 's/\x1b\[[0-9;]*m//g' -e '/^=== /{x;s/.*//;x}' -e "s/^=== .*/\n$b&$C_OFF/;t" \
+    -e '/^session: /{x;s/.*/agent/;x}' -e "s/^session: .*/$C_DIM&$C_OFF/;t" \
+    -e "s/^($when.* ok → .*)/$C_GREEN\1$C_OFF/;t" -e "s/^($when.*(failed|hold).*)/$C_RED\1$C_OFF/;t" \
+    -e "s/^($when.*)/$b\1$C_OFF/;t" -e "s/^HOLD: .*/$C_RED&$C_OFF/;t" \
+    -e "s/^  · (edit|write|patch|Edit|Write|MultiEdit|NotebookEdit)( |\$)/$C_GREEN✎$C_OFF \1  /;t" \
+    -e "s/^  · ([^ ]*) ?/$C_DIM·$C_OFF \1  /;t" -e "s/^ *! /$C_YELLOW!$C_OFF /;t" \
+    -e '/^$/b' -e x -e "/^agent\$/{x;s/^/$C_BLUE▌$C_OFF /;b" -e '}' -e x
+}
+
+{
+  story
+  [ ! -f hold ] || echo "HOLD: $(head -1 hold)"
+  ls log/*.log > /dev/null 2>&1 || echo "(no step has run yet)"
+  [ -z "$follow" ] || tail -q -n 0 -F "${files[@]}" 2> /dev/null
+} | if [ -t 1 ] && [ -z "$follow" ]; then paint | LESS=${LESS-FRX} less +G; else paint; fi

@@ -3,7 +3,7 @@
 # `t PIPELINE ARGS` is `t new ARGS -p PIPELINE`, for a pipeline that no command shares a name with.
 here=$(dirname "$(readlink -f "$0")")
 if [ $# -eq 0 ]; then
-  if [ -t 0 ] && [ -t 1 ]; then exec "$here/t-ui"; fi
+  if [ -t 0 ] && [ -t 1 ] && command -v fzf > /dev/null && [ "${T_PICKER:-fzf}" = fzf ]; then exec "$here/t-ui"; fi
   exec "$here/t-ls"
 fi
 cmd=$1

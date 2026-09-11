@@ -12,8 +12,8 @@ for s in $(steps "$p"); do
   if [ "$s" = "$step" ]; then flow+="▶ $name  "; mark=·; else flow+="$mark $name  "; fi
 done
 
-glow= w=$(tput cols 2> /dev/null || echo 80)
-if [ -t 1 ] && command -v glow > /dev/null; then glow=1; fi
+glow= w=${FZF_PREVIEW_COLUMNS:-$(tput cols 2> /dev/null || echo 80)}
+if { [ -t 1 ] || [ -n "${CLICOLOR_FORCE:-}" ]; } && command -v glow > /dev/null; then glow=1; fi   # t ui's pane forces it
 [ "$w" -le 100 ] || w=100
 
 answer() {   # glow writes into less, not a terminal: force its style and color, and hush its terminal queries
@@ -37,6 +37,13 @@ show() {
   [ ! -e "$t/work" ] || echo "  worktree:  $(readlink -f "$t/work")"
   [ ! -f "$t/pr" ] || echo "  PR:        $(cat "$t/pr")"
   [ ! -s "$t/feedback.md" ] || echo "  feedback:  $(grep -m1 . "$t/feedback.md" | cut -c1-90)"
+  if [[ $st == after* ]]; then
+    p=$(tdir "${st#after }")
+    echo; echo "  waiting for:"
+    echo "    ${st#after }  $(progress "$p")  $(age "$p")  $(name "$p")"
+    echo "    $(status "$p")"
+    echo "  it starts on the tick after ${st#after } is done."
+  fi
   if [ -f "$t/history" ]; then echo; echo "  history:"; tail -n 5 "$t/history" | sed 's/^/    /'; fi
 
   echo

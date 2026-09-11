@@ -19,7 +19,8 @@ opencode "${args[@]}" | tee "$raw" | jq --unbuffered -nrR --arg dir "$PWD" '
   foreach (inputs | fromjson?) as $e (0; . + 1;
     (if . == 1 then "session: opencode \($e.sessionID) \($dir)" else empty end),
     ($e | if .type == "text" then .part.text
-          elif .type == "tool_use" then "  · \(.part.tool) \(.part.state.title // "")"
+          elif .type == "tool_use" then "  · \(.part.tool) \(.part.state | [.title, .input.filePath, .input.pattern, .input.command, .input.url] |
+                                          map(select((. // "") != "")) | .[0] // "" | tostring | .[:120])"
           elif .type == "error" then "  ! \(.error.data.message // .error.name)"
           else empty end))' >&2
 

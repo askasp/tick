@@ -18,8 +18,8 @@ everything else.
 
 ```sh
 t new -r amino "Add a discount code field"   # in amino, from any directory (TAB completes -r)
-t new                                        # in the repo you're in, writing it in $EDITOR
-t                                            # the board: pick a task, then what to do with it
+t new                                        # in the repo you're in: type the title, see the task it makes
+t                                            # the live board: tab shows a task's log, enter what to do
 t show discount                              # one task: where it is, and what you can do next
 t log discount -f                            # watch it work
 t say discount "also validate it"            # send it back to the implementer
@@ -35,27 +35,73 @@ installed, the list is fuzzy-searchable.
 
 ```
 $ t ls
-ID   STEPS  STATE      REPO     TITLE
-1    ✓✓▶    running    shop     Add a discount code field to checkout
-3    ▶··    after 1    shop     └ Show the discount on the receipt
-2    ▶··    held       shop     Rename cart to basket everywhere
-      ↳ implement ran 3 times without getting past it   (t show 2)
+ID  STEPS   AGE  REPO   TITLE                        STATUS
+1   ✓✓▶      3m  shop   Add a discount code field    review: read cart.js
+3   ▶··       —  shop   └ Show the discount on the … after 1
+2   ▶··      2h  shop   Rename cart to basket every… HELD implement ran 3 times without getting past it
 ```
 
-In STEPS, ✓ means done, ▶ is where the task is, and · is still to come. A task
-stacked on another sits under it (└) until that one is done. The STATE column
-shows one of:
+In STEPS, ✓ means done, ▶ is where the task is, and · is still to come. AGE
+is how long it has been on that step, so a stuck task stands out. A task
+stacked on another sits under it (└) until that one is done. STATUS says what
+it is doing:
 
-- `next tick`: the next tick starts it
-- `running`
+- `review: read cart.js`: running, and this is the latest line its step printed
+- `next tick`: the next tick starts it; after a run that failed or has to
+  wait, followed by that run's last line (`next tick · ci: build pending`)
 - `after N`: stacked on task N, and waiting for it
-- `held`: it needs you
+- `HELD why`: it needs you
 - `done`, or `answered` for a question
 
 A title longer than 40 characters doesn't fit, so `t new` has an agent
 (`agents/namer.md`) name the task in a few words, and the board shows that
 name instead. `t name 3 "…"` changes it, and `t show` still prints the whole
 title.
+
+In a terminal, plain `t` shows this board live, in fzf. Rows move as tasks
+run, the cursor starts on the newest running one, and the pane beside it shows
+the task you're on: its live log while it runs, else its details (`t peek`).
+`tab` switches the pane between details, log and diff (its top line lists
+them, the one you're on in color), and `^d`/`^u` scroll it half a page
+(PgDn/PgUp a page, Shift-↓/↑ a line).
+The header says where
+the task is and which keys are worth pressing now (`t keys`), and Enter does
+the first of them: the log of a running task, say for a held one, the diff of
+a done one. Every action has a ctrl key too, and all of them happen in the
+board: `^l` log and `^g` diff turn the pane to them, `^r` runs the task in the
+background with the pane following it, `^o` holds it (the prompt asks why) or
+resumes it, `^e` renames it, and `^x` deletes it once the pane has said what
+that removes and you press Enter. Only `^a` attach leaves, for the agent's own
+screen. `?` lists every key in the pane, `^w` widens the pane, and `^n` or the
+`+ new task` row starts a task. `^f`
+spells out each task's steps (`T_STEPS=names t ls` does the same as text).
+Without fzf, `t` prints `t ls`.
+
+`t log` tells a task's story: every run of every step in the order it ran,
+each followed by how it ended. `-f` keeps following it into the steps still
+to come.
+
+### Starting a task
+
+On the board, `^n` (or Enter on `+ new task`) starts one without leaving it:
+the prompt becomes `new>` and takes the title, and the pane shows the task
+that is about to exist (`t new --dry`): its repo and where that came from,
+branch, base, who solves it, when it starts, and the command to type next
+time. `tab` picks the pipeline from the strip at the top of the pane. Enter
+creates it and puts the cursor on it, `^E` opens `$EDITOR` for details with
+the title already on line 1, `^R` picks another repo, `^A` another agent
+than the pipeline's (like `--cli`; the header says which), and esc goes back.
+With cron installed the task starts at once; without it, `^r` on its row runs
+it. Flags typed with the title work too:
+`Add proration -r amino`.
+
+`^t` stacks a task on the one you're on the same way (`stack on 7>`), and `^s`
+says something to it (`say to 7>`, and Enter on a held task): what you type
+goes to `feedback.md`, `tab` picks the step it restarts at, `^A` who solves it
+from then on, and the pane shows what will happen and its latest log.
+
+Outside the board, `t new` without a title opens the same form as a screen of
+its own (`t compose`).
 
 ### One task
 
@@ -288,12 +334,16 @@ A task directory holds `task.md`, `name`, `pipeline`, `step`, `repo`, `base`,
 ## Commands
 
 ```
-t                          the board (interactive in a terminal)
-t new ["what to do" [-]] [-p PIPELINE] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO] [--now]
+t                          the live board in a terminal (fzf), else t ls
+t ui [TASK [ACTION]]       with a TASK, the menu of what to do with it; with an ACTION, that at once
+t peek [TASK] [show|log|diff]   what the board's pane shows for it
+t keys [TASK]              what the board's header offers for it
+t new ["what to do" [-]] [-p PIPELINE] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO] [--now] [--edit] [--dry]
+t compose [t new's flags]  the screen plain t new opens: title, pipeline, and the task it will make
 t PIPELINE ...             t new ... -p PIPELINE:  t ask --now "How do the tests run?"
 t ls [-a]                  the board as text; -a adds done tasks
 t show [TASK]              where it is, and what you can do next
-t log [TASK] [-f]          history and latest output
+t log [TASK] [-f]          every run in order, each followed by how it ended; -f follows it
 t diff [TASK]              the change so far
 t say [TASK] "notes"       back to implement, with your notes
 t attach [TASK]            resume the agent's conversation yourself

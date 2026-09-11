@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# t peek [TASK] [show|log|diff] — what t ui's pane shows: a running task's live log, else its details
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+t=$(task_dir "${1:-}") || exit 1
+id=${t##*/} n=$((10#${t##*/})) st=$(state "$t") step=$(cat "$t/step")
+[ ! -t 1 ] || export CLICOLOR_FORCE=1
+mode=$(pane "$t" "${2:-}") m= d= k= o=
+if [ -n "${CLICOLOR_FORCE:-}" ]; then
+  d=$C_DIM k=$C_PURPLE o=$C_OFF
+  case $mode in log) m=$C_YELLOW ;; diff) m=$C_GREEN ;; *) m=$C_BLUE ;; esac
+fi
+tabs=$(strip "$m" "$mode" show log $([ "$(pane_next "$t" log)" != diff ] || echo diff))
+
+case $st in                             # two lines the pane keeps at its top: what this is, and a rule
+  done)   about="$(cat "$t/pipeline") · $(status "$t")" ;;
+  after*) about="queued behind ${st#after }" ;;
+  *)      who=$(solver "$(cat "$t/pipeline")" "${step#*-}" "$t")
+          about="$step${who:+ · $who} · $(age "$t")" ;;
+esac
+echo "$tabs $d$n · $about   $k↹$d next  $k^d ^u$d scroll$o"
+rule "$d"
+
+case $mode in
+  log)  exec t-log "$id" -f ;;
+  diff) t-diff "$id" --color=always 2>&1 | if command -v delta > /dev/null; then delta --paging=never; else cat; fi ;;
+  *)    t-show "$id" | sed '/^  next:$/,/^$/d' ;;                # the board's header has the keys
+esac

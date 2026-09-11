@@ -17,7 +17,9 @@ need gh       "sudo apt install gh   (only pipelines with a pr step need it)"
 if command -v gh > /dev/null; then
   if gh auth status > /dev/null 2>&1; then ok "gh is logged in"; else fix "gh is not logged in" "gh auth login"; fi
 fi
-if command -v fzf > /dev/null; then ok "fzf (fuzzy task picker)"; else echo "  · no fzf: pickers are numbered menus (sudo apt install fzf)"; fi
+if ! command -v fzf > /dev/null; then echo "  · no fzf: plain t prints the board, and pickers are numbered menus (sudo apt install fzf)"
+elif fzf --with-shell 'bash -c' --gutter ' ' --info-command true --bind 'tab:bg-transform-header:true' --filter x < /dev/null > /dev/null 2>&1; [ $? -le 1 ]; then ok "fzf (the live board)"
+else echo "  · fzf $(fzf --version | cut -d' ' -f1) is too old for the live board: get a newer one from github.com/junegunn/fzf/releases"; fi
 
 echo "wiring"
 if [ "$(PATH=$T_PATH_BEFORE command -v t | xargs -r readlink -f)" = "$T_ROOT/bin/t" ]; then ok "t is on your PATH"
