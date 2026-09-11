@@ -162,7 +162,7 @@ test_a_stacked_task_waits_then_builds_on_its_parent() {
 
 test_t_stack_starts_a_task_on_another() {
   a=$(new "parent work")
-  b=$(t stack $a < /dev/null 2> /dev/null)
+  b=$(t stack $a "child work" < /dev/null 2> /dev/null)
   eq "$(cat "$(dir $b)/after")" "$a"
   t run $a
   eq "$(step $a)" done

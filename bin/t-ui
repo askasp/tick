@@ -4,7 +4,7 @@
 trap : INT          # Ctrl-C stops what you started (t log -f), not the board
 
 actions='log       follow its output live (Ctrl-C to stop)
-        stack     start a task on this one (shared worktree, waits for it to finish)
+stack     start a task on this one (shared worktree, waits for it to finish)
 diff      read the change so far
 say       send it back to implement with your notes
 attach    take over the agent conversation
