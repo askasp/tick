@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # t compose [t new's flags] — start a task on one screen: type the title, pick the pipeline, and see the task
-# it will make (t new --dry) while you can still change it. ⏎ creates it, ^E adds details in $EDITOR, ^R
-# picks the repo, ^A the agent. Flags typed with the title work too: "Add proration -r amino".
-# Plain `t new` in a terminal with fzf opens this; on the board, ^n does the same in place.
+# it will make (t new --dry) while you can still change it. ⏎ creates it, alt-e adds details in $EDITOR, alt-r
+# picks the repo, alt-a the agent. Flags typed with the title work too: "Add proration -r amino".
+# Plain `t new` in a terminal with fzf opens this; on the board, alt-n does the same in place.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 
 if [ "${1:-}" = --dry ]; then           # the preview: pipeline $2, what you typed in $3, and $T_NEW's args, repo and cli
@@ -22,7 +22,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-export T_NEW                            # the flags compose started with, and the repo (^R changes it)
+export T_NEW                            # the flags compose started with, and the repo (alt-r changes it)
 T_NEW=$(mktemp -d)
 trap 'rm -rf "$T_NEW"' EXIT
 printf '%s' "$repo" > "$T_NEW/repo"
@@ -47,20 +47,20 @@ done)
 pos=$(grep -n "^$pick " <<< "$rows" | cut -d: -f1)
 
 k=$C_PURPLE c=$C_TEXT
-keys="$k⏎$c create   $k^E$c details   $k^R$c repo   $k^A$c agent   ${k}esc$c cancel$C_OFF"
+keys="$k⏎$c create   ${k}alt-e$c details   ${k}alt-r$c repo   ${k}alt-a$c agent   ${k}esc$c cancel$C_OFF"
 out=$(printf '%s\n' "$rows" | fzf --disabled --ansi --reverse --no-sort --sync --with-shell 'bash -c' \
   --color "$T_FZF_COLORS,header-border:#2a2e42" --prompt "$prompt" --pointer '▌' --gutter ' ' \
-  --info hidden --no-separator --header "$keys" --header-border bottom --print-query --expect ctrl-e \
+  --info hidden --no-separator --header "$keys" --header-border bottom --print-query --expect alt-e \
   --bind "start:pos(${pos:-1})" --preview 'CLICOLOR_FORCE=1 t-compose --dry {1} {q} 2>&1' \
   --preview-window 'right,50%,border-left,wrap,<50(down,50%,border-top)' \
-  --bind 'ctrl-a:execute-silent[. "$T_ROOT/lib/tick.sh"; next_cli "$(cat "$T_NEW/cli")" > "$T_NEW/c" && mv "$T_NEW/c" "$T_NEW/cli"]+refresh-preview' \
-  --bind 'ctrl-r:execute(t-complete repos | fzf --prompt "repo> " --height 40% --reverse --delimiter : --nth 1 | cut -d: -f1 > "$T_NEW/r" && mv "$T_NEW/r" "$T_NEW/repo")+refresh-preview') || exit 0
+  --bind 'alt-a:execute-silent[. "$T_ROOT/lib/tick.sh"; next_cli "$(cat "$T_NEW/cli")" > "$T_NEW/c" && mv "$T_NEW/c" "$T_NEW/cli"]+refresh-preview' \
+  --bind 'alt-r:execute(t-complete repos | fzf --prompt "repo> " --height 40% --reverse --delimiter : --nth 1 | cut -d: -f1 > "$T_NEW/r" && mv "$T_NEW/r" "$T_NEW/repo")+refresh-preview') || exit 0
 
 q=$(sed -n 1p <<< "$out") key=$(sed -n 2p <<< "$out") p=$(sed -n 3p <<< "$out") r=$(cat "$T_NEW/repo") c=$(cat "$T_NEW/cli")
 words "$q"
 set -- -p "${p%% *}" ${r:+-r "$r"} ${c:+--cli "$c"} "${extra[@]}" "${flags[@]}"
 [ -n "$title" ] || set -- --edit "$@"   # no title yet: the editor asks for one
 case $key in
-  ctrl-e) t-new --edit "$@" "$title" ;;
-  *)      t-new "$@" "$title" ;;
+  alt-e) t-new --edit "$@" "$title" ;;
+  *)     t-new "$@" "$title" ;;
 esac

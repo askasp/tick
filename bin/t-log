@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# t log [TASK] [-f] — what a task's steps printed: every run in the order it ran, each followed by how
+# t log [TASK] [-f] [--raw] — what a task's steps printed: every run in the order it ran, each followed by how
 # it ended. -f keeps following it through the steps still to come. In a terminal it pages, from the end.
+# Three or more calls of one tool in a row fold into one line; --raw shows them all, and the session ids.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
-follow= arg=
-for a; do if [ "$a" = -f ]; then follow=1; else arg=$a; fi; done
+follow= raw= arg=
+for a; do case $a in -f) follow=1 ;; --raw) raw=1 ;; *) arg=$a ;; esac; done
 task=$(task_dir "$arg") || exit 1
 cd "$task" || exit 1
 
@@ -45,24 +46,58 @@ story() {
        END { before("~", 1) }' "${have[@]}"
 }
 
-# in a terminal (or with CLICOLOR_FORCE, as t ui's preview), runs stand out and tool calls step back
+# three or more calls of one tool in a row become one line: "· Read ×8  src/lib/health-*, src/app.ts".
+# While the task runs, its last three calls stay lines of their own, so the log still moves.
+digest() {
+  local live=; [ "$(state "$task")" != running ] || live=1
+  awk -v live="$live" '
+    function common(a, b) { while (a != "" && index(b, a) != 1) a = substr(a, 1, length(a) - 1); return a }
+    function summary(k,   i, a, j, g, ng, out, seen, order, first, pre, many) {
+      for (i = 1; i <= k; i++) {                 # paths by directory, with what their names start with
+        a = arg[i]; sub(/ .*/, "", a)            # a command: its first word
+        j = arg[i] ~ / / ? 1 : match(a, /[^\/]*$/)
+        g = j > 1 ? substr(a, 1, j - 1) : a
+        if (!(g in seen)) { seen[g] = 1; order[++ng] = g; first[g] = a; pre[g] = substr(a, j) }
+        else if (a != first[g]) { many[g] = 1; pre[g] = common(pre[g], substr(a, j)) }
+      }
+      for (i = 1; i <= ng && i <= 6; i++)
+        out = out (i > 1 ? ", " : "") (many[order[i]] ? order[i] pre[order[i]] "*" : first[order[i]])
+      return out (ng > 6 ? ", …" : "")
+    }
+    function flush(keep,   i, k) {
+      k = n - keep >= 3 ? n - keep : 0
+      if (k) print "  · " tool " ×" k "  " summary(k)
+      for (i = k + 1; i <= n; i++) print line[i]
+      n = 0
+    }
+    /^  · / { if ($2 != tool) flush(0); tool = $2; line[++n] = $0; arg[n] = substr($0, index($0, $2) + length($2) + 1); next }
+    { flush(0); print }
+    END { flush(live ? 3 : 0) }'
+}
+
+# a run stands out, an agent's words get a bar, and its session line (t attach's) goes. In a terminal, or
+# with CLICOLOR_FORCE (t ui's pane), two greys: dim for what tick says about a run, mid for what it printed.
+# The hold space remembers whether this run is an agent's (it logged a session): its plain lines are its words.
 paint() {
-  if [ -n "${NO_COLOR:-}" ] || { [ ! -t 1 ] && [ -z "${CLICOLOR_FORCE:-}" ]; }; then cat; return; fi
-  # a digest: a tool call is one quiet line (✎ when it edits), and an agent's own words get a bar. The
-  # hold space remembers whether this run is an agent's (it logged a session): its plain lines are its words.
-  local b=$'\e[1m' when='[0-9]{4}-[0-9-]+ [0-9:]+ '
-  sed -u -E -e 's/\x1b\[[0-9;]*m//g' -e '/^=== /{x;s/.*//;x}' -e "s/^=== .*/\n$b&$C_OFF/;t" \
-    -e '/^session: /{x;s/.*/agent/;x}' -e "s/^session: .*/$C_DIM&$C_OFF/;t" \
-    -e "s/^($when.* ok → .*)/$C_GREEN\1$C_OFF/;t" -e "s/^($when.*(failed|hold).*)/$C_RED\1$C_OFF/;t" \
-    -e "s/^($when.*)/$b\1$C_OFF/;t" -e "s/^HOLD: .*/$C_RED&$C_OFF/;t" \
-    -e "s/^  · (edit|write|patch|Edit|Write|MultiEdit|NotebookEdit)( |\$)/$C_GREEN✎$C_OFF \1  /;t" \
-    -e "s/^  · ([^ ]*) ?/$C_DIM·$C_OFF \1  /;t" -e "s/^ *! /$C_YELLOW!$C_OFF /;t" \
-    -e '/^$/b' -e x -e "/^agent\$/{x;s/^/$C_BLUE▌$C_OFF /;b" -e '}' -e x
+  local b= m= d= g= r= y= u= o= hide='/^session: /d' when='[0-9]{4}-[0-9-]+ [0-9:]+ '
+  if [ -z "${NO_COLOR:-}" ] && { [ -t 1 ] || [ -n "${CLICOLOR_FORCE:-}" ]; }; then
+    b=$'\e[1m' m=$C_TEXT d=$C_DIM g=$C_GREEN r=$C_RED y=$C_YELLOW u=$C_BLUE o=$C_OFF
+  fi
+  [ -z "$raw" ] || hide=
+  sed -u -E -e 's/\x1b\[[0-9;]*m//g' -e '/^=== /{x;s/.*//;x}' -e "/^$when/{x;s/.*//;x}" \
+    -e '/^session: /{x;s/.*/agent/;x}' -e "$hide" -e "s/^=== .*/\n$b&$o/;t" -e "s/^session: .*/$d&$o/;t" \
+    -e "s/^($when.* ok → .*)/$g\1$o/;t" -e "s/^($when.*(failed|hold|cancelled).*)/$r\1$o/;t" \
+    -e "s/^$when.*/$d&$o/;t" -e "s/^HOLD: .*/$r&$o/;t" \
+    -e "s/^  · (edit|write|patch|Edit|Write|MultiEdit|NotebookEdit)( (.*))?\$/$g✎$o $m\1  \3$o/;t" \
+    -e "s/^  · ([^ ]*) ?(.*)/$d·$o $m\1  \2$o/;t" -e "s/^ *! (.*)/$y!$o $m\1$o/;t" \
+    -e '/^$/b' -e x -e "/^agent\$/{x;s/.*/$u▌$o $m&$o/;b" -e '}' -e x -e "s/.+/$m&$o/"
 }
 
 {
-  story
-  [ ! -f hold ] || echo "HOLD: $(head -1 hold)"
-  ls log/*.log > /dev/null 2>&1 || echo "(no step has run yet)"
+  { story
+    [ ! -f hold ] || echo "HOLD: $(head -1 hold)"
+    ls log/*.log > /dev/null 2>&1 || echo "(no step has run yet)"
+  } | if [ -n "$raw" ]; then cat; else digest; fi
+  # mawk reads ahead, so a line tail -F follows would wait in digest until the next ones came
   [ -z "$follow" ] || tail -q -n 0 -F "${files[@]}" 2> /dev/null
 } | if [ -t 1 ] && [ -z "$follow" ]; then paint | LESS=${LESS-FRX} less +G; else paint; fi

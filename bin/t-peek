@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t peek [TASK] [show|log|diff] — what t ui's pane shows: a running task's live log, else its details
+# t peek [TASK] [show|log|raw|diff] — what t ui's pane shows: a running task's live log, else its details
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 t=$(task_dir "${1:-}") || exit 1
 id=${t##*/} n=$((10#${t##*/})) st=$(state "$t") step=$(cat "$t/step")
@@ -7,21 +7,30 @@ id=${t##*/} n=$((10#${t##*/})) st=$(state "$t") step=$(cat "$t/step")
 mode=$(pane "$t" "${2:-}") m= d= k= o=
 if [ -n "${CLICOLOR_FORCE:-}" ]; then
   d=$C_DIM k=$C_PURPLE o=$C_OFF
-  case $mode in log) m=$C_YELLOW ;; diff) m=$C_GREEN ;; *) m=$C_BLUE ;; esac
+  case $mode in log | raw) m=$C_YELLOW ;; diff) m=$C_GREEN ;; *) m=$C_BLUE ;; esac
 fi
-tabs=$(strip "$m" "$mode" show log $([ "$(pane_next "$t" log)" != diff ] || echo diff))
+log=log; [ "$mode" != raw ] || log=raw
+tabs=$(strip "$m" "$mode" show $log $([ "$(pane_next "$t" log)" != diff ] || echo diff))
 
 case $st in                             # two lines the pane keeps at its top: what this is, and a rule
   done)   about="$(cat "$t/pipeline") · $(status "$t")" ;;
   after*) about="queued behind ${st#after }" ;;
-  *)      who=$(solver "$(cat "$t/pipeline")" "${step#*-}" "$t")
-          about="$step${who:+ · $who} · $(age "$t")" ;;
+  *)      who=$(solver "$(cat "$t/pipeline")" "${step#*-}" "$t") a=$(age "$t")
+          case $st in running) a="running $a" ;; HOLD) a="held $a" ;; *) a="next tick" ;; esac
+          about="${step#*-}${who:+ ($who)} · $a" ;;
 esac
-echo "$tabs $d$n · $about   $k↹$d next  $k^d ^u$d scroll$o"
+case $mode in log) about+="   $k^l$d raw" ;; raw) about+="   $k^l$d folded" ;; esac
+echo "$tabs ${d}task $n · $about   $k↹$d next$o"
 rule "$d"
 
 case $mode in
-  log)  exec t-log "$id" -f ;;
+  log | raw)
+    r=; [ "$mode" != raw ] || r=--raw
+    if [ "$st" = running ]; then          # a short log sits at the bottom, where its next line comes
+      pad=$(( ${FZF_PREVIEW_LINES:-0} - 2 - $(t-log "$id" $r | wc -l) ))
+      [ "$pad" -le 0 ] || printf '\n%.0s' $(seq "$pad")
+    fi
+    exec t-log "$id" -f $r ;;
   diff) t-diff "$id" --color=always 2>&1 | if command -v delta > /dev/null; then delta --paging=never; else cat; fi ;;
   *)    t-show "$id" | sed '/^  next:$/,/^$/d' ;;                # the board's header has the keys
 esac

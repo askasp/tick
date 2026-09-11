@@ -126,10 +126,11 @@ C_BLUE=$'\e[38;2;122;162;247m' C_PURPLE=$'\e[38;2;187;154;247m' C_DIM=$'\e[38;2;
 C_TEXT=$'\e[38;2;169;177;214m' C_OFF=$'\e[0m'
 # the same for fzf; the spinner (always on while t ui waits for a change) has the background's color
 T_FZF_COLORS='fg:#c0caf5,bg:#1a1b26,fg+:#c0caf5,bg+:#292e42,hl:#7aa2f7,hl+:#7aa2f7,info:#e0af68,prompt:#7aa2f7:bold'
-T_FZF_COLORS+=',pointer:#f7768e,separator:#2a2e42,border:#2a2e42,preview-bg:#17171f,preview-border:#2a2e42'
+T_FZF_COLORS+=',pointer:#f7768e,separator:#2a2e42,border:#3b4261,preview-bg:#17171f,preview-border:#3b4261'
 T_FZF_COLORS+=',scrollbar:#2a2e42,header:#565f89,spinner:#1a1b26'
 
-# what a task is doing: while it runs or will run its step again, that step's latest line; else why not
+# what a task is doing: while it runs or will run its step again, that step's latest line; else why not.
+# A long path in it keeps its end, which says the most: …/workers/notify.ts
 status() {
   local st step line
   st=$(state "$1") step=$(cat "$1/step")
@@ -139,7 +140,10 @@ status() {
     done)   if [ -f "$1/answer.md" ]; then echo answered; else echo done; fi; return ;;
   esac
   line=$(tail -n 40 "$1/log/$step.log" 2> /dev/null | sed 's/\x1b\[[0-9;]*m//g' |
-    awk '/^=== / { l = ""; next } /^session: |^```/ || !NF { next } { sub(/^ *(· |! )/, ""); l = $0 } END { print l }')
+    awk '/^=== / { l = ""; next } /^session: |^```/ || !NF { next } { sub(/^ *(· |! )/, ""); l = $0 }
+         END { n = split(l, w, " ")
+               for (i = 1; i <= n; i++) { if ((k = split(w[i], p, "/")) > 3) w[i] = "…/" p[k - 1] "/" p[k]; printf "%s%s", w[i], i < n ? " " : "" }
+               print "" }')
   if [ "$st" = running ]; then echo "${step#*-}: ${line:-starting}"
   elif [ -n "$line" ]; then echo "next tick · ${step#*-}: $line"      # it ran, and runs again
   else echo "next tick"
@@ -156,22 +160,34 @@ age() {
   elif [ "$s" -lt 86400 ]; then echo "$((s / 3600))h"; else echo "$((s / 86400))d"; fi
 }
 
-# what t ui can do with a task, and its key on the board
-ACTIONS='log     ctrl-l  its output, live
-say     ctrl-s  send it back to a step with your notes
-attach  ctrl-a  take over the agent conversation (its own screen)
-stack   ctrl-t  start a task on this one (shared worktree, waits for it to finish)
-diff    ctrl-g  the change so far
-run     ctrl-r  run it now
-hold    ctrl-o  pause it, or unpause it when it is held
-name    ctrl-e  change what the board calls it
-rm      ctrl-x  delete it and its worktree
+# what t ui can do with a task, and its key on the board: ctrl moves around, alt acts
+ACTIONS='log     ctrl-l  its output, live; again: all of it, unfolded
+say     alt-s   send it back to a step with your notes
+attach  alt-a   take over the agent conversation (its own screen)
+stack   alt-t   start a task on this one (shared worktree, waits for it to finish)
+diff    alt-d   the change so far
+run     alt-r   run it now
+hold    alt-h   pause it after this step, or unpause it when it is held
+cancel  alt-c   stop its agent now, and hold it
+name    alt-e   change what the board calls it
+rm      alt-x   delete it and its worktree
 path    -       print its worktree'
+
+# how t ui writes a key: ctrl-l as ^l, alt-d as it is
+keyname() { echo "${1/#ctrl-/^}"; }
+
+# stop a task's run now, agent and all: every process of the run holds its lock open
+stop() {
+  fuser -k -TERM "$1/lock" > /dev/null 2>&1 || true
+  flock -w 10 "$1/lock" true && return
+  fuser -k -KILL "$1/lock" > /dev/null 2>&1 || true
+  flock -w 5 "$1/lock" true || die "task $((10#${1##*/})) still runs; see what holds it: fuser -v $1/lock"
+}
 
 # the actions worth offering for a task now; Enter does the first
 offers() {
   case $(state "$1") in
-    running) echo log diff hold ;;
+    running) echo log diff cancel hold ;;
     ready)   if [ -s "$1/log/$(cat "$1/step").log" ]; then echo log run hold; else echo run hold rm; fi ;;
     after*)  echo log rm ;;
     HOLD)    echo say log attach hold ;;
@@ -230,7 +246,7 @@ words() {
   done
 }
 
-# the CLI after $1 when ^A cycles it: the pipeline's own (empty), then each driver
+# the CLI after $1 when alt-a cycles it: the pipeline's own (empty), then each driver
 next_cli() {
   { echo; ls "$T_ROOT/drivers"; } | awk -v c="$1" 'NR == 1 { f = $0 } s { print; n = 1; exit } $0 == c { s = 1 } END { if (!n) print f }'
 }
@@ -239,7 +255,8 @@ next_cli() {
 pane_next() {
   case $2 in
     show) echo log ;;
-    log)  if [ -f "$1/branch" ] && git -C "$(cat "$1/repo")" rev-parse -q --verify "refs/heads/$(cat "$1/branch")" > /dev/null 2>&1
+    log | raw)
+          if [ -f "$1/branch" ] && git -C "$(cat "$1/repo")" rev-parse -q --verify "refs/heads/$(cat "$1/branch")" > /dev/null 2>&1
           then echo diff; else echo show; fi ;;
     *)    echo show ;;
   esac

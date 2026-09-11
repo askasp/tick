@@ -14,11 +14,7 @@ done
 # a task waiting on another shares that one's lock, so a held lock isn't its own run
 if [[ $(state "$task") != after* ]] && ! flock -n "$task/lock" true; then
   [ -n "$force" ] || die "task $n is running; stop it and delete it with: t rm -f $n"
-  fuser -k -TERM "$task/lock" > /dev/null 2>&1 || true      # every process of the run holds the lock open
-  if ! flock -w 10 "$task/lock" true; then
-    fuser -k -KILL "$task/lock" > /dev/null 2>&1 || true
-    flock -w 5 "$task/lock" true || die "task $n still runs; see what holds it: fuser -v $task/lock"
-  fi
+  stop "$task"
 fi
 
 branch=$(cat "$task/branch" 2> /dev/null || true)

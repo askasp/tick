@@ -63,42 +63,48 @@ run, the cursor starts on the newest running one, and the pane beside it shows
 the task you're on: its live log while it runs, else its details (`t peek`).
 `tab` switches the pane between details, log and diff (its top line lists
 them, the one you're on in color), and `^d`/`^u` scroll it half a page
-(PgDn/PgUp a page, Shift-↓/↑ a line).
-The header says where
-the task is and which keys are worth pressing now (`t keys`), and Enter does
-the first of them: the log of a running task, say for a held one, the diff of
-a done one. Every action has a ctrl key too, and all of them happen in the
-board: `^l` log and `^g` diff turn the pane to them, `^r` runs the task in the
-background with the pane following it, `^o` holds it (the prompt asks why) or
-resumes it, `^e` renames it, and `^x` deletes it once the pane has said what
-that removes and you press Enter. Only `^a` attach leaves, for the agent's own
-screen. `?` lists every key in the pane, `^w` widens the pane, and `^n` or the
-`+ new task` row starts a task. `^f`
-spells out each task's steps (`T_STEPS=names t ls` does the same as text).
-Without fzf, `t` prints `t ls`.
+(PgDn/PgUp a page, Shift-↓/↑ a line). The pane's label names the task and
+its step, and the header holds only the keys worth pressing now (`t keys`).
+Enter does the first of them: the log of a running task, say for a held one,
+the diff of a done one. Ctrl keys move around and alt keys act, so typing
+still searches, and all of them happen in the board: `^l` turns the pane to
+the log (again: the raw log), `alt-d` to the diff, `alt-r` runs the task in
+the background with the pane following it, `alt-h` holds it (the prompt asks
+why) or resumes it, `alt-c` cancels a running one (it stops the agent now and
+holds the task), `alt-e` renames it, and `alt-x` deletes it once the pane has
+said what that removes and you press Enter. Only `alt-a` attach leaves, for
+the agent's own screen. `?` lists every key in the pane, with the agent's
+session id, and `?` again goes back. `^w` widens the pane, and `alt-n` or the
+`+ new task` row starts a task. `^f` spells out each task's steps
+(`T_STEPS=names t ls` does the same as text). Without fzf, `t` prints `t ls`.
 
 `t log` tells a task's story: every run of every step in the order it ran,
-each followed by how it ended. `-f` keeps following it into the steps still
-to come.
+each followed by how it ended. Three or more calls of one tool in a row fold
+into one line (`· Read ×8  src/lib/health-*, src/app.ts`); while the task
+runs, its last three calls stay lines of their own. `--raw` shows every call,
+and the session line `t attach` resumes. `-f` keeps following it into the
+steps still to come. The drivers log paths relative to where the agent works,
+so the log and the board's status say `src/app.ts`, and a path still too long
+for the board keeps its end: `…/workers/notify.ts`.
 
 ### Starting a task
 
-On the board, `^n` (or Enter on `+ new task`) starts one without leaving it:
-the prompt becomes `new>` and takes the title, and the pane shows the task
+On the board, `alt-n` (or Enter on `+ new task`) starts one without leaving
+it: the prompt becomes `new>` and takes the title, and the pane shows the task
 that is about to exist (`t new --dry`): its repo and where that came from,
 branch, base, who solves it, when it starts, and the command to type next
 time. `tab` picks the pipeline from the strip at the top of the pane. Enter
-creates it and puts the cursor on it, `^E` opens `$EDITOR` for details with
-the title already on line 1, `^R` picks another repo, `^A` another agent
+creates it and puts the cursor on it, `alt-e` opens `$EDITOR` for details with
+the title already on line 1, `alt-r` picks another repo, `alt-a` another agent
 than the pipeline's (like `--cli`; the header says which), and esc goes back.
-With cron installed the task starts at once; without it, `^r` on its row runs
-it. Flags typed with the title work too:
-`Add proration -r amino`.
+`^a`, `^e` and `^u` edit the line as in a shell. With cron installed the task
+starts at once; without it, `alt-r` on its row runs it. Flags typed with the
+title work too: `Add proration -r amino`.
 
-`^t` stacks a task on the one you're on the same way (`stack on 7>`), and `^s`
-says something to it (`say to 7>`, and Enter on a held task): what you type
-goes to `feedback.md`, `tab` picks the step it restarts at, `^A` who solves it
-from then on, and the pane shows what will happen and its latest log.
+`alt-t` stacks a task on the one you're on the same way (`stack on 7>`), and
+`alt-s` says something to it (`say to 7>`, and Enter on a held task): what you
+type goes to `feedback.md`, `tab` picks the step it restarts at, `alt-a` who
+solves it from then on, and the pane shows what will happen and its latest log.
 
 Outside the board, `t new` without a title opens the same form as a screen of
 its own (`t compose`).
@@ -338,19 +344,19 @@ A task directory holds `task.md`, `name`, `pipeline`, `step`, `repo`, `base`,
 ```
 t                          the live board in a terminal (fzf), else t ls
 t ui [TASK [ACTION]]       with a TASK, the menu of what to do with it; with an ACTION, that at once
-t peek [TASK] [show|log|diff]   what the board's pane shows for it
-t keys [TASK]              what the board's header offers for it
+t peek [TASK] [show|log|raw|diff]   what the board's pane shows for it
+t keys [TASK]              the keys the board's header offers for it
 t new ["what to do" [-]] [-p PIPELINE] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO] [--now] [--edit] [--dry]
 t compose [t new's flags]  the screen plain t new opens: title, pipeline, and the task it will make
 t PIPELINE ...             t new ... -p PIPELINE:  t ask --now "How do the tests run?"
 t ls [-a]                  the board as text; -a adds done tasks
 t show [TASK]              where it is, and what you can do next
-t log [TASK] [-f]          every run in order, each followed by how it ended; -f follows it
+t log [TASK] [-f] [--raw]  every run in order, each followed by how it ended; -f follows it, --raw unfolds it
 t diff [TASK]              the change so far
 t say [TASK] "notes"       back to implement, with your notes
 t attach [TASK]            resume the agent's conversation yourself
 t run [TASK]               run it now, in this terminal
-t hold [TASK] [why]        pause it
+t hold [-f] [TASK] [why]   pause it after the running step; -f cancels that step now, agent and all
 t resume [TASK] [STEP]     unpause it, optionally at another step
 t name [TASK] ["name"]     what the board calls it; left out, an agent picks a short one
 t path [TASK]              its worktree:  cd "$(t path discount)"

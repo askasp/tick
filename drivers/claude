@@ -21,11 +21,13 @@ echo "session: claude $sid $PWD" >&2
 raw=$(mktemp)
 trap 'rm -f "$raw"' EXIT
 
-# stream-json so a long turn shows its progress in the log instead of looking hung
-claude "${args[@]}" | tee "$raw" | jq --unbuffered -rR 'fromjson? |
-  select(.type == "assistant") | .message.content[]? |
+# stream-json so a long turn shows its progress in the log instead of looking hung; the paths in a
+# tool call are relative to where the agent works, and the rest of $HOME is ~
+claude "${args[@]}" | tee "$raw" | jq --unbuffered -rR --arg dir "$PWD/" --arg home "$HOME/" '
+  def short: split($dir) | join("") | split($home) | join("~/");
+  fromjson? | select(.type == "assistant") | .message.content[]? |
   if .type == "text" then .text
-  elif .type == "tool_use" then "  · \(.name) \(.input.file_path // .input.command // .input.pattern // "" | tostring | .[:120])"
+  elif .type == "tool_use" then "  · \(.name) \(.input.file_path // .input.command // .input.pattern // "" | tostring | short | .[:120])"
   else empty end' >&2
 
 jq -rR 'fromjson? | select(.type == "result") | .permission_denials[]? |

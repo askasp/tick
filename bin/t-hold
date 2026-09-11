@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
-# t hold [TASK] [reason] — pause a task; the tick leaves it alone until `t resume`
+# t hold [-f] [TASK] [reason] — pause a task; the tick leaves it alone until `t resume`. The step running
+# now finishes first; -f cancels it now instead, its agent and all.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+force=
+if [ "${1:-}" = -f ]; then force=1; shift; fi
 task=$(task_dir "${1:-}") || exit 1
-reason=${2:-}
-echo "${reason:-held by hand}" > "$task/hold"
-flock -n "$task/lock" true || echo "t: the step that is running now finishes first" >&2
+n=$((10#${task##*/})) st=$(state "$task") step=$(cat "$task/step")
+echo "${2:-held by hand}" > "$task/hold"
+# a task waiting on another shares that one's lock, so a held lock isn't its own run
+[[ $st != after* ]] && ! flock -n "$task/lock" true || exit 0
+[ -n "$force" ] || { echo "t: the step that is running now finishes first; to stop it now: t hold -f $n" >&2; exit 0; }
+stop "$task"
+echo "$(date '+%F %T') $n $step cancelled" >> "$task/history"
