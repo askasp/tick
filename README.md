@@ -132,7 +132,7 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 | --- | --- |
 | `local` (the default) | implement (opencode) → test → review (opencode) |
 | `feature` | implement (opencode) → test → review (opencode) → pr → ci |
-| `main` | local's steps in the repo's own checkout: commits land on its branch (tick's default) |
+| `main` | local's steps in tick's own checkout, from any directory: commits land on its branch |
 | `ask` | answer (opencode): reads the repo you're in and changes nothing |
 | `research` | answer (claude): searches the web; needs no repo |
 

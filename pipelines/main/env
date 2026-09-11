@@ -1,5 +1,6 @@
-# main: local's steps, but in the repo's own checkout. Commits land on the branch it's on; nothing to merge.
+# main: local's steps in tick's own checkout, from any directory. Commits land on the branch it's on; nothing to merge.
 # One task at a time per checkout, and the implementer waits while the checkout has uncommitted changes.
+REPO=tick
 IN_PLACE=yes
 CLI_implement=opencode
 CLI_review=opencode

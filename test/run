@@ -30,6 +30,7 @@ setup() {
   trap 'rm -rf "$tmp"' EXIT
   cp -a "$root" "$tmp/tick"
   rm -rf "$tmp/tick/repos"                 # your own repos stay out of the tests
+  echo "REPO=$tmp/repo" >> "$tmp/tick/pipelines/main/env"   # main is tick's; here it is the toy repo's
   export T_VAR=$tmp/var FAKE=$tmp/fake PATH=$tmp/tick/test/fake:$tmp/tick/bin:$path
   mkdir -p "$FAKE"
   git init -q --bare -b main "$tmp/origin.git"
@@ -341,6 +342,19 @@ test_main_waits_for_a_clean_checkout_and_runs_one_task_at_a_time() {
   eq "$(step $a)" done
   eq "$(step $b)" done
   eq "$(git rev-list --count HEAD)" 3
+}
+
+test_main_works_in_its_own_repo_from_anywhere() {
+  git init -q "$tmp/other"
+  git -C "$tmp/other" commit -q --allow-empty -m init
+  cd "$tmp/other"
+  id=$(new "fix the widget" -p main)                      # standing in another repo doesn't count
+  eq "$(cat "$(dir $id)/repo")" "$(realpath "$tmp/repo")"
+  cd /
+  id=$(new "fix the gadget" -p main)
+  eq "$(cat "$(dir $id)/repo")" "$(realpath "$tmp/repo")"
+  id=$(new "fix the gizmo" -p main -r "$tmp/repo")
+  not new "fix the doohickey" -p main -r "$tmp/other"
 }
 
 test_a_repo_by_name_brings_its_pipeline_and_its_tests() {
