@@ -55,6 +55,8 @@ how to change it.
 | a kind of question | a pipeline whose one step is `steps/answer`; its env sets `MODE_answer=` (read or web), `CLI_answer=`, and `ANSWERER=NAME` only for a prompt of its own | no |
 | an AI CLI | `drivers/NAME`, same contract as `drivers/claude` | no |
 | a command | `bin/t-NAME`. Line 2 is its help line (`# t NAME ARGS — what`) | no |
+| a key on the board | a line in `lib/board.sh`: `ACTIONS` for what it does to a task, else `BOARD_KEYS` or `FORM_KEYS`. `t ui` binds it from there, and screens name it with `key NAME` | no |
+| the board's look | `lib/board.sh`: the `C_` greys and red, `T_FZF_COLORS`, and `BOARD_FZF`, which every fzf screen and `t doctor` use | no |
 | a setting | `etc/tick.conf`, as `: "${NAME:=default}"` | no |
 | a cron job that isn't a task | a pipe script in `jobs/`, plus a crontab line | no |
 
@@ -106,7 +108,13 @@ output), so tests never call a model. Each test gets its own `T_VAR` and a toy
 repo with a bare `origin`.
 
 Assert the rule, not the implementation. Name tests after the behavior, for
-example `test_a_stacked_task_waits_then_builds_on_its_parent`.
+example `test_a_stacked_task_waits_then_builds_on_its_parent`. Say keys by name
+(`keyfor hold`) and rows by rule (`'^ +1 .* 0/3 +next tick$'`), so a restyle
+breaks no test that isn't about the style.
+
+fzf is tested too: one test draws the live board in tmux and reads the screen
+back, and `t doctor`, which a test runs, fails on a flag or color fzf doesn't
+know.
 
 ## Style
 

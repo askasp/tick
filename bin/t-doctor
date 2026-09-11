@@ -6,9 +6,9 @@ ok()   { echo "  ✓ $1"; }
 fix()  { echo "  ✗ $1"; echo "      fix: $2"; bad=1; }
 need() { if command -v "$1" > /dev/null; then ok "$1"; else fix "$1 not found" "$2"; fi; }
 
-# fzf exits 1 when nothing matches, and 2 on a flag it doesn't know: the live board's flags, here
+# fzf exits 1 when nothing matches, and 2 on a flag or color it doesn't know: the board's look, and what it binds
 fzf_is_new_enough() {
-  fzf --with-shell 'bash -c' --gutter ' ' --footer ' ' --bind 'tab:bg-transform:true+change-footer(x)' --filter x < /dev/null > /dev/null 2>&1
+  fzf "${BOARD_FZF[@]}" --footer ' ' --bind 'tab:bg-transform:true+change-footer(x)' --filter x < /dev/null > /dev/null 2>&1
   [ $? -le 1 ]
 }
 

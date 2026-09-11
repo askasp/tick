@@ -13,4 +13,4 @@ for action in $(offers "$task"); do
   elif [ "$key" != - ]; then keys+="   $(keyname "$key"):$label"
   fi
 done
-echo "$keys   ^n:new   ?:keys"
+echo "$keys   $(key new):new   $(key keys):keys"

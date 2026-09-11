@@ -17,6 +17,7 @@ new()  { t new "$@" < /dev/null 2> /dev/null; }
 dir()  { echo "$T_VAR/tasks/$1"; }
 step() { cat "$(dir "$1")/step"; }
 tty()  { script -qec "$1" /dev/null; }      # run a command line in a pseudo-terminal
+keyfor() { (. "$tmp/tick/lib/tick.sh"; key_of "$1"); }   # the board's key for an action: keyfor hold → ctrl-r
 wait_done() {
   local i id all
   for i in $(seq 150); do
@@ -543,7 +544,7 @@ test_a_long_title_is_cut_to_fit_the_terminal() {
   new "add the widget" > /dev/null
   new "make the board fit a narrow terminal, however long the title" > /dev/null
   out=$(tty "stty cols 40; t ls" | tr -d '\r')
-  grep -q '^  2  fit the board to a narrow ter…  0/3$' <<< "$out"   # the title cut, and the step kept
+  grep -qE '^ +2 +fit the board to a narrow ter… +0/3$' <<< "$out"   # the title cut, and the step kept
   [ "$(wc -L <<< "$out")" -le 40 ]
   out=$(printf '1\n' | T_PICKER=select tty "stty cols 40; t path" | tr -d '\r')
   grep -q '^2) .*…$' <<< "$out"
@@ -735,8 +736,9 @@ test_the_board_counts_steps_and_leaves_what_is_absent_blank() {
   new -p ask "how do the tests run?" > /dev/null
   t run 2
   t ls -a > "$tmp/out"
-  grep -qE '^  1  repo    add the widget {18}0/3 {8}next tick$' "$tmp/out"   # not begun: no age, and no —
-  grep -qE '^  2  repo    how do the tests run\? {11}1/1 {8}answered$' "$tmp/out"
+  grep -qE '^ +1 +repo +add the widget +0/3 +next tick$' "$tmp/out"   # not begun: no age
+  grep -qE '^ +2 +repo +how do the tests run\? +1/1 +answered$' "$tmp/out"
+  not grep -q — "$tmp/out"                                # what is absent is blank
   eq "$(awk '{ print index($0, "/") }' "$tmp/out" | sort -u | wc -l)" 1   # the step column lines up
   (. "$tmp/tick/lib/tick.sh"; T_COLS=80 board -a) > "$tmp/narrow"         # under 100 columns: no repo
   not grep -q repo "$tmp/narrow"
@@ -746,12 +748,12 @@ test_the_board_counts_steps_and_leaves_what_is_absent_blank() {
 test_the_board_says_what_each_task_is_doing_and_for_how_long() {
   printf 'noop\n' > "$FAKE/impl"
   id=$(new "add the widget")
-  t ls | grep -qE '^  1  repo .* 0/3 +next tick$'        # nothing ran yet
+  t ls | grep -qE '^ +1 .* 0/3 +next tick$'              # nothing ran yet
   t run $id
-  t ls | grep -qE '^  1  repo .* 1/3   <1m  next tick  implement: the implementer changed nothing$'
+  t ls | grep -qE '^ +1 .* 1/3 +<1m +next tick +implement: the implementer changed nothing$'
   t hold $id "waiting on design"
-  t ls | grep -q ' 1/3   <1m  held  waiting on design$'
-  t keys $id | grep -q '^enter:say   ^l:log   ^o:attach   ^r:resume   ^n:new   ?:keys$'   # ? has the rest
+  t ls | grep -qE ' 1/3 +<1m +held +waiting on design$'
+  t keys $id | grep -qE '^enter:say .*:resume .*:keys$'  # enter says to it, a key resumes it, ? has the rest
 }
 
 test_the_board_keeps_the_end_of_a_long_path() {
@@ -794,14 +796,14 @@ test_the_pane_shows_details_log_or_diff() {
   t peek $id diff | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^+change'   # in color
   t peek $id steps | grep -qE '^30-review +1 run'
   timeout 0.5 t peek $id raw | grep -q '^session: opencode'
-  t keys $id | grep -q '^enter:diff   ^t:stack'
+  t keys $id | grep -qE '^enter:diff +[^ ]+:stack '
 }
 
 test_steps_says_how_each_step_went_and_which_file_each_setting_comes_from() {
   profile                                                 # toy has a TEST_CMD of its own
   printf 'BROKEN\nfixed\n' > "$FAKE/impl"                 # the tests fail once: back to implement
   id=$(new -r toy -p local --test "make test" "add the widget")
-  t peek $id steps | grep -qE '^10-implement {11}next tick '   # nothing ran yet
+  t peek $id steps | grep -qE '^10-implement +next tick '     # nothing ran yet
   t peek $id steps | grep -q '^implement — '              # what the step it is on does
   t run $id
   out=$(t peek $id steps)
@@ -823,12 +825,12 @@ test_compose_takes_flags_typed_with_the_title() {
 test_the_board_starts_a_task_and_says_to_one_in_place() {
   export T_UI=$tmp/ui T_NEW=$tmp/ui
   mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
-  t ui --key ctrl-n '' '' | grep -q 'change-prompt(new> )+disable-search'
+  t ui --key "$(keyfor new)" '' '' | grep -q 'change-prompt(new> )+disable-search'
   eq "$(cat "$T_UI/pick")" local
   t ui --key tab '' '' > /dev/null                        # tab: the next pipeline
   eq "$(cat "$T_UI/pick")" feature
   t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *feature'   # in color
-  t ui --key ctrl-s '' '' > /dev/null                     # ^s: another agent than the pipeline's
+  t ui --key "$(keyfor agent)" '' '' > /dev/null          # another agent than the pipeline's
   t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^cli *claude  (--cli)'
   t ui --key enter '' 'add the widget' | grep -q 'reload-sync'   # made; the reload's end puts the cursor on it
   eq "$(cat "$T_UI/new")" 1
@@ -854,35 +856,60 @@ test_the_board_holds_renames_and_deletes_in_place() {
   mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
   new "add the widget" > /dev/null
   new "fix the gadget" > /dev/null
-  t ui --key ctrl-r 1 '' | grep -q 'change-prompt(hold 1 because> )'
+  t ui --key "$(keyfor hold)" 1 '' | grep -q 'change-prompt(hold 1 because> )'
   t ui --key enter 1 'waiting on design' > /dev/null
   grep -q 'waiting on design' "$(dir 0001)/hold"
-  t ui --key ctrl-r 1 '' > /dev/null                    # held: ^r resumes it at once
+  t ui --key "$(keyfor hold)" 1 '' > /dev/null                    # held: ^r resumes it at once
   [ ! -e "$(dir 0001)/hold" ]
-  t ui --key '?' 1 '' | grep -q 'change-prompt(do to 1> )'   # ? asks for the action by name...
+  t ui --key "$(keyfor keys)" 1 '' | grep -q 'change-prompt(do to 1> )'   # ? asks for the action by name...
   t ui --key enter 1 na | grep -q 'change-query~add the widget~'   # ...and its first letters will do
   t ui --key enter 1 'Widget' > /dev/null
   eq "$(cat "$(dir 0001)/name")" Widget
-  t ui --key '?' 1 '' > /dev/null
+  t ui --key "$(keyfor keys)" 1 '' > /dev/null
   t ui --key enter 1 rm > /dev/null
   t ui --pane 1 '' | grep -q 'Deletes its directory'   # the pane says what goes before Enter does it
   [ -d "$(dir 0001)" ]
   t ui --key enter 1 '' > /dev/null
   [ ! -e "$(dir 0001)" ]
   eq "$(cat "$T_UI/new")" 2                              # the cursor goes to the next task
-  t ui --key ctrl-l 2 '' > /dev/null
-  t ui --key ctrl-l 2 '' > /dev/null
+  t ui --key "$(keyfor log)" 2 '' > /dev/null
+  t ui --key "$(keyfor log)" 2 '' > /dev/null
   eq "$(cat "$T_UI/pane")" raw                           # ^l again: the log as it is
-  t ui --key '?' 2 '' > /dev/null
+  t ui --key "$(keyfor keys)" 2 '' > /dev/null
   t ui --pane 2 '' | grep -q 'delete it and its worktree'
   eq "$(cat "$T_UI/mode")" "do 2"
   t ui --key enter 2 r | grep -q 'could be: run rm'      # two start so: it says which
-  t ui --key '?' 2 '' > /dev/null                        # ? again: back
+  t ui --key "$(keyfor keys)" 2 '' > /dev/null                        # ? again: back
   eq "$(cat "$T_UI/mode")" board
+}
+
+test_a_key_does_one_thing_on_the_board_and_one_in_a_form() {
+  ( . "$tmp/tick/lib/tick.sh"
+    eq "$(printf '%s\n' "$ACTIONS" "$BOARD_KEYS" | awk '$2 != "-" { print $2 }' | sort | uniq -d)" ""
+    eq "$(printf '%s\n' "$FORM_KEYS" "$BOARD_KEYS" | awk '{ print $2 }' | sort | uniq -d)" "" )
+}
+
+test_the_live_board_draws_its_rows_and_the_keys_at_the_bottom() {
+  command -v tmux > /dev/null && command -v fzf > /dev/null || return 0
+  new "add the widget" > /dev/null
+  server=tick-${tmp##*/}
+  tmux -f /dev/null -L "$server" new-session -d -x 160 -y 16 t
+  for i in $(seq 100); do                                 # the pane comes last
+    tmux -L "$server" capture-pane -p > "$tmp/screen"
+    if grep -q 'implement · next tick' "$tmp/screen"; then break; fi
+    sleep 0.1
+  done
+  tmux -L "$server" kill-server
+  cat "$tmp/screen" >&2                                    # what it drew, should a line below fail
+  grep -q '^ *task> ' "$tmp/screen"
+  grep -qE '^ *> +1 +add the widget +0/3 +next tick' "$tmp/screen"   # fzf's pointer; 160 columns leave no room for the repo
+  grep -q 'implement · next tick' "$tmp/screen"                      # the pane on it
+  grep -qE 'enter:run .*:keys' "$tmp/screen"
 }
 
 test_doctor_says_what_to_fix() {
   not t doctor > "$tmp/out"
+  if command -v fzf > /dev/null; then grep -q '✓ fzf (the live board)' "$tmp/out"; fi   # fzf knows the board's flags and colors
   grep -q 'no cron line' "$tmp/out"
   grep -q '\* local ' "$tmp/out"
   echo "* * * * * $tmp/tick/bin/t tick" > "$FAKE/crontab"

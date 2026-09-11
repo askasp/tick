@@ -8,6 +8,10 @@ T_FZF_COLORS='fg:#c4c4c4,bg:#1c1c1c,fg+:#f2f2f2:regular,bg+:#2e2e2e,hl:#f2f2f2:u
 T_FZF_COLORS+=',prompt:#8a8a8a:regular,query:#c4c4c4,info:#5a5a5a,pointer:#c07070,marker:#c07070,border:#2e2e2e'
 T_FZF_COLORS+=',preview-bg:#191919,preview-border:#2e2e2e,scrollbar:#323232,header:#6e6e6e,footer:#6e6e6e,spinner:#1c1c1c'
 T_FZF_COLORS+=',input-border:#1c1c1c,footer-border:#1c1c1c'
+# fzf as the board and its screens look: fzf's own pointer, air around the prompt (borders in the
+# background's color, the separator in spaces), and keys at the bottom. t doctor checks fzf knows them.
+BOARD_FZF=(--ansi --reverse --no-sort --with-shell 'bash -c' --color "$T_FZF_COLORS" --pointer '>' --gutter ' '
+  --ellipsis '…' --separator ' ' --input-border horizontal --footer-border line)
 
 # the C_ colors stay only on a terminal, or with CLICOLOR_FORCE (t ui's pane); elsewhere they print nothing
 terminal_colors() {
@@ -213,8 +217,27 @@ name    -       change what the board calls it
 rm      -       delete it and its worktree
 path    -       print its worktree'
 
+# the board's keys besides the actions', and a form's (new, stack and say on the board, and t compose).
+# Every key is here once: t ui binds it from here, and what the screens say about it comes from here.
+BOARD_KEYS='new      ctrl-n  a new task
+keys     ?       every action, in the pane'
+FORM_KEYS='agent    ctrl-s  another agent than its pipeline names
+details  ctrl-o  the details, in $EDITOR
+repo     ctrl-r  another repo'
+
+# the key for $1 as fzf binds it (key_of agent → ctrl-s), and as the screens write it (key agent → ^s)
+key_of() { printf '%s\n' "$ACTIONS" "$BOARD_KEYS" "$FORM_KEYS" | awk -v n="$1" '$1 == n { print $2; exit }'; }
+key() { keyname "$(key_of "$1")"; }
+
 # how t ui writes a key: ctrl-l as ^l, and a key an action hasn't (-) as nothing
 keyname() { if [ "$1" != - ]; then echo "${1/#ctrl-/^}"; fi; }
+
+# keys and what they do, for a screen's bottom line: hint enter create esc back → "enter:create   esc:back"
+hint() {
+  local out=
+  while [ $# -ge 2 ]; do out+="$1:$2   "; shift 2; done
+  printf %s "${out%   }"
+}
 
 # the actions worth offering for a task now; Enter does the first
 offers() {

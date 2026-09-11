@@ -18,8 +18,8 @@ case $st in                             # two lines the pane keeps at its top: w
   *)       about="${step#*-} · next tick" ;;
 esac
 case $mode in
-  log) keys="^l:raw   " ;;
-  raw) keys="^l:folded   " ;;
+  log) keys="$(key log):raw   " ;;
+  raw) keys="$(key log):folded   " ;;
 esac
 echo "$(strip "$mode" "${tabs[@]}")    $C_DIM$n · $about$C_OFF   $C_FAINT${keys:-}⇥$C_OFF"
 echo
