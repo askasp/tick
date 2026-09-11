@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# run-tests — amino's backend tests, run in the worktree: its own postgres container, bun test on the host
+set -euo pipefail
+./dev-env.sh > /dev/null
+docker compose -f docker-compose.dev.yml up -d --wait postgres
+. ./.env
+
+# healthy means amino_db answers; the init script may still be creating amino_test_db
+for i in $(seq 30); do
+  docker compose -f docker-compose.dev.yml exec -T postgres pg_isready -q -U amino -d amino_test_db && break
+  [ "$i" -lt 30 ] || { echo "amino_test_db never came up" >&2; exit 1; }
+  sleep 1
+done
+
+export DATABASE_URL="postgres://amino:amino_secret@localhost:$PORT_DB/amino_test_db"
+cd backend
+bun install --silent
+# push exits 0 even when it can't connect, so keep the lines that say how it went
+bunx drizzle-kit push --force 2>&1 | grep -aE 'error|Error|Changes applied|No changes detected' || true
+bun test --dots

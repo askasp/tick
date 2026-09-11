@@ -47,7 +47,7 @@ how to change it.
 | to add | do this | touch the runner? |
 | --- | --- | --- |
 | a pipeline | `mkdir pipelines/NAME`, then `ln -s ../../steps/X NN-X` for each step | no |
-| a pipeline for one repo | `pipelines/NAME/env` with `REPO=` and settings like `TEST_CMD=` (sourced before each step); `REPO=none` needs no repo | no |
+| a pipeline for one repo | `pipelines/NAME/env` with `REPO=` and settings like `TEST_CMD=` (sourced before each step); `REPO=none` needs no repo; `TEARDOWN=` stops what the tests started | no |
 | a step | an executable in `steps/` that follows the contract below | no |
 | an agent | `agents/NAME.md`: a prompt, with `mode: read`, `web` or `edit` in its frontmatter | no |
 | who solves a step | `CLI_<step>=claude` or `opencode`, and optionally `MODEL_<step>=`, in the pipeline's env; `t new --cli` overrides it for one task | no |
@@ -87,6 +87,9 @@ Before exiting, a step may write:
   approve`) and treat everything else as text.
 - **Worktrees live under `~/.tick`, never inside this repo.** An agent reads
   every CLAUDE.md above its cwd, and this one would confuse it.
+- **Steps enter the worktree with `cd -P work`.** `work` links to `<repo>-<id>`,
+  and repos derive ports and container names from `basename $PWD`. Through the
+  link, every task would be called `work` and share them.
 - **CLI flags live only in `drivers/`.** Steps and agents say `mode: edit`, and
   the driver turns that into `--permission-mode` or `--agent plan`.
 

@@ -170,6 +170,7 @@ pipelines/shop/
 ```sh
 REPO=~/git/shop          # `t new -p shop` works from any directory
 TEST_CMD="npm test"      # what the test step runs; without it, `make test` or nothing
+TEARDOWN="docker compose down -v"   # after every test run, and before `t rm` deletes the worktree
 CLI_implement=opencode   # who solves each agent step: claude or opencode
 CLI_review=claude
 ```
@@ -234,7 +235,8 @@ Add a step with `chmod +x steps/lint`, then
   `feedback.md` and jump back to implement, which adds that file to the
   agent's prompt. Agents remember nothing; the task directory does.
 - **Parallel tasks and stacks.** Each `t new` gets its own worktree off the
-  trunk, and those run in parallel. `t new --on 7 "…"` shares task 7's
+  trunk, in a directory named `<repo>-<id>` (repos derive ports and container
+  names from it; `work` links to it), and those run in parallel. `t new --on 7 "…"` shares task 7's
   worktree and lock, branches from 7's branch, and waits until 7 is done.
 - **Agents.** `agents/*.md` are prompts with a `mode` (read, web or edit).
   Which CLI and model solve a step is the pipeline's choice (`CLI_<step>=`). `drivers/claude` and `drivers/opencode` are the only files that

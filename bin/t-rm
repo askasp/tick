@@ -12,8 +12,11 @@ for other in "$T_TASKS"/*/; do
 done
 
 branch=$(cat "$task/branch" 2> /dev/null || true)
-if [ -d "$task/work" ] && [ ! -L "$task/work" ]; then
-  git -C "$(cat "$task/repo")" worktree remove --force "$task/work"
+work=$(readlink -f "$task/work" 2> /dev/null || true)
+if [ -d "$work" ] && [[ $work == "$(readlink -f "$task")"/* ]]; then   # its own, not a stacked parent's
+  teardown=$(for f in "$T_ROOT/pipelines/$(cat "$task/pipeline")/env" "$task/env"; do [ ! -f "$f" ] || . "$f"; done; echo "${TEARDOWN:-}")
+  if [ -n "$teardown" ]; then (cd "$work" && bash -c "$teardown") || echo "t: teardown failed: $teardown" >&2; fi
+  git -C "$(cat "$task/repo")" worktree remove --force "$work"
 fi
 rm -rf "$task"
 echo "t: removed task $n${branch:+; branch $branch is still there}" >&2

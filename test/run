@@ -236,6 +236,16 @@ test_each_step_runs_on_the_cli_its_pipeline_names() {
   not grep -q -- 'test-model' "$FAKE/claude.calls"        # opencode's model isn't claude's
 }
 
+test_a_worktree_has_a_name_of_its_own_and_teardown_follows_tests() {
+  printf 'TEST_CMD="pwd > %s/pwd"\nTEARDOWN="echo down >> %s/teardowns"\n' "$tmp" "$tmp" >> "$tmp/tick/pipelines/local/env"
+  id=$(new "add the widget")
+  t run $id
+  eq "$(basename "$(cat "$tmp/pwd")")" "repo-$id"         # what the test command sees as its directory
+  eq "$(grep -c down "$tmp/teardowns")" 1                 # after the tests
+  t rm $id 2> /dev/null
+  eq "$(grep -c down "$tmp/teardowns")" 2                 # and before its worktree went
+}
+
 test_say_sends_a_done_task_back_with_your_notes() {
   id=$(new "add the widget")
   t run $id

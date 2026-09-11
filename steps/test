@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # test — run the repo's tests in the worktree. If they fail, send the output back to implement.
 # The command is TEST_CMD (t new --test "npm test"), or else `make test` when the Makefile has one.
+# TEARDOWN, when the pipeline sets it, runs afterwards: stop the containers the tests needed.
 set -uo pipefail
 t=$PWD
-cd work || exit 1
+cd -P work || exit 1
 
 cmd=${TEST_CMD:-}
 if [ -z "$cmd" ] && [ -f Makefile ] && grep -q '^test:' Makefile; then cmd="make test"; fi
@@ -12,6 +13,7 @@ if [ -z "$cmd" ]; then
   exit 0
 fi
 
+[ -z "${TEARDOWN:-}" ] || trap 'echo "\$ $TEARDOWN"; bash -c "$TEARDOWN"' EXIT   # whatever the tests started, pass or fail
 echo "\$ $cmd"
 if timeout "${TEST_TIMEOUT:-30m}" bash -c "$cmd" > "$t/test.out" 2>&1; then
   tail -5 "$t/test.out"

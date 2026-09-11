@@ -9,7 +9,7 @@ base=$(cat base)
   printf '\n## The change (git diff %s...HEAD)\n\n```diff\n' "$base"
   git -C work diff "$base...HEAD"
   printf '```\n'
-} | (cd work && agent reviewer) > review.md
+} | (cd -P work && agent reviewer) > review.md
 
 case $(grep -oE '^VERDICT: *(approve|changes)' review.md | tail -1 || true) in
   *approve) ;;

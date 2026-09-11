@@ -6,7 +6,7 @@ t=$PWD
 waited=$(( $(date +%s) - $(stat -c %Y pushed) ))
 
 pr=$(cat pr)
-out=$(cd work && gh pr checks "$pr" 2>&1)
+out=$(cd -P work && gh pr checks "$pr" 2>&1)
 code=$?
 echo "$out"
 
@@ -30,7 +30,7 @@ fi
   echo '```'
   echo "$out"
   for run in $(grep -oE 'actions/runs/[0-9]+' <<< "$out" | sort -u | cut -d/ -f3); do
-    (cd work && gh run view "$run" --log-failed) 2>&1 | tail -80
+    (cd -P work && gh run view "$run" --log-failed) 2>&1 | tail -80
   done
   echo '```'
 } > "$t/feedback.md"

@@ -5,22 +5,25 @@ set -euo pipefail
 t=$PWD repo=$(cat repo) base=$(cat base) branch=$(cat branch)
 
 if [ ! -e work ]; then
-  # First run: a new worktree on a new branch off the base. One git at a time per repo,
-  # because two tasks starting in the same tick would otherwise race on its refs.
-  (
+  # First run: a new worktree on a new branch off the base. It gets a name of its own, not
+  # "work", because repos derive ports and container names from it (amino's dev-env.sh does).
+  # One git at a time per repo, because two tasks starting in one tick race on its refs.
+  dir=${repo##*/}-${t##*/}
+  [ -d "$dir" ] || (
     flock 7
     case $base in
       origin/*) git -C "$repo" fetch -q origin || echo "fetch failed; branching from the local copy of $base" >&2 ;;
     esac
     if git -C "$repo" rev-parse -q --verify "refs/heads/$branch" > /dev/null; then
-      git -C "$repo" worktree add -q "$t/work" "$branch"
+      git -C "$repo" worktree add -q "$t/$dir" "$branch"
     else
-      git -C "$repo" worktree add -q --no-track -b "$branch" "$t/work" "$base"
+      git -C "$repo" worktree add -q --no-track -b "$branch" "$t/$dir" "$base"
     fi
   ) 7> "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/tick.lock"
+  ln -s "$dir" work
 fi
 
-cd work
+cd -P work
 if [ "$(git branch --show-current)" != "$branch" ]; then
   # stacked: the worktree belongs to the task below; put our own branch on top of its branch
   [ -z "$(git status --porcelain)" ] || { echo "the worktree has uncommitted changes; not switching to $branch" >&2; exit 1; }
