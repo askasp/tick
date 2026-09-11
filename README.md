@@ -34,21 +34,22 @@ installed, the list is fuzzy-searchable.
 
 ```
 $ t ls
-ID    PIPE     STEPS   AT            STATE     TITLE
-1     shop     ✓✓▶     30-review     running   Add a discount code field to checkout
-2     shop     ▶··     10-implement  HOLD      Rename cart to basket everywhere
+ID   STEPS  STATE      REPO     TITLE
+1    ✓✓▶    running    shop     Add a discount code field to checkout
+3    ▶··    after 1    shop     └ Show the discount on the receipt
+2    ▶··    held       shop     Rename cart to basket everywhere
       ↳ implement ran 3 times without getting past it   (t show 2)
-3     shop     ▶··     10-implement  after 1   Show the discount on the receipt
 ```
 
-In STEPS, ✓ means done, ▶ is where the task is, and · is still to come.
-The STATE column shows one of:
+In STEPS, ✓ means done, ▶ is where the task is, and · is still to come. A task
+stacked on another sits under it (└) until that one is done. The STATE column
+shows one of:
 
-- `ready`: the next tick starts it
+- `next tick`: the next tick starts it
 - `running`
 - `after N`: stacked on task N, and waiting for it
-- `HOLD`: it needs you
-- `done`
+- `held`: it needs you
+- `done`, or `answered` for a question
 
 ### One task
 
@@ -288,7 +289,7 @@ t run [TASK]               run it now, in this terminal
 t hold [TASK] [why]        pause it
 t resume [TASK] [STEP]     unpause it, optionally at another step
 t path [TASK]              its worktree:  cd "$(t path discount)"
-t rm [TASK]                delete the task and its worktree (the branch stays)
+t rm [-f] [TASK]           delete the task and its worktree (the branch stays); -f stops its run first
 t doctor                   what's missing, and the pipelines
 t tick                     what cron runs
 ```

@@ -8,7 +8,7 @@ if [ -z "$rows" ]; then
   exit 0
 fi
 {
-  printf '%-5s %-8s %-7s %-13s %-9s %s\n' ID PIPE STEPS AT STATE TITLE
+  printf '%-4s %-6s %-10s %-8s %s\n' ID STEPS STATE REPO TITLE
   while IFS= read -r row; do
     echo "$row"
     n=${row%% *}

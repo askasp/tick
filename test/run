@@ -109,7 +109,7 @@ test_a_step_that_never_gets_past_holds_the_task() {
   t run $id
   eq "$(step $id)" 10-implement
   grep -q 'ran 3 times' "$(dir $id)/hold"
-  t ls | grep -q HOLD
+  t ls | grep -q held
   t run $id
   eq "$(cat "$(dir $id)/runs/10-implement")" 3            # held: nothing ran
   t resume $id 2> /dev/null
@@ -158,6 +158,16 @@ test_a_stacked_task_waits_then_builds_on_its_parent() {
   eq "$(git -C "$w" rev-list --count "t/$a-parent-work..HEAD")" 1
   eq "$(cat "$(dir $b)/base")" "t/$a-parent-work"
   grep -q "git diff t/$a-parent-work...HEAD" "$FAKE/read.prompts"   # its review saw only its own diff
+}
+
+test_a_stacked_task_sits_under_its_parent_until_that_is_done() {
+  a=$(new "parent work")
+  b=$(new "child work" --on $a)
+  t ls | grep -A1 "^$((10#$a)) " | grep -q "^$((10#$b)) .*└ child work$"
+  t run $a
+  out=$(t ls)
+  grep -q "^$((10#$b)) .* child work$" <<< "$out"
+  not grep -q └ <<< "$out"
 }
 
 test_t_stack_starts_a_task_on_another() {
@@ -274,6 +284,21 @@ test_say_sends_a_done_task_back_with_your_notes() {
   t run $id
   eq "$(step $id)" done
   grep -q 'also handle the empty case' "$FAKE/edit.prompts"
+}
+
+test_rm_f_stops_the_run_and_its_agent_first() {
+  a=$(new "parent work")
+  b=$(new "child work" --on $a)
+  ( exec 9> "$(dir $a)/lock"; flock 9; sleep 30 ) &
+  pid=$!
+  sleep 0.5
+  t rm -f $b 2> /dev/null                                  # it only waits on the run, so the run goes on
+  kill -0 $pid
+  not t rm $a 2> "$tmp/err"
+  grep -q "t rm -f $((10#$a))" "$tmp/err"
+  t rm -f $a 2> /dev/null
+  [ ! -d "$(dir $a)" ]
+  not wait $pid                                            # killed, not finished
 }
 
 test_rm_removes_the_worktree_and_keeps_the_branch() {

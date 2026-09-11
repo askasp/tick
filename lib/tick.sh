@@ -100,19 +100,39 @@ progress() {
   done
 }
 
-# one row per task: open ones, then (with -a) done ones
+# one row per task: open ones, then (with -a) done ones. A task waiting on another sits under it.
 board() {
-  local t st p row later=
+  local t later=
   for t in "$T_TASKS"/*/; do
-    [ -f "$t/step" ] || continue
     t=${t%/}
-    st=$(state "$t")
-    p=$(progress "$t")
-    row=$(printf '%-5s %-8s %s%*s %-13s %-9s %s' "$((10#${t##*/}))" "$(cat "$t/pipeline")" "$p" $((7 - ${#p})) '' \
-      "$(cat "$t/step")" "$st" "$(title "$t")")
-    if [ "$st" != done ]; then echo "$row"; elif [ "${1:-}" = -a ]; then later+=$row$'\n'; fi
+    [ -f "$t/step" ] || continue
+    case $(state "$t") in
+      after*) ;;
+      done)   [ "${1:-}" != -a ] || later+=$(rows "$t")$'\n' ;;
+      *)      rows "$t" ;;
+    esac
   done
   printf %s "$later"
+}
+
+# a task's row, then the rows of the tasks waiting on it, $2 before their titles:
+# 7    ✓✓▶··  running   amino    Add a discount code field
+rows() {
+  local t=$1 st word repo=- p c
+  st=$(state "$t")
+  case $st in
+    ready) word="next tick" ;;
+    HOLD)  word=held ;;
+    done)  word=done; [ ! -f "$t/answer.md" ] || word=answered ;;
+    *)     word=$st ;;
+  esac
+  if [ -f "$t/repo" ]; then repo=$(profile_of "$(cat "$t/repo")"); repo=${repo:-$(basename "$(cat "$t/repo")")}; fi
+  p=$(progress "$t")
+  printf '%-4s %s%*s %-10s %-8.8s %s%s\n' "$((10#${t##*/}))" "$p" $((6 - ${#p})) '' "$word" "$repo" "${2:-}" "$(title "$t")"
+  for c in "$T_TASKS"/*/after; do
+    [ "$(cat "$c" 2> /dev/null)" = "${t##*/}" ] && [[ $(state "${c%/after}") == after* ]] || continue
+    rows "${c%/after}" "${2:+  }${2:-└ }"
+  done
 }
 
 # the directory of task 7

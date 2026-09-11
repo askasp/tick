@@ -1,15 +1,25 @@
 #!/usr/bin/env bash
-# t rm [TASK] — delete a task and its worktree (the branch stays)
+# t rm [-f] [TASK] — delete a task and its worktree (the branch stays); -f first stops its run, agent and all
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
+force=
+if [ "${1:-}" = -f ]; then force=1; shift; fi
 task=$(task_dir "${1:-}")
 id=${task##*/} n=$((10#${task##*/}))
-flock -n "$task/lock" true || die "task $n is running; t hold $n, and remove it when it stops"
 for other in "$T_TASKS"/*/; do
   if [ "$(cat "$other/after" 2> /dev/null)" = "$id" ]; then
     die "task $((10#$(basename "$other"))) is stacked on $n; remove that one first"
   fi
 done
+# a task waiting on another shares that one's lock, so a held lock isn't its own run
+if [[ $(state "$task") != after* ]] && ! flock -n "$task/lock" true; then
+  [ -n "$force" ] || die "task $n is running; stop it and delete it with: t rm -f $n"
+  fuser -k -TERM "$task/lock" > /dev/null 2>&1 || true      # every process of the run holds the lock open
+  if ! flock -w 10 "$task/lock" true; then
+    fuser -k -KILL "$task/lock" > /dev/null 2>&1 || true
+    flock -w 5 "$task/lock" true || die "task $n still runs; see what holds it: fuser -v $task/lock"
+  fi
+fi
 
 branch=$(cat "$task/branch" 2> /dev/null || true)
 work=$(readlink -f "$task/work" 2> /dev/null || true)

@@ -17,7 +17,7 @@ ask() { local a; read -rp "$1 " a < /dev/tty; echo "$a"; }
 
 while :; do
   echo
-  row=$({ echo "+     new task"; board -a; } |
+  row=$({ echo "+    new task"; board -a; } |
     PICK_PREVIEW="[ {1} = + ] && echo 'start a new task' || $T_ROOT/bin/t-show {1}" pick "task") || exit 0
   if [[ $row == +* ]]; then t-new; continue; fi
   id=${row%% *}
