@@ -18,9 +18,9 @@ id=${task##*/} n=$((10#${task##*/}))
 exec 9> lock
 flock -n 9 || exit 0
 
-for f in "$T_ROOT/pipelines/$(cat pipeline)/env" ./env; do  # the pipeline's settings, then the task's
-  [ ! -f "$f" ] || { set -a; . "$f"; set +a; }
-done
+set -a
+load_env "$task"
+set +a
 export TASK_ID=$id
 mkdir -p log runs
 note() { echo "$(date '+%F %T') $*" | tee -a history >&2; }

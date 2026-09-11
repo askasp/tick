@@ -1,0 +1,7 @@
+# amino: `t new -r amino "..."` from anywhere. Tests follow the repo's worktree-setup skill (path A):
+# a postgres container of the worktree's own and bun test on the host, with no image build.
+# TEARDOWN removes that container again, after every test run and before `t rm` deletes the worktree.
+REPO=~/git/amino-monorepo
+PIPELINE=feature
+TEST_CMD="$T_ROOT/repos/amino/run-tests"
+TEARDOWN="$T_ROOT/repos/amino/teardown"

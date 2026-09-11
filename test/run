@@ -6,7 +6,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 path=$PATH
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 SHELL=/bin/bash
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
-unset T_VAR T_PIPELINE MAX_RUNS SLOTS_claude SLOTS_opencode AGENT_CLI AGENT_MODEL T_PICKER
+unset T_VAR T_PIPELINE T_REPO T_REPOS MAX_RUNS SLOTS_claude SLOTS_opencode AGENT_CLI AGENT_MODEL T_PICKER
 
 eq()   { [ "$1" = "$2" ] || { echo "expected '$2', got '$1'" >&2; return 1; }; }
 not()  { if "$@"; then echo "should have failed: $*" >&2; return 1; fi; }
@@ -28,6 +28,7 @@ wait_done() {
 setup() {
   tmp=$(mktemp -d)
   cp -a "$root" "$tmp/tick"
+  rm -rf "$tmp/tick/repos"                 # your own repos stay out of the tests
   export T_VAR=$tmp/var FAKE=$tmp/fake PATH=$tmp/tick/test/fake:$tmp/tick/bin:$path
   mkdir -p "$FAKE"
   git init -q --bare -b main "$tmp/origin.git"
@@ -40,10 +41,9 @@ setup() {
   git remote set-head origin main
 }
 
-tie() {   # a pipeline "widget" (implement → test → review) tied to the toy repo
-  mkdir "$tmp/tick/pipelines/widget"
-  for s in 10-implement 20-test 30-review; do ln -s "../../steps/${s#*-}" "$tmp/tick/pipelines/widget/$s"; done
-  printf 'REPO=%s\nTEST_CMD="touch %s/tested && make test"\n' "$tmp/repo" "$tmp" > "$tmp/tick/pipelines/widget/env"
+profile() {   # a repo named "toy" for the toy repo: feature by default, with a test command of its own
+  mkdir -p "$tmp/tick/repos/toy"
+  printf 'REPO=%s\nPIPELINE=feature\nTEST_CMD="touch %s/tested && make test"\n' "$tmp/repo" "$tmp" > "$tmp/tick/repos/toy/env"
 }
 
 test_scripts_parse() {
@@ -267,17 +267,44 @@ test_rm_removes_the_worktree_and_keeps_the_branch() {
   git rev-parse -q --verify "refs/heads/t/$id-add-the-widget" > /dev/null
 }
 
-test_a_pipeline_tied_to_a_repo_works_from_anywhere() {
-  tie
+test_a_repo_by_name_brings_its_pipeline_and_its_tests() {
+  profile
   cd /
-  id=$(new "add the widget" -p widget)
+  id=$(new "add the widget" -r toy)
   eq "$(cat "$(dir $id)/repo")" "$(realpath "$tmp/repo")"
+  eq "$(cat "$(dir $id)/pipeline")" feature               # the repo's own pipeline
+  id=$(new "try the widget" -r toy -p local)              # another pipeline for once...
   t run $id
-  eq "$(step $id)" done                                   # its env file wasn't run as a step
-  [ -e "$tmp/tested" ]                                    # the pipeline's TEST_CMD ran
+  eq "$(step $id)" done
+  [ -e "$tmp/tested" ]                                    # ...still with the repo's test command
   cd "$tmp/repo"
-  id=$(new "another widget")
-  eq "$(cat "$(dir $id)/pipeline")" widget                # standing in the repo picks its pipeline
+  id=$(new "one more widget")
+  eq "$(cat "$(dir $id)/pipeline")" feature               # standing in the repo counts the same
+}
+
+test_a_repo_can_be_a_directory_name_or_the_default() {
+  cd /
+  not new "no repo anywhere"
+  export T_REPOS=$tmp
+  id=$(new "add the widget" -r repo)                      # a directory in $T_REPOS
+  eq "$(cat "$(dir $id)/repo")" "$(realpath "$tmp/repo")"
+  export T_REPO=$tmp/repo
+  id=$(new "add the gadget")                              # outside any repo: T_REPO
+  eq "$(cat "$(dir $id)/pipeline")" local
+}
+
+test_completion_offers_what_you_can_type() {
+  profile
+  export T_REPOS=$tmp
+  t complete commands | grep -q '^new:create a task'
+  t complete pipelines | grep -q '^feature:implement (opencode) → test'
+  t complete repos | grep -q '^toy:.*(pipeline feature)'
+  t complete repos | grep -q "^repo:$tmp/repo"
+  t complete clis | grep -qx opencode
+  id=$(new "add the widget")
+  t complete tasks | grep -q '^1:add the widget  (10-implement, ready)'
+  t complete steps widget | grep -qx review
+  zsh -n "$tmp/tick/completions/t.zsh"
 }
 
 test_a_task_can_be_named_by_a_word_from_its_title() {

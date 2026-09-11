@@ -25,21 +25,51 @@ find_step() {
 
 title() { sed -n '1s/^# //p' "$1/task.md"; }
 
-# the repo a pipeline is tied to: REPO= in pipelines/NAME/env ("none": it needs no repo)
-pipeline_repo() {
-  local env=$T_ROOT/pipelines/$1/env
-  [ -f "$env" ] || return 0
-  (REPO=; . "$env" > /dev/null 2>&1
-   case $REPO in '') ;; none) echo none ;; *) realpath -m "$REPO" ;; esac)
+# one setting from an env file
+env_get() { [ -f "$1" ] || return 0; (unset "$2"; . "$1" > /dev/null 2>&1; echo "${!2:-}"); }
+
+# repos/NAME/env names a repo: REPO= where it is, PIPELINE= its default pipeline, and
+# settings its steps read (TEST_CMD=, TEARDOWN=)
+profile_get() { [ -z "$1" ] || env_get "$T_ROOT/repos/$1/env" "$2"; }
+
+# the repo profile whose REPO is this path, if there is one
+profile_of() {
+  local d r
+  for d in "$T_ROOT"/repos/*/; do
+    d=${d%/}
+    r=$(profile_get "${d##*/}" REPO)
+    if [ -n "$r" ] && [ "$(realpath -m "$r")" = "$1" ]; then echo "${d##*/}"; return; fi
+  done
+}
+
+# -r NAME: a repo profile, a path, or a directory in $T_REPOS
+repo_path() {
+  if [ -f "$T_ROOT/repos/$1/env" ]; then profile_get "$1" REPO
+  elif [ -d "$1" ]; then echo "$1"
+  elif [ -d "$T_REPOS/$1" ]; then echo "$T_REPOS/$1"
+  else die "no repo '$1': not in $T_ROOT/repos/, not a path, and not in $T_REPOS"
+  fi
+}
+
+# a pipeline that needs no repo says REPO=none in its env (research)
+no_repo() { [ "$(env_get "$T_ROOT/pipelines/$1/env" REPO)" = none ]; }
+
+# a task's settings, the most specific last: its pipeline's env, its repo's, its own
+load_env() {
+  local p f
+  p=$(profile_of "$(cat "$1/repo" 2> /dev/null)")
+  for f in "$T_ROOT/pipelines/$(cat "$1/pipeline")/env" ${p:+"$T_ROOT/repos/$p/env"} "$1/env"; do
+    [ ! -f "$f" ] || . "$f"
+  done
 }
 
 # the CLI that step $2 of pipeline $1 runs on, when the pipeline names one (CLI_<step>=);
-# given a task directory as $3, that task's `t new --cli` wins
+# given a task directory as $3, its repo's settings and its own `t new --cli` count too
 solver() {
   local v=CLI_${2//[^a-zA-Z0-9_]/_}
   (
     [ ! -f "$T_ROOT/pipelines/$1/env" ] || . "$T_ROOT/pipelines/$1/env" > /dev/null 2>&1
-    [ -z "${3:-}" ] || [ ! -f "$3/env" ] || . "$3/env" > /dev/null 2>&1
+    [ -z "${3:-}" ] || load_env "$3" > /dev/null 2>&1
     [ -z "${!v:-}" ] || echo "${AGENT_CLI:-${!v}}"
   )
 }

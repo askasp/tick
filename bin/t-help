@@ -1,24 +1,33 @@
 #!/usr/bin/env bash
-# t help — how to start a task, the pipelines, and every command
+# t help — how to start a task, the repos and pipelines, and every command
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 
 cat << 'EOF'
 tick: AI coding tasks on a board of files; cron moves them along.
 
-Start a task (from inside a repo):
-  t new "Add a discount code field"          code it: implement, test, review
-  t new                                       the same, writing the title and details in $EDITOR
-  t new -p feature "..."                      ...then open a PR and wait for its CI
-  t new --on 3 "..."                          stack it on task 3: same worktree, starts when 3 is done
-  t new --cli claude "..."                    solve every step with claude instead
-  t new --now -p ask "How does X work?"       a question about the repo, answered right here
-  t new --now -p research "..."               a question for the web
+Start a task, from any directory (TAB completes -r, -p, --on and tasks):
+  t new -r amino "Add a discount code field"   in amino, with amino's own pipeline
+  t new "..."                                  in the repo you're standing in
+  t new                                        the same, writing the title and details in $EDITOR
+  t new -r amino -p local "..."                another pipeline for once: here, no PR
+  t new --on 3 "..."                           stack it on task 3: same worktree, starts when 3 is done
+  t new --cli claude "..."                     solve every step with claude instead
+  t new --now -r amino -p ask "How does X work?"   a question about a repo, answered right here
+  t new --now -p research "..."                a question for the web
 
 Follow it:
   t                  the board: pick a task, then what to do with it
   t show 3           where it is, and what to do next
 
 EOF
+echo "Repos (-r NAME; any directory in $T_REPOS, or a path, works too):"
+for d in "$T_ROOT"/repos/*/; do
+  d=${d%/}
+  [ -f "$d/env" ] || continue
+  p=$(profile_get "${d##*/}" PIPELINE)
+  printf '  %-9s %s  (pipeline %s)\n' "${d##*/}" "$(profile_get "${d##*/}" REPO)" "${p:-$T_PIPELINE}"
+done
+echo
 echo "Pipelines (-p NAME; * is the default):"
 for d in "$T_ROOT"/pipelines/*/; do
   name=$(basename "$d") mark=' '

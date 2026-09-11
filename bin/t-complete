@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# t complete commands|pipelines|repos|clis|tasks|steps TASK — "name:description" lines for tab completion
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+
+case ${1:-} in
+  commands)  for f in "$T_ROOT"/bin/t-*; do echo "${f##*/t-}:$(sed -n '2s/^.* — //p' "$f")"; done ;;
+  pipelines) for d in "$T_ROOT"/pipelines/*/; do d=${d%/}; echo "${d##*/}:$(flow "${d##*/}")"; done ;;
+  repos)
+    for d in "$T_ROOT"/repos/*/; do
+      d=${d%/}
+      [ -f "$d/env" ] || continue
+      p=$(profile_get "${d##*/}" PIPELINE)
+      echo "${d##*/}:$(profile_get "${d##*/}" REPO)  (pipeline ${p:-$T_PIPELINE})"
+    done
+    for d in "$T_REPOS"/*/; do
+      if [ -e "$d/.git" ]; then d=${d%/}; echo "${d##*/}:$d"; fi
+    done ;;
+  clis)      ls "$T_ROOT/drivers" ;;
+  tasks)
+    for t in "$T_TASKS"/*/; do
+      [ -f "$t/step" ] || continue
+      t=${t%/}
+      echo "$((10#${t##*/})):$(title "$t")  ($(cat "$t/step"), $(state "$t"))"
+    done ;;
+  steps)     t=$(task_dir "${2:?usage: t complete steps TASK}") && steps "$(cat "$t/pipeline")" | sed 's/^[0-9]*-//' ;;
+  *)         die "usage: t complete commands|pipelines|repos|clis|tasks|steps TASK" ;;
+esac

@@ -3,9 +3,9 @@
 #
 # No title: $EDITOR opens; line 1 is the title, the rest details for the agent.
 # A "-" reads the details from stdin instead:  cat spec.md | t new "Add proration" -
-# The repo is -r, else the repo the pipeline is tied to (REPO= in its env), else the repo you're in.
-# A pipeline with REPO=none (research) needs no repo at all. --now runs the task here, at once.
-# The pipeline is -p, else the one tied to that repo, else $T_PIPELINE.
+# The repo is -r NAME (a repo in repos/, a path, or a directory in $T_REPOS), else the one you're in,
+# else $T_REPO. A pipeline with REPO=none (research) needs none. --now runs the task here, at once.
+# The pipeline is -p, else the repo's own (PIPELINE= in repos/NAME/env), else $T_PIPELINE.
 # --on TASK stacks it: that task's worktree, repo and pipeline, and it waits until that task is done.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
@@ -57,19 +57,15 @@ if [ -n "$on" ]; then
   repo=$(cat "$parent/repo")
   base=$(cat "$parent/branch")
   pipeline=${pipeline:-$(cat "$parent/pipeline")}
-elif [ -z "$repo" ] && [ -n "$pipeline" ] && [ "$(pipeline_repo "$pipeline")" = none ]; then
+elif [ -z "$repo" ] && [ -n "$pipeline" ] && no_repo "$pipeline"; then
   :
 else
-  if [ -z "$repo" ] && [ -n "$pipeline" ]; then repo=$(pipeline_repo "$pipeline"); fi
+  if [ -n "$repo" ]; then repo=$(repo_path "$repo")
+  elif ! git rev-parse --git-dir > /dev/null 2>&1 && [ -n "$T_REPO" ]; then repo=$(repo_path "$T_REPO"); fi
   common=$(git -C "${repo:-.}" rev-parse --path-format=absolute --git-common-dir 2> /dev/null) ||
-    die "${repo:-this directory} is not in a git repo: cd into one, use -r REPO, or tie a pipeline to one (REPO= in pipelines/NAME/env)"
+    die "${repo:-this directory} is not in a git repo: cd into one, pass -r NAME, or set T_REPO in etc/tick.conf"
   repo=${common%/.git}
-  if [ -z "$pipeline" ]; then
-    for d in "$T_ROOT"/pipelines/*/; do
-      d=${d%/}
-      if [ "$(pipeline_repo "${d##*/}")" = "$repo" ]; then pipeline=${d##*/}; break; fi
-    done
-  fi
+  [ -n "$pipeline" ] || pipeline=$(profile_get "$(profile_of "$repo")" PIPELINE)
   [ -n "$base" ] || base=$(trunk "$repo") || die "can't tell the trunk of $repo; pass --base BRANCH"
 fi
 pipeline=${pipeline:-$T_PIPELINE}

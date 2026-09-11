@@ -8,21 +8,22 @@ everything else.
 
 1. `ln -s ~/git/tick/bin/t ~/.local/bin/t`
 2. `(crontab -l; echo '* * * * * $HOME/git/tick/bin/t tick') | crontab -`
-3. `t doctor`: checks the tools and the two lines above, and lists the pipelines.
+3. `echo 'source ~/git/tick/completions/t.zsh' >> ~/.zshrc` for tab completion
+   (it must come after `compinit`).
+4. `t doctor`: checks all of the above, and lists your repos and pipelines.
 
 `test/run` runs the test suite. It uses fake CLIs, so it costs no tokens.
 
 ## Daily use
 
 ```sh
-cd ~/git/shop
-t new "Add a discount code field"     # a task in its own worktree, off main
-t new                                 # the same, but $EDITOR opens for the title and details
-t                                     # the board: pick a task, then what to do with it
-t show discount                       # one task: where it is, and what you can do next
-t log discount -f                     # watch it work
-t say discount "also validate it"     # send it back to the implementer
-t diff discount                       # read the change
+t new -r amino "Add a discount code field"   # in amino, from any directory (TAB completes -r)
+t new                                        # in the repo you're in, writing it in $EDITOR
+t                                            # the board: pick a task, then what to do with it
+t show discount                              # one task: where it is, and what you can do next
+t log discount -f                            # watch it work
+t say discount "also validate it"            # send it back to the implementer
+t diff discount                              # read the change
 ```
 
 Wherever a command takes a TASK, you can give its number (`3`), a word from
@@ -70,7 +71,7 @@ $ t show 2
 
 ### A normal coding task, start to finish
 
-1. `t new "…"` in the repo, or `t new -p shop "…"` from anywhere.
+1. `t new -r amino "…"` from anywhere, or `t new "…"` inside the repo.
 2. The tick runs **implement** (the agent edits, and the script commits),
    then **test** (your test command), then **review** (a second agent reads
    the diff).
@@ -85,8 +86,7 @@ $ t show 2
 ### Questions instead of code
 
 ```sh
-cd ~/git/shop
-t new --now -p ask "How does checkout compute tax?"             # reads the repo, changes nothing
+t new --now -r amino -p ask "How does checkout compute tax?"    # reads amino, changes nothing
 t new --now -p research "What changed in Postgres 18 upgrades?" # searches the web, from anywhere
 t say 7 "and where is that tested?"                            # a follow-up
 t show 7                                                       # the question, the answer, the history
@@ -127,7 +127,8 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 | `ask` | answer (opencode): reads the repo you're in and changes nothing |
 | `research` | answer (claude): searches the web; needs no repo |
 
-You pick one per task with `t new -p feature "…"`.
+You pick one per task with `t new -p feature "…"`, and a repo can name its own
+default (see Repos).
 
 ### Who solves each step
 
@@ -155,34 +156,37 @@ link's name, not the script's: add `ln -s ../../steps/review 35-second-review`
 and `CLI_second_review=claude`. `t show` and `t doctor` print the solver next
 to each step.
 
-### A pipeline for one repo
+## Repos
 
-```
-pipelines/shop/
-  10-implement -> ../../steps/implement
-  20-test      -> ../../steps/test
-  30-review    -> ../../steps/review
-  env
-```
-
-`env` is sourced before every step, and `t new` reads its `REPO`:
+A repo gets a short name, a default pipeline and settings of its own in
+`repos/NAME/env`, so you can start work in it from any directory:
 
 ```sh
-REPO=~/git/shop          # `t new -p shop` works from any directory
-TEST_CMD="npm test"      # what the test step runs; without it, `make test` or nothing
-TEARDOWN="docker compose down -v"   # after every test run, and before `t rm` deletes the worktree
-CLI_implement=opencode   # who solves each agent step: claude or opencode
-CLI_review=claude
+# repos/amino/env
+REPO=~/git/amino-monorepo                  # where it is
+PIPELINE=feature                           # its default pipeline
+TEST_CMD="$T_ROOT/repos/amino/run-tests"   # what test steps run; without it, `make test` or nothing
+TEARDOWN="$T_ROOT/repos/amino/teardown"    # after every test run, and before `t rm` deletes the worktree
 ```
 
-When you stand in `~/git/shop`, a plain `t new` picks this pipeline. To make
-one:
+`repos/amino/` also holds the two scripts it names. A repo's settings apply
+under every pipeline you run on it, so `t new -r amino -p local "…"` runs
+amino's tests too.
+
+Which repo and which pipeline a task gets (the first one given wins):
+
+| | repo | pipeline |
+| --- | --- | --- |
+| 1 | `-r NAME`: a name in `repos/`, a directory in `~/git` (`T_REPOS`), or a path | `-p NAME` |
+| 2 | the repo you're standing in | the repo's `PIPELINE=` |
+| 3 | `T_REPO` in `etc/tick.conf`, for when you're in no repo | `T_PIPELINE` in `etc/tick.conf` (local) |
+
+To add one:
 
 ```sh
-mkdir ~/git/tick/pipelines/shop && cd ~/git/tick/pipelines/shop
-for s in 10-implement 20-test 30-review; do ln -s ../../steps/${s#*-} $s; done
-printf 'REPO=~/git/shop\nTEST_CMD="npm test"\n' > env
-t doctor                 # shows it, and warns if its test step would check nothing
+mkdir ~/git/tick/repos/rigg
+printf 'REPO=~/git/rigg\nPIPELINE=local\nTEST_CMD="cargo test"\n' > ~/git/tick/repos/rigg/env
+t doctor      # lists it, and warns if its test steps would check nothing
 ```
 
 ### A new step

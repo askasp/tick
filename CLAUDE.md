@@ -47,7 +47,8 @@ how to change it.
 | to add | do this | touch the runner? |
 | --- | --- | --- |
 | a pipeline | `mkdir pipelines/NAME`, then `ln -s ../../steps/X NN-X` for each step | no |
-| a pipeline for one repo | `pipelines/NAME/env` with `REPO=` and settings like `TEST_CMD=` (sourced before each step); `REPO=none` needs no repo; `TEARDOWN=` stops what the tests started | no |
+| a repo | `repos/NAME/env`: `REPO=` where it is, `PIPELINE=` its default pipeline, and settings its steps read (`TEST_CMD=`, `TEARDOWN=`) | no |
+| a pipeline's settings | `pipelines/NAME/env`; a step sees the pipeline's env, then its repo's, then its task's own. `REPO=none` for a pipeline that needs no repo | no |
 | a step | an executable in `steps/` that follows the contract below | no |
 | an agent | `agents/NAME.md`: a prompt, with `mode: read`, `web` or `edit` in its frontmatter | no |
 | who solves a step | `CLI_<step>=claude` or `opencode`, and optionally `MODEL_<step>=`, in the pipeline's env; `t new --cli` overrides it for one task | no |
