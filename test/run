@@ -7,6 +7,8 @@ path=$PATH
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 SHELL=/bin/bash
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
 unset T_VAR T_PIPELINE T_REPO T_REPOS MAX_RUNS SLOTS_claude SLOTS_opencode AGENT_CLI AGENT_MODEL T_PICKER
+# run by a tick task's test step, the task's settings are exported (TEST_CMD=test/run would be the toy's too)
+unset TASK_ID T_STEP TEST_CMD TEARDOWN $(cat "$root"/pipelines/*/env "$root"/repos/*/env 2> /dev/null | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | sort -u)
 
 eq()   { [ "$1" = "$2" ] || { echo "expected '$2', got '$1'" >&2; return 1; }; }
 not()  { if "$@"; then echo "should have failed: $*" >&2; return 1; fi; }
