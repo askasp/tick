@@ -34,6 +34,14 @@ state() {
   if flock -n -s "$1/lock" true 2> /dev/null; then echo ready; else echo running; fi   # shared: two lookers never see each other
 }
 
+# stop a task's run now, agent and all: every process of the run holds its lock open
+stop() {
+  fuser -k -TERM "$1/lock" > /dev/null 2>&1 || true
+  if flock -w 10 "$1/lock" true; then return; fi
+  fuser -k -KILL "$1/lock" > /dev/null 2>&1 || true
+  flock -w 5 "$1/lock" true || die "task $(task_num "$1") still runs; see what holds it: fuser -v $1/lock"
+}
+
 # the steps of a pipeline, in order; its env file is not a step
 steps() { LC_ALL=C ls "$T_ROOT/pipelines/$1" | grep '^[0-9]'; }
 

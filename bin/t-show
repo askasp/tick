@@ -27,9 +27,10 @@ show() {
   echo "$n  $(title "$task")"
   echo
   echo "  $pipeline:  $flow"
+  run=$(( $(cat "$task/runs/$step" 2> /dev/null || echo 1) - $(cat "$task/runs/$step.moved" 2> /dev/null || echo 0) ))
   case $st in
     ready)   echo "  state:     waiting for the next tick" ;;
-    running) echo "  state:     running ${step#*-}, run $(cat "$task/runs/$step" 2> /dev/null || echo 1) of $MAX_RUNS" ;;
+    running) echo "  state:     running ${step#*-}, run $run of $MAX_RUNS" ;;
     after*)  echo "  state:     queued behind task $waits_for" ;;
     HOLD)    echo "  state:     ON HOLD: $(head -1 "$task/hold")" ;;
     done)    echo "  state:     done" ;;

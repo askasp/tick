@@ -9,7 +9,7 @@ ask() { local answer; read -rp "$1 " answer < /dev/tty; echo "$answer"; }
 # fzf runs t-ui for everything on the board that changes:
 #   --rows               the board's rows, and one more that starts a new task
 #   --changed            the same, once the board has changed
-#   --onload             what fzf does when rows come in: move the cursor, then wait for --changed
+#   --onload ID QUERY    what fzf does when rows come in: move the cursor, then wait for --changed
 #   --steps              ^f: the steps as marks, or spelled out
 #   --pane ID QUERY      the pane
 #   --key KEY ID QUERY   what KEY does now
@@ -73,14 +73,16 @@ fi
 
 # each reload ends by waiting for the next change, and first moves the cursor to the task in
 # $T_UI/new (one just made, or the neighbour of one just deleted): only then is the list the new
-# one, so a pos() chained right after a reload would land on the old list
+# one, so a pos() chained right after a reload would land on the old list. A cursor that stays
+# gets the header of its task as it is now.
 if [ "${1:-}" = --onload ]; then
-  row=
+  row= header=
   if [ -s "$T_UI/new" ]; then
     row=$(row_of "$(cat "$T_UI/new")")
     rm -f "$T_UI/new"
   fi
-  printf '%sreload-sync~t-ui --changed~' "${row:+pos($row)+}"
+  if [ -z "$row" ]; then header=$(t-ui --key focus "${2:-+}" "${3:-}"); fi
+  printf '%s%sreload-sync~t-ui --changed~' "${row:+pos($row)+}" "${header:+$header+}"
   exit
 fi
 
@@ -103,14 +105,14 @@ if [ "${1:-}" = --pane ]; then
       echo "${C_DIM}goes to feedback.md; the task restarts at$C_OFF $pick ${C_DIM}on the next tick$C_OFF"
       who=$(cat "$T_UI/cli")
       who=${who:-$(solver "$(cat "$task/pipeline")" "$pick" "$task")}
-      if [ -n "$who" ]; then echo "${C_DIM}solved by$C_OFF $who  $C_PURPLE^A$C_DIM another$C_OFF"; else echo; fi
+      if [ -n "$who" ]; then echo "${C_DIM}solved by$C_OFF $who  ${C_PURPLE}alt-a$C_DIM another$C_OFF"; else echo; fi
       echo
       CLICOLOR_FORCE=1 t-log "$target" | tail -n 60 ;;
     hold)
       echo "${C_YELLOW}hold$C_OFF  ${C_DIM}task $target · $(name "$task")$C_OFF"
       rule "$C_DIM"
-      echo "The tick leaves it alone until you resume it: ^o again."
-      if [ "$(state "$task")" = running ]; then echo "It is running: the step running now finishes first."; fi
+      echo "The tick leaves it alone until you resume it: alt-h again."
+      if [ "$(state "$task")" = running ]; then echo "It is running: the step running now finishes first. To stop it now instead: esc, then alt-c."; fi
       echo
       echo "${C_DIM}The board will say:$C_OFF ${C_RED}HELD ${q:-held by hand}$C_OFF" ;;
     name)
@@ -140,15 +142,21 @@ if [ "${1:-}" = --pane ]; then
       rule "$C_DIM"
       printf '%s%-6s%s %-7s %s%s%s\n' "$C_PURPLE" ⏎ "$C_OFF" "" "$C_DIM" "the first of the keys in the header" "$C_OFF"
       while read -r action key what; do
-        if [ "$key" != - ]; then printf '%s%-6s%s %-7s %s%s%s\n' "$C_PURPLE" "^${key#ctrl-}" "$C_OFF" "$action" "$C_DIM" "$what" "$C_OFF"; fi
+        if [ "$key" != - ]; then printf '%s%-6s%s %-7s %s%s%s\n' "$C_PURPLE" "$(keyname "$key")" "$C_OFF" "$action" "$C_DIM" "$what" "$C_OFF"; fi
       done <<< "$ACTIONS"
       echo
-      for pair in "^n|new task" "tab|the pane: details, steps, log, diff" "^d ^u|scroll the pane" "^w|a wide pane, and back" \
-                  "^f|step names" "esc|quit (or back, from here)"; do
+      for pair in "alt-n|new task" "tab|the pane: details, steps, log, diff" "^d ^u|scroll the pane" "^w|a wide pane, and back" \
+                  "^f|step names" "?|back to the board" "esc|quit"; do
         printf '%s%-6s%s %s%s%s\n' "$C_PURPLE" "${pair%%|*}" "$C_OFF" "$C_DIM" "${pair#*|}" "$C_OFF"
-      done ;;
+      done
+      session=$(cat $(ls -tr "$task"/log/*.log 2> /dev/null) /dev/null | grep '^session: ' | tail -1)   # what t attach resumes
+      if [ -n "$session" ]; then
+        read -r _ cli session_id _ <<< "$session"
+        echo
+        echo "${C_DIM}session$C_OFF $cli $session_id"
+      fi ;;
     *)
-      if [ "$id" = + ]; then echo "a new task: Enter here, or ^n on any row"
+      if [ "$id" = + ]; then echo "a new task: Enter here, or alt-n on any row"
       else CLICOLOR_FORCE=1 exec t-peek "$id" "$(cat "$T_UI/pane")"
       fi ;;
   esac
@@ -158,7 +166,7 @@ fi
 if [ "${1:-}" = --key ]; then
   key=$2 id=$3 q=${4:-} pick=$(cat "$T_UI/pick")
   read -r mode target < "$T_UI/mode"
-  header() { if [ "$1" = + ]; then echo "⏎ new task   ^n anywhere"; else CLICOLOR_FORCE=1 t-keys "$1" 2> /dev/null; fi; }
+  header() { if [ "$1" = + ]; then echo "⏎ new task   alt-n anywhere"; else CLICOLOR_FORCE=1 t-keys "$1" 2> /dev/null; fi; }
   back() {   # to the board: its prompt, search and list, and the header of task $1 (the cursor goes there on load)
     echo board > "$T_UI/mode"
     echo "change-prompt(task> )+enable-search+change-query()+change-preview-window(~2)+reload-sync~t-ui --rows~+refresh-preview+change-header~$(header "${1:-$id}")~"
@@ -168,16 +176,16 @@ if [ "${1:-}" = --key ]; then
     echo "$4" > "$T_UI/pick"
     echo "change-prompt($3)+disable-search+change-query~${7:-}~+change-preview-window($5)+refresh-preview+change-header~$6~"
   }
-  follow_if_log() { if [ "$1" = log ]; then echo follow; else echo nofollow; fi; }
+  follow_if_log() { case $1 in log | raw) echo follow ;; *) echo nofollow ;; esac; }
   show() { echo "$1" > "$T_UI/pane"; echo "change-preview-window($(follow_if_log "$1"))+refresh-preview"; }
   failed() { echo "change-header~$C_RED$(grep -m1 . "$T_UI/err" | sed 's/^t: //')$C_OFF~"; exit; }
-  keys() {   # the header while the prompt takes words for $1, with the agent ^A picked
+  keys() {   # the header while the prompt takes words for $1, with the agent alt-a picked
     local agent
     agent=$(cat "$T_UI/cli")
     case $1 in
-      new)   hint ⏎ create ↹ pipeline ^A "agent: ${agent:-default}" ^E details ^R repo esc back ;;
-      stack) hint ⏎ create ↹ pipeline ^A "agent: ${agent:-default}" ^E details esc back ;;
-      say)   hint ⏎ say ↹ "restart step" ^A "agent: ${agent:-default}" esc back ;;
+      new)   hint ⏎ create ↹ pipeline alt-a "agent: ${agent:-default}" alt-e details alt-r repo esc back ;;
+      stack) hint ⏎ create ↹ pipeline alt-a "agent: ${agent:-default}" alt-e details esc back ;;
+      say)   hint ⏎ say ↹ "restart step" alt-a "agent: ${agent:-default}" esc back ;;
     esac
   }
   new_form() {
@@ -195,7 +203,7 @@ if [ "${1:-}" = --key ]; then
     task=$(tdir "$1")
     first=$(steps "$(cat "$task/pipeline")" | head -1)
     if ! flock -n "$task/lock" true; then
-      echo "change-header~${C_RED}task $1 is running; say it when it stops, or hold it: ^o$C_OFF~"
+      echo "change-header~${C_RED}task $1 is running; say it when it stops, or cancel it: alt-c$C_OFF~"
       return
     fi
     : > "$T_UI/cli"
@@ -212,7 +220,7 @@ if [ "${1:-}" = --key ]; then
               show "$(pane_next "$task" "$(pane "$task" "$(cat "$T_UI/pane")")")" ;;
       esc)    echo abort ;;
       ctrl-u) echo preview-half-page-up ;;
-      ctrl-n) new_form ;;
+      alt-n)  new_form ;;
       *)      if [ "$id" = + ]; then
                 if [ "$key" = enter ]; then new_form; fi
                 exit 0
@@ -227,12 +235,20 @@ if [ "${1:-}" = --key ]; then
                 log)    if [[ $(state "$task") == after* ]]; then   # queued: go to what it waits for
                           echo log > "$T_UI/pane"
                           echo "pos($(row_of "$(cat "$task/after")"))"
+                        elif [ "$key" = ctrl-l ] && [ "$(pane "$task" "$(cat "$T_UI/pane")")" = log ]; then
+                          show raw                                 # ^l again: the log as it is
                         else show log; fi ;;
                 diff)   if [ "$(pane_next "$task" log)" = diff ]; then show diff
                         else echo "change-header~${C_DIM}task $id has no change yet$C_OFF~"; fi ;;
                 run)    if flock -n -s "$task/lock" true 2> /dev/null; then setsid t-run "$id" < /dev/null > /dev/null 2>&1 & fi
                         echo log > "$T_UI/pane"
                         echo "reload-sync~t-ui --rows~+change-preview-window(follow)+refresh-preview" ;;
+                cancel) if [ "$(state "$task")" = running ]; then   # the board catches up once the run is gone
+                          setsid t-hold -f "$id" cancelled < /dev/null > /dev/null 2>&1 &
+                          echo "change-header~${C_YELLOW}stopping task $id…$C_OFF~"
+                        else
+                          echo "change-header~${C_DIM}task $id isn't running$C_OFF~"
+                        fi ;;
                 hold)   if [ "$(state "$task")" = HOLD ]; then
                           t-resume "$id" 2> /dev/null
                           echo "reload-sync~t-ui --rows~+refresh-preview+change-header~$(header "$id")~"
@@ -241,7 +257,7 @@ if [ "${1:-}" = --key ]; then
                         fi ;;
                 name)   form name "$id" "name $id> " "" "nofollow,~2" "$(hint ⏎ rename empty "an agent picks one" esc back)" "$(name "$task")" ;;
                 rm)     form rm "$id" "delete $id? " "" "nofollow,~2" "$C_RED⏎ delete$C_TEXT  $(hint esc back)" ;;
-                help)   form help "$id" "keys> " "" "nofollow,~2" "$(hint esc back)" ;;
+                help)   form help "$id" "keys> " "" "nofollow,~2" "$(hint "? esc" back)" ;;
                 say)    say_form "$id" ;;
                 stack)  stack_form "$id" ;;
                 attach) echo "execute(t-attach $id)+reload-sync~t-ui --rows~" ;;      # the agent's own screen: the one that leaves
@@ -261,15 +277,16 @@ if [ "${1:-}" = --key ]; then
             next_choice "$pick" $choices > "$T_UI/pick"
             echo refresh-preview ;;
     esc)    back ;;
-    '?')    echo 'put(?)' ;;
-    ctrl-u) echo unix-line-discard ;;   # in a prompt, ^u clears what you typed
-    ctrl-a) [[ $mode == new || $mode == stack || $mode == say ]] || exit 0   # the agent: the pipeline's, or another
+    '?')    if [ "$mode" = help ]; then back; else echo 'put(?)'; fi ;;
+    ctrl-u) echo unix-line-discard ;;   # in a prompt, ^u clears what you typed, and alt-d a word
+    alt-d)  echo kill-word ;;
+    alt-a)  [[ $mode == new || $mode == stack || $mode == say ]] || exit 0   # the agent: the pipeline's, or another
             next_cli "$(cat "$T_UI/cli")" > "$T_UI/c" && mv "$T_UI/c" "$T_UI/cli"
             echo "refresh-preview+change-header~$(keys "$mode")~" ;;
-    ctrl-r) if [ "$mode" = new ]; then
+    alt-r)  if [ "$mode" = new ]; then
               echo "execute(t-complete repos | fzf --prompt 'repo> ' --height 40% --reverse --delimiter : --nth 1 | cut -d: -f1 > \"\$T_UI/r\" && mv \"\$T_UI/r\" \"\$T_UI/repo\")+refresh-preview"
             fi ;;
-    enter | ctrl-e)
+    enter | alt-e)
       case $mode in
         help) back ;;
         hold) [ "$key" = enter ] || exit 0
@@ -287,7 +304,7 @@ if [ "${1:-}" = --key ]; then
               if [ -n "$cursor" ]; then echo "$cursor" > "$T_UI/new"; fi
               back "${cursor:-+}" ;;
         say)  [ "$key" = enter ] && [ -n "$q" ] || exit 0
-              cli=$(cat "$T_UI/cli")              # ^A picked who solves it from here on: the task's own setting
+              cli=$(cat "$T_UI/cli")              # alt-a picked who solves it from here on: the task's own setting
               if [ -n "$cli" ]; then
                 { grep -v '^AGENT_CLI=' "$task/env" 2> /dev/null; echo "AGENT_CLI=$cli"; } > "$task/env.tmp" && mv "$task/env.tmp" "$task/env"
               fi
@@ -298,7 +315,7 @@ if [ "${1:-}" = --key ]; then
               repo=$(cat "$T_UI/repo") cli=$(cat "$T_UI/cli")
               mapfile -t extra < "$T_UI/args"
               set -- -p "$pick" ${repo:+-r "$repo"} ${cli:+--cli "$cli"} "${extra[@]}" "${flags[@]}"
-              if [ "$key" != ctrl-e ] && [ -n "$title" ]; then
+              if [ "$key" != alt-e ] && [ -n "$title" ]; then
                 new=$(t-new "$@" "$title" 2> "$T_UI/err") || failed
                 back "$(task_num "$new")"
               else                    # details in $EDITOR: the one thing here that needs the terminal
@@ -327,14 +344,15 @@ if [ $# -gt 0 ]; then
   fi
   grep -q "^$act " <<< "$ACTIONS" || die "no action '$act'; there are: $(cut -d' ' -f1 <<< "$ACTIONS" | xargs) next"
   case $act in
-    log)   if [[ $st == after* ]]; then id=$(cat "$task/after"); fi       # queued: what it waits for
-           t-log "$id" -f; exit ;;
-    say)   t-say "$id" "" ;;                # no notes yet: its screen asks for them
-    stack) t-new --on "$id" ;;              # no title yet: t compose
-    hold)  if [ "$st" = HOLD ]; then t-resume "$id"; else t-hold "$id" "$(ask "why? (Enter: held by hand)")"; fi ;;
-    name)  t-name "$id" "$(ask "new name? (Enter: an agent picks one)")" ;;
-    rm)    if [ "$(ask "delete task $n and its worktree? [y/N]")" = y ]; then t-rm "$id"; fi ;;
-    *)     "t-$act" "$id" ;;
+    log)    if [[ $st == after* ]]; then id=$(cat "$task/after"); fi       # queued: what it waits for
+            t-log "$id" -f; exit ;;
+    say)    t-say "$id" "" ;;                # no notes yet: its screen asks for them
+    stack)  t-new --on "$id" ;;              # no title yet: t compose
+    hold)   if [ "$st" = HOLD ]; then t-resume "$id"; else t-hold "$id" "$(ask "why? (Enter: held by hand)")"; fi ;;
+    cancel) t-hold -f "$id" cancelled ;;
+    name)   t-name "$id" "$(ask "new name? (Enter: an agent picks one)")" ;;
+    rm)     if [ "$(ask "delete task $n and its worktree? [y/N]")" = y ]; then t-rm "$id"; fi ;;
+    *)      "t-$act" "$id" ;;
   esac
   result=$?
   if [ "$result" = 0 ] && [ "$act" != run ] && [ "$act" != path ]; then exit; fi
@@ -350,8 +368,8 @@ trap 'rm -rf "$T_UI"' EXIT
 echo board > "$T_UI/mode"
 touch "$T_UI/steps" "$T_UI/pane" "$T_UI/pick" "$T_UI/def" "$T_UI/args" "$T_UI/repo" "$T_UI/cli"
 
-binds=()
-for key in enter esc ctrl-n ctrl-u '?' $(awk '$2 != "-" { print $2 }' <<< "$ACTIONS"); do
+binds=()                                # a form's alt-a (agent), alt-e (details) and alt-r (repo) are attach, name and run
+for key in enter esc alt-n ctrl-u '?' $(awk '$2 != "-" { print $2 }' <<< "$ACTIONS"); do
   binds+=(--bind "$key:transform:t-ui --key $key {1} {q}")
 done
 pos=1 row=0                             # start on the newest running task
@@ -359,12 +377,16 @@ while read -r n _; do
   row=$((row + 1))
   if [ "$(state "$(tdir "$n")")" = running ]; then pos=$row; fi
 done < <(board -a)
+gap=()                                  # a blank line between rows, while they fit
+if [ $((2 * row + 8)) -le "$(tput lines 2> /dev/null || echo 0)" ]; then gap=(--gap --gap-line ' '); fi
 
-t-ui --rows | fzf --ansi --reverse --no-sort --sync --with-shell 'bash -c' --color "$T_FZF_COLORS" \
-  --padding=1,0,0,0 --prompt 'task> ' --pointer '▌' --gutter ' ' --info-command 'echo "$FZF_MATCH_COUNT/$FZF_TOTAL_COUNT"' \
-  --preview 't-ui --pane {1} {q}' --preview-window 'right,56%,wrap,border-left,~2,<60(down,60%,border-top)' \
+# the count only while you search, and not of the + row
+t-ui --rows | fzf --ansi --reverse --no-sort --sync --with-shell 'bash -c' --color "$T_FZF_COLORS" "${gap[@]}" \
+  --padding=1,2 --margin=0,1 --prompt 'task> ' --pointer '▌' --gutter ' ' --ellipsis '…' --info inline-right \
+  --info-command 'if [ "$FZF_MATCH_COUNT" != "$FZF_TOTAL_COUNT" ]; then echo "$FZF_MATCH_COUNT/$((FZF_TOTAL_COUNT - 1))"; fi' \
+  --preview 't-ui --pane {1} {q}' --preview-window 'right,55%,wrap,border-left,~2,<60(down,60%,border-top)' \
   --bind "start:pos($pos)+bg-transform:t-ui --key focus {1} {q}" --bind "focus:bg-transform:t-ui --key focus {1} {q}" \
-  --bind 'load:transform:t-ui --onload' "${binds[@]}" \
+  --bind 'load:transform:t-ui --onload {1} {q}' "${binds[@]}" \
   --bind 'ctrl-f:execute-silent(t-ui --steps)+reload-sync~t-ui --rows~' \
   --bind 'ctrl-d:preview-half-page-down,shift-down:preview-down,shift-up:preview-up' \
   --bind 'page-down:preview-page-down,page-up:preview-page-up,ctrl-w:change-preview-window(90%|)' \

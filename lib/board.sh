@@ -6,7 +6,7 @@ C_BLUE=$'\e[38;2;122;162;247m' C_PURPLE=$'\e[38;2;187;154;247m' C_DIM=$'\e[38;2;
 C_TEXT=$'\e[38;2;169;177;214m' C_OFF=$'\e[0m'
 # the same for fzf; the spinner (always on while t ui waits for a change) has the background's color
 T_FZF_COLORS='fg:#c0caf5,bg:#1a1b26,fg+:#c0caf5,bg+:#292e42,hl:#7aa2f7,hl+:#7aa2f7,info:#e0af68,prompt:#7aa2f7:bold'
-T_FZF_COLORS+=',pointer:#f7768e,separator:#2a2e42,border:#2a2e42,preview-bg:#17171f,preview-border:#2a2e42'
+T_FZF_COLORS+=',pointer:#f7768e,separator:#2a2e42,border:#3b4261,preview-bg:#17171f,preview-border:#3b4261'
 T_FZF_COLORS+=',scrollbar:#2a2e42,header:#565f89,spinner:#1a1b26'
 
 # the C_ colors stay only on a terminal, or with CLICOLOR_FORCE (t ui's pane); elsewhere they print nothing
@@ -56,6 +56,18 @@ last_words() {
     END                          { print last }'
 }
 
+# a long path keeps its end, which says the most: frontend/lib/wearables/workers/notify.ts → …/workers/notify.ts
+path_ends() {
+  local words word parts out=()
+  read -ra words <<< "$1"
+  for word in "${words[@]}"; do
+    IFS=/ read -ra parts <<< "$word"
+    if [ ${#parts[@]} -gt 3 ]; then word="…/${parts[-2]}/${parts[-1]}"; fi
+    out+=("$word")
+  done
+  echo "${out[*]}"
+}
+
 # what a task is doing: while it runs or will run its step again, that step's latest line; else why not
 status() {
   local st step line
@@ -65,7 +77,7 @@ status() {
     after*) echo "$st"; return ;;
     done)   if [ -f "$1/answer.md" ]; then echo answered; else echo done; fi; return ;;
   esac
-  line=$(last_words "$1/log/$step.log")
+  line=$(path_ends "$(last_words "$1/log/$step.log")")
   if [ "$st" = running ]; then echo "${step#*-}: ${line:-starting}"
   elif [ -n "$line" ]; then echo "next tick · ${step#*-}: $line"      # it ran, and runs again
   else echo "next tick"
@@ -176,7 +188,7 @@ next_choice() {
   echo "${choices[0]}"
 }
 
-# the CLI after $1 when ^A cycles it: the pipeline's own (empty), then each driver
+# the CLI after $1 when alt-a cycles it: the pipeline's own (empty), then each driver
 next_cli() { next_choice "$1" "" $(ls "$T_ROOT/drivers"); }
 
 # what you typed at t ui's new> or t compose's prompt: t new's flags into $flags, the rest into $title
@@ -193,22 +205,26 @@ words() {
   done
 }
 
-# what t ui can do with a task, and its key on the board
-ACTIONS='log     ctrl-l  its output, live
-say     ctrl-s  send it back to a step with your notes
-attach  ctrl-a  take over the agent conversation (its own screen)
-stack   ctrl-t  start a task on this one (shared worktree, waits for it to finish)
-diff    ctrl-g  the change so far
-run     ctrl-r  run it now
-hold    ctrl-o  pause it, or unpause it when it is held
-name    ctrl-e  change what the board calls it
-rm      ctrl-x  delete it and its worktree
+# what t ui can do with a task, and its key on the board: ctrl moves around, alt acts
+ACTIONS='log     ctrl-l  its output, live; again: all of it, unfolded
+say     alt-s   send it back to a step with your notes
+attach  alt-a   take over the agent conversation (its own screen)
+stack   alt-t   start a task on this one (shared worktree, waits for it to finish)
+diff    alt-d   the change so far
+run     alt-r   run it now
+hold    alt-h   pause it after this step, or unpause it when it is held
+cancel  alt-c   stop its agent now, and hold it
+name    alt-e   change what the board calls it
+rm      alt-x   delete it and its worktree
 path    -       print its worktree'
+
+# how t ui writes a key: ctrl-l as ^l, alt-d as it is
+keyname() { echo "${1/#ctrl-/^}"; }
 
 # the actions worth offering for a task now; Enter does the first
 offers() {
   case $(state "$1") in
-    running) echo log diff hold ;;
+    running) echo log diff cancel hold ;;
     ready)   if [ -s "$1/log/$(cat "$1/step").log" ]; then echo log run hold; else echo run hold rm; fi ;;
     after*)  echo log rm ;;
     HOLD)    echo say log attach hold ;;
@@ -229,9 +245,10 @@ pane_next() {
   case $2 in
     show)  echo steps ;;
     steps) echo log ;;
-    log)  if [ -f "$1/branch" ] && git -C "$(cat "$1/repo")" rev-parse -q --verify "refs/heads/$(cat "$1/branch")" > /dev/null 2>&1
-          then echo diff; else echo show; fi ;;
-    *)    echo show ;;
+    log | raw)
+           if [ -f "$1/branch" ] && git -C "$(cat "$1/repo")" rev-parse -q --verify "refs/heads/$(cat "$1/branch")" > /dev/null 2>&1
+           then echo diff; else echo show; fi ;;
+    *)     echo show ;;
   esac
 }
 

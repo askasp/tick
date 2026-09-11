@@ -14,13 +14,15 @@ if [ -n "${AGENT_MODEL:-}" ]; then args+=(-m "$AGENT_MODEL"); fi
 raw=$(mktemp)
 trap 'rm -f "$raw"' EXIT
 
-# every event carries the session id; log it once, from the first
-opencode "${args[@]}" | tee "$raw" | jq --unbuffered -nrR --arg dir "$PWD" '
+# every event carries the session id; log it once, from the first. The paths in a tool call are
+# relative to where the agent works, and the rest of $HOME is ~
+opencode "${args[@]}" | tee "$raw" | jq --unbuffered -nrR --arg dir "$PWD" --arg home "$HOME/" '
+  def short: split($dir + "/") | join("") | split($home) | join("~/");
   foreach (inputs | fromjson?) as $e (0; . + 1;
     (if . == 1 then "session: opencode \($e.sessionID) \($dir)" else empty end),
     ($e | if .type == "text" then .part.text
           elif .type == "tool_use" then "  · \(.part.tool) \(.part.state | [.title, .input.filePath, .input.pattern, .input.command, .input.url] |
-                                          map(select((. // "") != "")) | .[0] // "" | tostring | .[:120])"
+                                          map(select((. // "") != "")) | .[0] // "" | tostring | short | .[:120])"
           elif .type == "error" then "  ! \(.error.data.message // .error.name)"
           else empty end))' >&2
 

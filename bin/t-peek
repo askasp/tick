@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t peek [TASK] [show|steps|log|diff] — what t ui's pane shows: a running task's live log, else its details.
+# t peek [TASK] [show|steps|log|raw|diff] — what t ui's pane shows: a running task's live log, else its details.
 # steps: how each step went, the file it runs, and every setting the steps see, with the env file it came from.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 task=$(task_dir "${1:-}") || exit 1
@@ -7,17 +7,26 @@ id=${task##*/} n=$(task_num "$task") st=$(state "$task") step=$(cat "$task/step"
 if [ -t 1 ]; then export CLICOLOR_FORCE=1; fi
 terminal_colors
 mode=$(pane "$task" "${2:-}")
-case $mode in log) tab_color=$C_YELLOW ;; diff) tab_color=$C_GREEN ;; *) tab_color=$C_BLUE ;; esac
-tabs=(show steps log)
+case $mode in log | raw) tab_color=$C_YELLOW ;; diff) tab_color=$C_GREEN ;; *) tab_color=$C_BLUE ;; esac
+if [ "$mode" = raw ]; then tabs=(show steps raw); else tabs=(show steps log); fi
 if [ "$(pane_next "$task" log)" = diff ]; then tabs+=(diff); fi
 
 case $st in                             # two lines the pane keeps at its top: what this is, and a rule
   done)   about="$(cat "$task/pipeline") · $(status "$task")" ;;
   after*) about="queued behind ${st#after }" ;;
   *)      who=$(solver "$(cat "$task/pipeline")" "${step#*-}" "$task")
-          about="$step${who:+ · $who} · $(age "$task")" ;;
+          case $st in
+            running) since="running $(age "$task")" ;;
+            HOLD)    since="held $(age "$task")" ;;
+            *)       since="next tick" ;;
+          esac
+          about="${step#*-}${who:+ ($who)} · $since" ;;
 esac
-echo "$(strip "$tab_color" "$mode" "${tabs[@]}") ${C_DIM}$n · $about   $C_PURPLE↹$C_DIM next  $C_PURPLE^d ^u$C_DIM scroll$C_OFF"
+case $mode in
+  log) about+="   $C_PURPLE^l$C_DIM raw" ;;
+  raw) about+="   $C_PURPLE^l$C_DIM folded" ;;
+esac
+echo "$(strip "$tab_color" "$mode" "${tabs[@]}") ${C_DIM}task $n · $about   $C_PURPLE↹$C_DIM next$C_OFF"
 rule "$C_DIM"
 
 # how often step $1 ran, and how its last run ended: 2 ok → review
@@ -90,7 +99,14 @@ settings() {
 }
 
 case $mode in
-  log)   exec t-log "$id" -f ;;
+  log | raw)
+    raw=
+    if [ "$mode" = raw ]; then raw=--raw; fi
+    if [ "$st" = running ]; then          # a short log sits at the bottom, where its next line comes
+      blank_lines=$(( ${FZF_PREVIEW_LINES:-0} - 2 - $(t-log "$id" $raw | wc -l) ))
+      if [ "$blank_lines" -gt 0 ]; then printf '\n%.0s' $(seq "$blank_lines"); fi
+    fi
+    exec t-log "$id" -f $raw ;;
   steps) step_rows; echo; settings ;;
   diff)  t-diff "$id" --color=always 2>&1 | if command -v delta > /dev/null; then delta --paging=never; else cat; fi ;;
   *)     t-show "$id" | sed '/^  next:$/,/^$/d' ;;               # the board's header has the keys

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # test/run [PATTERN] — every test (or those matching PATTERN), with fake claude/opencode/gh/crontab.
-# Never calls a model. Each test runs under set -e in its own copy of tick, with its own T_VAR and a
+# Never calls a model. Tests run in parallel, each under set -e in its own copy of tick, with its own T_VAR and a
 # toy repo that has a bare "origin" and a `make test` that fails while impl.txt ends in BROKEN.
 root=$(cd "$(dirname "$0")/.." && pwd)
 path=$PATH
@@ -111,14 +111,29 @@ test_a_step_that_never_gets_past_holds_the_task() {
   printf 'changes\nchanges\nchanges\nchanges\n' > "$FAKE/verdicts"
   id=$(new "add the widget")
   t run $id
-  eq "$(step $id)" 10-implement
+  eq "$(step $id)" 30-review                              # implement moves on each time; review sends it back
   grep -q 'ran 3 times' "$(dir $id)/hold"
-  t ls | grep -q 'HELD implement ran 3 times'
+  t ls | grep -q 'HELD review ran 3 times'
   t run $id
-  eq "$(cat "$(dir $id)/runs/10-implement")" 3            # held: nothing ran
+  eq "$(cat "$(dir $id)/runs/30-review")" 3               # held: nothing ran
   t resume $id 2> /dev/null
   t run $id                                               # one more "changes", then approve
   eq "$(step $id)" done
+}
+
+test_a_step_counts_its_runs_afresh_once_the_task_moved_past_it() {
+  export SLOTS_opencode=1
+  printf 'BROKEN\nBROKEN\nfixed\n' > "$FAKE/impl"         # test sends it back twice, then passes
+  id=$(new "fix the widget" -p main)
+  mkdir -p "$T_VAR/run"
+  ( exec 8> "$T_VAR/run/opencode.1"; flock 8; sleep 2 ) &
+  sleep 0.5
+  t run $id                                               # makes the worktree, then waits for a slot
+  wait
+  echo other > other.txt && git add other.txt && git commit -q -m "meanwhile on main"
+  t run $id                                               # merge brings main in: test runs a 4th time
+  eq "$(step $id)" done
+  eq "$(grep -c '20-test ok' "$(dir $id)/history")" 4
 }
 
 test_an_implementer_that_changes_nothing_fails() {
@@ -189,11 +204,10 @@ test_a_stack_never_runs_two_steps_in_one_worktree() {
   a=$(new "parent work")
   b=$(new "child work" --on $a)
   t run $a
-  ( exec 9> "$(dir $a)/lock"; flock 9; sleep 2 ) &
-  sleep 0.5
+  exec 9> "$(dir $a)/lock"; flock 9
   t run $b
   eq "$(step $b)" 10-implement                            # its parent's lock is its lock
-  wait
+  exec 9>&-
   t run $b
   eq "$(step $b)" done
 }
@@ -201,14 +215,13 @@ test_a_stack_never_runs_two_steps_in_one_worktree() {
 test_full_agent_slots_mean_try_again_later() {
   export SLOTS_opencode=1
   mkdir -p "$T_VAR/run"
-  ( exec 8> "$T_VAR/run/opencode.1"; flock 8; sleep 2 ) &
-  sleep 0.5
+  exec 8> "$T_VAR/run/opencode.1"; flock 8
   id=$(new "add the widget")
   t run $id
   eq "$(step $id)" 10-implement
   eq "$(cat "$(dir $id)/runs/10-implement")" 0            # waiting isn't a run
   grep -q 'slots busy' "$(dir $id)/log/10-implement.log"
-  wait
+  exec 8>&-
   t run $id
   eq "$(step $id)" done
 }
@@ -315,6 +328,14 @@ test_a_worktree_has_a_name_of_its_own_and_teardown_follows_tests() {
   eq "$(grep -c down "$tmp/teardowns")" 2                 # and before its worktree went
 }
 
+test_a_task_started_from_the_board_keeps_the_board_out_of_its_steps() {
+  printf 'TEST_CMD="env > %s/env"\n' "$tmp" >> "$tmp/tick/pipelines/local/env"
+  id=$(new "add the widget")
+  T_UI=$tmp/board T_NEW=$tmp/board t run $id               # as t ui starts it
+  grep -q "^TASK_ID=$id$" "$tmp/env"
+  not grep -qE '^T_(UI|NEW)=' "$tmp/env"                  # plan's t new would write into the board
+}
+
 test_say_sends_a_done_task_back_with_your_notes() {
   id=$(new "add the widget")
   t run $id
@@ -339,6 +360,32 @@ test_rm_f_stops_the_run_and_its_agent_first() {
   t rm -f $a 2> /dev/null
   [ ! -d "$(dir $a)" ]
   not wait $pid                                            # killed, not finished
+}
+
+test_hold_f_cancels_the_running_agent_and_holds_the_task() {
+  id=$(new "add the widget")
+  FAKE_SLEEP=30 t run $id > /dev/null 2>&1 &
+  pid=$!
+  for i in $(seq 50); do [ ! -s "$FAKE/opencode.calls" ] || break; sleep 0.1; done   # the agent is working
+  t keys $id | grep -q 'alt-c cancel'                      # what the board offers for it
+  t hold -f $id cancelled 2> /dev/null
+  not wait $pid                                            # killed, not finished
+  flock -n "$(dir $id)/lock" true                          # nothing of the run is left, the agent included
+  t ls | grep -q 'HELD cancelled$'
+  t log $id | grep -q '10-implement cancelled'
+  t resume $id 2> /dev/null
+  t run $id
+  eq "$(step $id)" done
+}
+
+test_drivers_log_paths_from_where_the_agent_works() {
+  mkdir "$tmp/w" && cd "$tmp/w"
+  jq -nc --arg p "$tmp/w/src/app.ts" '{type: "assistant", message: {content: [{type: "tool_use", name: "Read", input: {file_path: $p}}]}}' > "$tmp/c.jsonl"
+  echo hi | FAKE_REPLAY=$tmp/c.jsonl "$root/drivers/claude" > /dev/null 2> "$tmp/err" || true
+  grep -qx '  · Read src/app.ts' "$tmp/err"
+  jq -nc --arg p "$HOME/notes/todo.md" '{type: "tool_use", sessionID: "ses_x", part: {tool: "read", state: {title: "", input: {filePath: $p}}}}' > "$tmp/o.jsonl"
+  echo hi | FAKE_REPLAY=$tmp/o.jsonl "$root/drivers/opencode" > /dev/null 2> "$tmp/err"
+  grep -qx '  · read ~/notes/todo.md' "$tmp/err"          # outside it, $HOME is ~
 }
 
 test_rm_removes_the_worktree_and_keeps_the_branch() {
@@ -381,10 +428,9 @@ test_main_resolves_conflicts_with_a_moved_main_and_tests_again() {
   export SLOTS_opencode=1
   id=$(new "fix the widget" -p main)
   mkdir -p "$T_VAR/run"
-  ( exec 8> "$T_VAR/run/opencode.1"; flock 8; sleep 2 ) &
-  sleep 0.5
+  exec 8> "$T_VAR/run/opencode.1"; flock 8
   t run $id                                                # makes the worktree, then waits for a slot
-  wait
+  exec 8>&-
   echo theirs > impl.txt && git add impl.txt && git commit -q -m "meanwhile on main"
   echo noop > "$FAKE/merges"
   t run $id
@@ -611,9 +657,8 @@ test_new_now_runs_the_task_at_once() {
 
 test_with_cron_a_new_task_starts_without_waiting_for_the_tick() {
   echo "* * * * * $tmp/tick/bin/t tick" > "$FAKE/crontab"
-  SECONDS=0
-  id=$(FAKE_SLEEP=2 new "add the widget")                # the run it starts takes seconds...
-  [ "$SECONDS" -lt 2 ]                                    # ...and t new doesn't wait for it (t ui's Enter would)
+  id=$(FAKE_SLEEP=0.5 new "add the widget")              # the run it starts takes a while...
+  [ "$(step $id)" != done ]                               # ...and t new doesn't wait for it (t ui's Enter would)
   wait_done $id
 }
 
@@ -701,7 +746,38 @@ test_the_board_says_what_each_task_is_doing_and_for_how_long() {
   t ls | grep -q '^1 .*<1m  repo .*next tick · implement: the implementer changed nothing$'
   t hold $id "waiting on design"
   t ls | grep -q 'HELD waiting on design$'
-  t keys $id | grep -q '⏎ say  ^l log  ^a attach  ^o resume'
+  t keys $id | grep -q '⏎ say  ^l log  alt-a attach  alt-h resume  ? more$'   # keys only: the pane says the rest
+}
+
+test_the_board_keeps_the_end_of_a_long_path() {
+  id=$(new "add the widget")
+  mkdir -p "$(dir $id)/log"
+  printf '=== 2026-09-11 10:00:00 10-implement, run 1\n  · Read frontend/lib/wearables/workers/notify.ts\n' > "$(dir $id)/log/10-implement.log"
+  t ls | grep -q 'implement: Read …/workers/notify.ts$'
+}
+
+test_the_log_folds_a_run_of_one_tool_and_raw_shows_it_all() {
+  id=$(new "add the widget")
+  mkdir -p "$(dir $id)/log"
+  { echo "=== 2026-09-11 10:00:00 10-implement, run 1"; echo "session: claude abc /x"
+    for f in lib/health-sync.ts lib/health-notify.ts hooks/useHealth.ts lib/health-sync.ts; do echo "  · Read $f"; done
+    echo "Read them."
+    for i in 1 2 3 4 5 6 7; do echo "  · Grep p$i"; done
+  } > "$(dir $id)/log/10-implement.log"
+  t log $id > "$tmp/out"
+  grep -qxF '· Read  ×4  lib/health-*, hooks/useHealth.ts' "$tmp/out"
+  grep -qxF '▌ Read them.' "$tmp/out"                    # the agent's own words
+  grep -qxF '· Grep  ×7  p1, p2, p3, p4, p5, p6, …' "$tmp/out"
+  not grep -q 'session:' "$tmp/out"
+  t log $id --raw > "$tmp/raw"
+  eq "$(grep -c '· Read' "$tmp/raw")" 4
+  grep -q '^session: claude abc' "$tmp/raw"              # the id t attach resumes
+  ( exec 9> "$(dir $id)/lock"; flock 9; sleep 30 ) &     # while it runs, its last three calls stay lines
+  sleep 0.3
+  t log $id | tail -4 > "$tmp/live"
+  eq "$(head -1 "$tmp/live")" '· Grep  ×4  p1, p2, p3, p4'
+  eq "$(tail -1 "$tmp/live")" '· Grep  p7'
+  kill $!
 }
 
 test_the_pane_shows_details_log_or_diff() {
@@ -709,10 +785,11 @@ test_the_pane_shows_details_log_or_diff() {
   t run $id
   t peek $id | grep -q '✓ implement'                     # done: its details,
   not grep -q 'next:' <(t peek $id)                       # without the keys the header has
-  timeout 2 t peek $id log | grep -q '30-review ok → done'
+  timeout 0.5 t peek $id log | grep -q '30-review ok → done'
   t peek $id diff | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^+change'   # in color
   t peek $id steps | grep -q '^✓ 30-review'
-  t keys $id | grep -q '⏎ diff  ^t stack'
+  timeout 0.5 t peek $id raw | grep -q '^session: opencode'
+  t keys $id | grep -q '⏎ diff  alt-t stack'
 }
 
 test_steps_says_how_each_step_went_and_which_file_each_setting_comes_from() {
@@ -741,12 +818,12 @@ test_compose_takes_flags_typed_with_the_title() {
 test_the_board_starts_a_task_and_says_to_one_in_place() {
   export T_UI=$tmp/ui T_NEW=$tmp/ui
   mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{steps,pane,pick,def,args,repo,cli}
-  t ui --key ctrl-n + '' | grep -q 'change-prompt(new> )+disable-search'
+  t ui --key alt-n + '' | grep -q 'change-prompt(new> )+disable-search'
   eq "$(cat "$T_UI/pick")" local
   t ui --key tab + '' > /dev/null                         # tab: the next pipeline
   eq "$(cat "$T_UI/pick")" feature
   t ui --pane + 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *feature'   # in color
-  t ui --key ctrl-a + '' > /dev/null                      # ^A: another agent than the pipeline's
+  t ui --key alt-a + '' > /dev/null                       # alt-a: another agent than the pipeline's
   t ui --pane + 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^cli *claude  (--cli)'
   t ui --key enter + 'add the widget' | grep -q 'reload-sync'   # made; the reload's end puts the cursor on it
   eq "$(cat "$T_UI/new")" 1
@@ -763,7 +840,7 @@ test_the_board_starts_a_task_and_says_to_one_in_place() {
 test_ui_new_form_preview_is_spaced_from_header() {
   export T_UI=$tmp/ui T_NEW=$tmp/ui
   mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{steps,pane,pick,def,args,repo,cli}
-  t ui --key ctrl-n + '' > /dev/null                         # enter the new form
+  t ui --key alt-n + '' > /dev/null                          # enter the new form
   t ui --pane + 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -A1 '^─' | grep -q '^$'
 }
 
@@ -772,23 +849,28 @@ test_the_board_holds_renames_and_deletes_in_place() {
   mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{steps,pane,pick,def,args,repo,cli}
   new "add the widget" > /dev/null
   new "fix the gadget" > /dev/null
-  t ui --key ctrl-o 1 '' | grep -q 'change-prompt(hold 1 because> )'
+  t ui --key alt-h 1 '' | grep -q 'change-prompt(hold 1 because> )'
   t ui --key enter 1 'waiting on design' > /dev/null
   grep -q 'waiting on design' "$(dir 0001)/hold"
-  t ui --key ctrl-o 1 '' > /dev/null                    # held: ^o resumes it at once
+  t ui --key alt-h 1 '' > /dev/null                     # held: alt-h resumes it at once
   [ ! -e "$(dir 0001)/hold" ]
-  t ui --key ctrl-e 1 '' | grep -q 'change-query~add the widget~'
+  t ui --key alt-e 1 '' | grep -q 'change-query~add the widget~'
   t ui --key enter 1 'Widget' > /dev/null
   eq "$(cat "$(dir 0001)/name")" Widget
-  t ui --key ctrl-x 1 '' > /dev/null
+  t ui --key alt-x 1 '' > /dev/null
   t ui --pane 1 '' | grep -q 'Deletes its directory'   # the pane says what goes before Enter does it
   [ -d "$(dir 0001)" ]
   t ui --key enter 1 '' > /dev/null
   [ ! -e "$(dir 0001)" ]
   eq "$(cat "$T_UI/new")" 2                              # the cursor goes to the next task
+  t ui --key ctrl-l 2 '' > /dev/null
+  t ui --key ctrl-l 2 '' > /dev/null
+  eq "$(cat "$T_UI/pane")" raw                           # ^l again: the log as it is
   t ui --key '?' 2 '' > /dev/null
   t ui --pane 2 '' | grep -q 'delete it and its worktree'
   eq "$(cat "$T_UI/mode")" "help 2"
+  t ui --key '?' 2 '' > /dev/null                        # ? again: back
+  eq "$(cat "$T_UI/mode")" board
 }
 
 test_doctor_says_what_to_fix() {
@@ -855,17 +937,23 @@ test_drivers_read_real_cli_output() {
   not bash -c "echo hi | FAKE_REPLAY=$fx/opencode-error.jsonl '$root/drivers/opencode' > /dev/null 2>&1"
 }
 
+names=$(declare -F | awk '{ print $3 }' | grep '^test_' | grep -- "${1:-.}")
+logs=$(mktemp -d)
+for name in $names; do
+  while [ "$(jobs -rp | wc -l)" -ge "$(nproc)" ]; do wait -n; done
+  ( ( set -e; setup; "$name" ) > "$logs/$name" 2>&1; echo $? > "$logs/$name.exit" ) &
+done
+wait
+
 pass=0 failed=()
-for name in $(declare -F | awk '{ print $3 }' | grep '^test_' | grep -- "${1:-.}"); do
-  log=$(mktemp)
-  ( set -e; setup; "$name" ) > "$log" 2>&1
-  if [ $? -eq 0 ]; then
+for name in $names; do
+  if [ "$(cat "$logs/$name.exit")" -eq 0 ]; then
     pass=$((pass + 1)); echo "ok    $name"
   else
-    failed+=("$name"); echo "FAIL  $name"; tail -40 "$log" | sed 's/^/      /'
+    failed+=("$name"); echo "FAIL  $name"; tail -40 "$logs/$name" | sed 's/^/      /'
   fi
-  rm -f "$log"
 done
+rm -rf "$logs"
 echo
 echo "$pass passed, ${#failed[@]} failed"
 [ ${#failed[@]} -eq 0 ]
