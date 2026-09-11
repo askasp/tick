@@ -5,10 +5,10 @@ set -euo pipefail
 force=
 if [ "${1:-}" = -f ]; then force=1; shift; fi
 task=$(task_dir "${1:-}")
-id=${task##*/} n=$((10#${task##*/}))
+id=${task##*/} n=$(task_num "$task")
 for other in "$T_TASKS"/*/; do
   if [ "$(cat "$other/after" 2> /dev/null)" = "$id" ]; then
-    die "task $((10#$(basename "$other"))) is stacked on $n; remove that one first"
+    die "task $(task_num "${other%/}") is stacked on $n; remove that one first"
   fi
 done
 # a task waiting on another shares that one's lock, so a held lock isn't its own run

@@ -111,4 +111,15 @@ example `test_a_stacked_task_waits_then_builds_on_its_parent`.
 - As few comments as possible. A script's header says what it does. Beyond
   that, comment only a failure the code can't make obvious by itself. A
   clearer name or a test beats a comment.
+- Write bash a person can read top to bottom without comments. Names carry
+  the meaning: a variable says what it holds (`task`, not `t`; `$C_DIM`, not
+  `$d`), and a small function says what a pipeline does (`task_num`,
+  `last_words`, `next_choice`).
+  - `if cond; then act; fi`, not `[ ! cond ] || act`. Keep `||` for "or
+    else stop": `a || die "..."`, `[ -f x ] || continue`.
+  - A bash loop over a one-line awk program. awk picks columns
+    (`awk '$1 == a { print $2 }'`) or runs a program laid out over lines.
+  - Code lives in scripts, not in strings: fzf calls a mode of the script
+    (`t-ui --rows`), and what only one command needs moves to `lib/`
+    (`lib/new.sh` for `t new`), so each script stays about a screen long.
 - Errors name the fix: `task 42 is running; watch it with: t log 42 -f`.

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # pr — push the branch, and open a pull request the first time. Needs a GitHub origin and `gh`.
 set -euo pipefail
-t=$PWD branch=$(cat branch) base=$(cat base)
+branch=$(cat branch) base=$(cat base)
+title=$(sed -n '1s/^# //p' task.md)
 
 git -C work push -q -u origin "$branch"
 touch pushed                       # ci counts its patience from here
 if [ -s pr ]; then echo "pushed to $(cat pr)"; exit 0; fi
 
-cd -P work
-{ sed 1d "$t/task.md"; printf '\n---\n\n'; cat "$t/review.md" 2> /dev/null || true; } |
-  gh pr create --head "$branch" --base "${base#origin/}" --title "$(sed -n '1s/^# //p' "$t/task.md")" --body-file - > "$t/pr.tmp"
-mv "$t/pr.tmp" "$t/pr"
-echo "opened $(cat "$t/pr")"
+body() { sed 1d task.md; printf '\n---\n\n'; cat review.md 2> /dev/null || true; }
+body | (cd -P work && gh pr create --head "$branch" --base "${base#origin/}" --title "$title" --body-file -) > pr.tmp
+mv pr.tmp pr
+echo "opened $(cat pr)"

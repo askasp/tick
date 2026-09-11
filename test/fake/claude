@@ -3,6 +3,7 @@
 #   edit mode (--permission-mode given): appends the next line of $FAKE/impl to impl.txt
 #     (default "change"; the line "noop" changes nothing)
 #   read mode: replies "VERDICT: <next line of $FAKE/verdicts>" (default approve)
+#   agents/planner: replies $FAKE/plan once (default one part, "PART: as asked")
 #   FAKE_REPLAY=FILE prints a recorded real stream instead; FAKE_SLEEP=N takes N seconds
 set -eu
 pop() {
@@ -26,6 +27,9 @@ if [ $mode = edit ]; then
   line=$(pop impl change)
   [ "$line" = noop ] || echo "$line" >> impl.txt
   tool=Edit text="Edited impl.txt."
+elif [[ $prompt == "Decide how many pull requests"* ]]; then
+  tool=Read text="PART: as asked"
+  if [ -f "$FAKE/plan" ]; then text=$(cat "$FAKE/plan"); rm "$FAKE/plan"; fi
 else
   tool=Read text="Read the diff.
 

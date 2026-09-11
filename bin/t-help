@@ -22,16 +22,16 @@ Follow it:
 EOF
 echo "Repos (-r NAME; any directory in $T_REPOS, or a path, works too):"
 for d in "$T_ROOT"/repos/*/; do
-  d=${d%/}
   [ -f "$d/env" ] || continue
-  p=$(profile_get "${d##*/}" PIPELINE)
-  printf '  %-9s %s  (pipeline %s)\n' "${d##*/}" "$(profile_get "${d##*/}" REPO)" "${p:-$T_PIPELINE}"
+  name=$(basename "$d")
+  p=$(profile_get "$name" PIPELINE)
+  printf '  %-9s %s  (pipeline %s)\n' "$name" "$(profile_get "$name" REPO)" "${p:-$T_PIPELINE}"
 done
 echo
 echo "Pipelines (t NAME \"...\", or t new -p NAME; * is the default):"
 for d in "$T_ROOT"/pipelines/*/; do
   name=$(basename "$d") mark=' '
-  [ "$name" != "$T_PIPELINE" ] || mark='*'
+  if [ "$name" = "$T_PIPELINE" ]; then mark='*'; fi
   printf '  %s %-9s %s\n' "$mark" "$name" "$(flow "$name")"
 done
 echo

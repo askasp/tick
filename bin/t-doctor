@@ -6,6 +6,12 @@ ok()   { echo "  ✓ $1"; }
 fix()  { echo "  ✗ $1"; echo "      fix: $2"; bad=1; }
 need() { if command -v "$1" > /dev/null; then ok "$1"; else fix "$1 not found" "$2"; fi; }
 
+# fzf exits 1 when nothing matches, and 2 on a flag it doesn't know: the live board's flags, here
+fzf_is_new_enough() {
+  fzf --with-shell 'bash -c' --gutter ' ' --info-command true --bind 'tab:bg-transform-header:true' --filter x < /dev/null > /dev/null 2>&1
+  [ $? -le 1 ]
+}
+
 echo "tools"
 need git      "sudo apt install git"
 need jq       "sudo apt install jq"
@@ -18,7 +24,7 @@ if command -v gh > /dev/null; then
   if gh auth status > /dev/null 2>&1; then ok "gh is logged in"; else fix "gh is not logged in" "gh auth login"; fi
 fi
 if ! command -v fzf > /dev/null; then echo "  · no fzf: plain t prints the board, and pickers are numbered menus (sudo apt install fzf)"
-elif fzf --with-shell 'bash -c' --gutter ' ' --info-command true --bind 'tab:bg-transform-header:true' --filter x < /dev/null > /dev/null 2>&1; [ $? -le 1 ]; then ok "fzf (the live board)"
+elif fzf_is_new_enough; then ok "fzf (the live board)"
 else echo "  · fzf $(fzf --version | cut -d' ' -f1) is too old for the live board: get a newer one from github.com/junegunn/fzf/releases"; fi
 
 echo "wiring"
@@ -39,23 +45,27 @@ for d in "$T_ROOT"/repos/*/; do
   repo=$(profile_get "$name" REPO) p=$(profile_get "$name" PIPELINE)
   if ! git -C "$repo" rev-parse > /dev/null 2>&1; then fix "repo $name: $repo isn't a git repo" "edit REPO= in $d/env"; continue; fi
   printf '    %-10s %s  (pipeline %s)\n' "$name" "$repo" "${p:-$T_PIPELINE}"
-  [ -z "$p" ] || [ -d "$T_ROOT/pipelines/$p" ] || fix "repo $name: there's no pipeline '$p'" "edit PIPELINE= in $d/env"
+  if [ -n "$p" ] && [ ! -d "$T_ROOT/pipelines/$p" ]; then fix "repo $name: there's no pipeline '$p'" "edit PIPELINE= in $d/env"; fi
   if [ -z "$(profile_get "$name" TEST_CMD)" ] && ! grep -qs '^test:' "$repo/Makefile"; then
     echo "               · no TEST_CMD and no 'make test', so its test steps check nothing (add TEST_CMD= to $d/env)"
   fi
 done
-[ -n "$found" ] || echo "  · none yet: mkdir $T_ROOT/repos/NAME, and write REPO= into its env"
-[ -z "$T_REPO" ] || echo "    outside a repo, t new uses: $T_REPO"
+if [ -z "$found" ]; then echo "  · none yet: mkdir $T_ROOT/repos/NAME, and write REPO= into its env"; fi
+if [ -n "$T_REPO" ]; then echo "    outside a repo, t new uses: $T_REPO"; fi
 
 echo "pipelines   (t new -p NAME; * is the default)"
 for d in "$T_ROOT"/pipelines/*/; do
   name=$(basename "$d") mark=' '
-  [ "$name" != "$T_PIPELINE" ] || mark='*'
+  if [ "$name" = "$T_PIPELINE" ]; then mark='*'; fi
   printf '  %s %-10s %s\n' "$mark" "$name" "$(flow "$name")"
-  for s in $(steps "$name"); do [ -x "$d$s" ] || fix "$name/$s isn't an executable step" "ls -l $d$s"; done
-  ! no_repo "$name" || echo "               needs no repo"
-  [ ! -e "$T_ROOT/bin/t-$name" ] || fix "pipeline $name has the name of a command, so t $name runs the command" "mv ${d%/} $T_ROOT/pipelines/OTHER-NAME"
+  for s in $(steps "$name"); do
+    if [ ! -x "$d$s" ]; then fix "$name/$s isn't an executable step" "ls -l $d$s"; fi
+  done
+  if no_repo "$name"; then echo "               needs no repo"; fi
+  if [ -e "$T_ROOT/bin/t-$name" ]; then
+    fix "pipeline $name has the name of a command, so t $name runs the command" "mv ${d%/} $T_ROOT/pipelines/OTHER-NAME"
+  fi
 done
 
-[ "$bad" = 1 ] || echo "all good"
+if [ "$bad" = 0 ]; then echo "all good"; fi
 exit "$bad"

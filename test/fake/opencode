@@ -31,6 +31,8 @@ elif [ $mode = edit ]; then
   text="Edited impl.txt."
 elif [[ $prompt == "Name this task"* ]]; then
   text=$(pop names "Widget work")
+elif [[ $prompt == "Decide how many pull requests"* ]]; then
+  if [ -f "$FAKE/plan" ]; then text=$(cat "$FAKE/plan"); rm "$FAKE/plan"; else text="PART: as asked"; fi
 else
   text="Read the diff.
 

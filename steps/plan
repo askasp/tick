@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# plan — the planner agent decides whether the task is one pull request (the default) or a stack of
+# small ones. In parts, this task becomes part 1, and each later part is a task stacked on the one
+# before it (t new --on), so its PR's base is the branch below. The parts arrive planned.
+set -euo pipefail
+t=$PWD
+[ ! -s plan.md ] || { echo "planned already (plan.md)"; exit 0; }
+
+(cd "$(cat repo)" && agent planner) < task.md > plan.tmp
+n=$(grep -c '^PART: ' plan.tmp || true)
+[ "$n" -gt 0 ] || { echo "the plan has no PART line" >&2; exit 1; }
+if [ "$n" -eq 1 ]; then mv plan.tmp plan.md; echo "one pull request"; exit 0; fi
+
+d=$(mktemp -d)
+trap 'rm -rf "$d"' EXIT
+awk -v d="$d" '/^PART: / { f = d "/" ++i; sub(/^PART: */, ""); sub(/ +$/, "") } f { print > f }' plan.tmp
+title=$(sed -n '1s/^# //p' task.md)
+part() {   # part $1's details, then where it fits in the whole task
+  sed 1d "$d/$1"
+  printf '\n## Where this part fits\n\nPart %s of %s of "%s". Do only this part: each part is a pull\nrequest of its own, stacked on the one before it.\n\n' "$1" "$n" "$title"
+  for i in $(seq "$n"); do echo "$i. $(head -1 "$d/$i")"; done
+  printf '\nThe whole task, as it was asked:\n\n'
+  sed 's/^/> /' "$t/task.md"
+}
+
+on=${t##*/} ids=
+for i in $(seq 2 "$n"); do
+  on=$(part "$i" | t new --on "$on" "$(head -1 "$d/$i")" -)
+  cp plan.tmp "$T_TASKS/$on/plan.md"
+  ids+=" $((10#$on))"
+done
+{ echo "# $(head -1 "$d/1")"; echo; part 1; } > task.tmp && mv task.tmp task.md
+rm -f name
+mv plan.tmp plan.md
+echo "$n pull requests, each stacked on the one before: this task, then task$ids"

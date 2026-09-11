@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # t diff [TASK] [git diff args] — the task's change so far, against what it branched from
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
-t=$(task_dir "${1:-}") || exit 1
-[ $# -eq 0 ] || shift
-[ -f "$t/repo" ] || die "task $((10#${t##*/})) has no repo, so no change"
-repo=$(cat "$t/repo") branch=$(cat "$t/branch")
-git -C "$repo" rev-parse -q --verify "refs/heads/$branch" > /dev/null || die "task ${t##*/} has no branch yet"
-exec git -C "$repo" diff "$(cat "$t/base")...$branch" "$@"
+task=$(task_dir "${1:-}") || exit 1
+if [ $# -gt 0 ]; then shift; fi
+[ -f "$task/repo" ] || die "task $(task_num "$task") has no repo, so no change"
+repo=$(cat "$task/repo") branch=$(cat "$task/branch")
+git -C "$repo" rev-parse -q --verify "refs/heads/$branch" > /dev/null || die "task $(task_num "$task") has no branch yet"
+exec git -C "$repo" diff "$(cat "$task/base")...$branch" "$@"

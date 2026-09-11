@@ -3,7 +3,7 @@
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 task=$(task_dir "${1:-}")
-n=$((10#${task##*/}))
+n=$(task_num "$task")
 cd "$task"
 flock -n lock true || die "task $n is running"
 
