@@ -164,7 +164,8 @@ task_dir() {
   if [ -n "$arg" ] && [ -f "$arg/step" ]; then (cd "$arg" && pwd); return; fi
 
   matches=$(board -a | while IFS= read -r row; do     # the board shows names, so match the titles too
-    if { echo "$row"; title "$(tdir "${row%% *}")"; } | grep -qiF -- "$arg"; then echo "$row"; fi
+    read -r id _ <<< "$row"
+    if { echo "$row"; title "$(tdir "$id")"; } | grep -qiF -- "$arg"; then echo "$row"; fi
   done)
   [ -n "$matches" ] || die "${arg:+no task matches '$arg'}${arg:-there are no tasks yet; start one: t new}"
   choice=$matches
@@ -173,5 +174,6 @@ task_dir() {
     choice=$(PICK_PREVIEW="$T_ROOT/bin/t-show {1}" pick task <<< "$matches") ||
       die "which task? give its number:"$'\n'"$list"
   fi
-  tdir "${choice%% *}"
+  read -r id _ <<< "$choice"
+  tdir "$id"
 }

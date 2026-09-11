@@ -2,9 +2,10 @@
 # t ls [-a] — the board: open tasks, how far along each is, for how long, and what each is doing (-a adds done ones)
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 
+if [ -t 1 ]; then read -r _ T_COLS < <(stty size < /dev/tty 2> /dev/null); fi   # a narrow terminal drops columns
 rows=$(board "${1:-}")
 if [ -z "$rows" ]; then
   echo "no open tasks. start one: t new \"what to do\"${1:-   (t ls -a shows done ones)}"
   exit 0
 fi
-{ board_header "$(steps_width)"; echo "$rows"; } | if [ -t 1 ]; then fit; else cat; fi
+echo "$rows" | if [ -t 1 ]; then fit; else cat; fi

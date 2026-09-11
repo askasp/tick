@@ -98,12 +98,13 @@ digest() {
     END { flush(live ? 3 : 0) }'
 }
 
-# a run stands out, an agent's words get a bar, and its session line (t attach's) goes. In color, two
-# greys: dim for what tick says about a run, mid for what the run printed. The hold space remembers
-# whether this run is an agent's (it logged a session): its plain lines are its words.
+# a run stands out, an agent's words get a bar, and its session line (t attach's) goes. In color, greys:
+# dim for what tick says about a run, text for what the run printed, bright for the agent's words and
+# its edits; and red for a run that failed or held. The hold space remembers whether this run is an
+# agent's (it logged a session): its plain lines are its words.
 paint() {
   local bold= hide_session='/^session: /d' when='[0-9]{4}-[0-9-]+ [0-9:]+ '
-  if [ -n "$C_OFF" ] && [ -z "${NO_COLOR:-}" ]; then bold=$'\e[1m'; else C_GREEN= C_YELLOW= C_RED= C_BLUE= C_DIM= C_TEXT= C_OFF=; fi
+  if [ -n "$C_OFF" ] && [ -z "${NO_COLOR:-}" ]; then bold=$'\e[1m'; else C_BRIGHT= C_TEXT= C_DIM= C_RED= C_OFF=; fi
   if [ -n "$raw" ]; then hide_session=; fi
   sed -u -E \
     -e 's/\x1b\[[0-9;]*m//g' \
@@ -113,15 +114,14 @@ paint() {
     -e "$hide_session" \
     -e "s/^=== .*/\n$bold&$C_OFF/;t" \
     -e "s/^session: .*/$C_DIM&$C_OFF/;t" \
-    -e "s/^($when.* ok → .*)/$C_GREEN\1$C_OFF/;t" \
     -e "s/^($when.*(failed|hold|cancelled).*)/$C_RED\1$C_OFF/;t" \
     -e "s/^$when.*/$C_DIM&$C_OFF/;t" \
     -e "s/^HOLD: .*/$C_RED&$C_OFF/;t" \
-    -e "s/^  · (edit|write|patch|Edit|Write|MultiEdit|NotebookEdit)( (.*))?\$/$C_GREEN✎$C_OFF $C_TEXT\1  \3$C_OFF/;t" \
+    -e "s/^  · (edit|write|patch|Edit|Write|MultiEdit|NotebookEdit)( (.*))?\$/$C_DIM·$C_OFF $C_BRIGHT\1  \3$C_OFF/;t" \
     -e "s/^  · ([^ ]*) ?(.*)/$C_DIM·$C_OFF $C_TEXT\1  \2$C_OFF/;t" \
-    -e "s/^ *! (.*)/$C_YELLOW!$C_OFF $C_TEXT\1$C_OFF/;t" \
+    -e "s/^ *! (.*)/$C_BRIGHT!$C_OFF $C_TEXT\1$C_OFF/;t" \
     -e '/^$/b' \
-    -e x -e "/^agent\$/{x;s/.*/$C_BLUE▌$C_OFF $C_TEXT&$C_OFF/;b" -e '}' -e x \
+    -e x -e "/^agent\$/{x;s/.*/$C_DIM▌$C_OFF $C_BRIGHT&$C_OFF/;b" -e '}' -e x \
     -e "s/.+/$C_TEXT&$C_OFF/"
 }
 

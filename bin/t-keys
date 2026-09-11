@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# t keys [TASK] — the keys t ui's header offers for a task: the ones worth pressing now, Enter doing the first
+# t keys [TASK] — the keys t ui's footer offers for a task: the ones worth pressing now, enter doing the first
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 task=$(task_dir "${1:-}") || exit 1
 st=$(state "$task")
-terminal_colors
 
 keys=
 for action in $(offers "$task"); do
   label=$action key=$(awk -v a="$action" '$1 == a { print $2 }' <<< "$ACTIONS")
   if [ "$action" = hold ] && [ "$st" = HOLD ]; then label=resume; fi
   if [ "$action" = log ] && [[ $st == after* ]]; then label="log ${st#after }"; fi      # nothing to watch here yet
-  if [ -z "$keys" ]; then keys="$C_PURPLE⏎$C_TEXT $label"; else keys+="  $C_PURPLE$(keyname "$key")$C_TEXT $label"; fi
+  if [ -z "$keys" ]; then keys="enter:$label"
+  elif [ "$key" != - ]; then keys+="   $(keyname "$key"):$label"
+  fi
 done
-echo "$keys  $C_PURPLE?$C_TEXT more$C_OFF"
+echo "$keys   ^n:new   ?:keys"

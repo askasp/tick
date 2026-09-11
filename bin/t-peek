@@ -7,27 +7,22 @@ id=${task##*/} n=$(task_num "$task") st=$(state "$task") step=$(cat "$task/step"
 if [ -t 1 ]; then export CLICOLOR_FORCE=1; fi
 terminal_colors
 mode=$(pane "$task" "${2:-}")
-case $mode in log | raw) tab_color=$C_YELLOW ;; diff) tab_color=$C_GREEN ;; *) tab_color=$C_BLUE ;; esac
 if [ "$mode" = raw ]; then tabs=(show steps raw); else tabs=(show steps log); fi
 if [ "$(pane_next "$task" log)" = diff ]; then tabs+=(diff); fi
 
-case $st in                             # two lines the pane keeps at its top: what this is, and a rule
-  done)   about="$(cat "$task/pipeline") · $(status "$task")" ;;
-  after*) about="queued behind ${st#after }" ;;
-  *)      who=$(solver "$(cat "$task/pipeline")" "${step#*-}" "$task")
-          case $st in
-            running) since="running $(age "$task")" ;;
-            HOLD)    since="held $(age "$task")" ;;
-            *)       since="next tick" ;;
-          esac
-          about="${step#*-}${who:+ ($who)} · $since" ;;
+case $st in                             # two lines the pane keeps at its top: what this is, and a blank
+  done)    about="$(cat "$task/pipeline") · $(status "$task")" ;;
+  after*)  about="queued behind ${st#after }" ;;
+  running) about="${step#*-} · running $(age "$task")" ;;
+  HOLD)    about="${step#*-} · ${C_RED}held $(age "$task")" ;;
+  *)       about="${step#*-} · next tick" ;;
 esac
 case $mode in
-  log) about+="   $C_PURPLE^l$C_DIM raw" ;;
-  raw) about+="   $C_PURPLE^l$C_DIM folded" ;;
+  log) keys="^l:raw   " ;;
+  raw) keys="^l:folded   " ;;
 esac
-echo "$(strip "$tab_color" "$mode" "${tabs[@]}") ${C_DIM}task $n · $about   $C_PURPLE↹$C_DIM next$C_OFF"
-rule "$C_DIM"
+echo "$(strip "$mode" "${tabs[@]}")    $C_DIM$n · $about$C_OFF   $C_FAINT${keys:-}⇥$C_OFF"
+echo
 
 # how often step $1 ran, and how its last run ended: 2 ok → review
 runs_of() {
@@ -50,24 +45,29 @@ header() {
   done < <(tail -n +2 "$1")
 }
 
-# ✓ 20-test  2 runs  ok → review  → steps/test · 3 pipelines: the file is theirs too, so editing it changes them all
+# 20-test  2 runs  ok → review  → steps/test · 3 pipelines: the file is theirs too, so editing it changes them all.
+# Steps behind it in the text's grey, the one it is on bright (red when held there), the ones to come faint.
 step_rows() {
-  local pipeline each mark=✓ now now_color runs end end_color file shared width links
+  local pipeline each color=$C_TEXT runs end file shared width links
   pipeline=$(cat "$task/pipeline") width=$(steps "$pipeline" | wc -L)
   links=$(for file in "$T_ROOT"/pipelines/*/[0-9]*; do readlink -f "$file"; done)
   for each in $(steps "$pipeline"); do
-    if [ "$each" = "$step" ]; then now=▶ mark=·; else now=$mark; fi
-    case $now in ✓) now_color=$C_GREEN ;; ▶) now_color=$C_YELLOW ;; *) now_color=$C_DIM ;; esac
     read -r runs end < <(runs_of "$each")
-    case $end in ok*) end_color=$C_GREEN ;; *) end_color=$C_RED ;; esac
-    if [ "$each" = "$step" ] && [ "$st" = running ]; then end=running end_color=$C_YELLOW
-    elif [ "$each" = "$step" ] && [ "$st" = HOLD ]; then end=held end_color=$C_RED
+    if [ "$each" = "$step" ]; then
+      case $st in
+        running) end=running ;;
+        HOLD)    end=held ;;
+        after*)  end=queued ;;
+        *)       if [ "$runs" = 0 ]; then end="next tick"; fi ;;
+      esac
+      if [ "$st" = HOLD ]; then color=$C_RED; else color=$C_BRIGHT; fi
     fi
-    case $runs in 0) runs=— ;; 1) runs="1 run" ;; *) runs="$runs runs" ;; esac
+    case $runs in 0) runs= ;; 1) runs="1 run" ;; *) runs="$runs runs" ;; esac
     file=$(readlink -f "$T_ROOT/pipelines/$pipeline/$each")
     shared=$(grep -cxF "$file" <<< "$links")
     if [ "$shared" -gt 1 ]; then shared=" · $shared pipelines"; else shared=; fi
-    echo "$now_color$now$C_OFF $(pad "$width" "$each")  $(pad 7 "$runs")  $end_color$(pad 15 "$end")$C_OFF  $C_DIM→ ${file#"$T_ROOT"/}$shared$C_OFF"
+    echo "$color$(pad "$width" "$each")  $(pad 7 "$runs")  $(pad 15 "$end")$C_OFF  $C_FAINT→ ${file#"$T_ROOT"/}$shared$C_OFF"
+    if [ "$each" = "$step" ]; then color=$C_FAINT; fi
   done
   if [ "$step" != done ]; then
     echo
@@ -109,5 +109,5 @@ case $mode in
     exec t-log "$id" -f $raw ;;
   steps) step_rows; echo; settings ;;
   diff)  t-diff "$id" --color=always 2>&1 | if command -v delta > /dev/null; then delta --paging=never; else cat; fi ;;
-  *)     t-show "$id" | sed '/^  next:$/,/^$/d' ;;               # the board's header has the keys
+  *)     t-show "$id" --pane ;;
 esac

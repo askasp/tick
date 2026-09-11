@@ -8,7 +8,7 @@ need() { if command -v "$1" > /dev/null; then ok "$1"; else fix "$1 not found" "
 
 # fzf exits 1 when nothing matches, and 2 on a flag it doesn't know: the live board's flags, here
 fzf_is_new_enough() {
-  fzf --with-shell 'bash -c' --gutter ' ' --info-command true --bind 'tab:bg-transform-header:true' --filter x < /dev/null > /dev/null 2>&1
+  fzf --with-shell 'bash -c' --gutter ' ' --footer ' ' --bind 'tab:bg-transform:true+change-footer(x)' --filter x < /dev/null > /dev/null 2>&1
   [ $? -le 1 ]
 }
 

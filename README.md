@@ -36,22 +36,24 @@ installed, the list is fuzzy-searchable.
 
 ```
 $ t ls
-ID  STEPS   AGE  REPO   TITLE                        STATUS
-1   ✓✓▶      3m  shop   Add a discount code field    review: read cart.js
-3   ▶··       —  shop   └ Show the discount on the … after 1
-2   ▶··      2h  shop   Rename cart to basket every… HELD implement ran 3 times without getting past it
+  1  shop    Add a discount code field       3/4    3m  review  read cart.js
+  3  shop    └ Show the discount in the ca…  0/4        after 1
+  2  shop    Rename cart to basket everywh…  1/3    2h  held  implement ran 3 times without getting past it
 ```
 
-In STEPS, ✓ means done, ▶ is where the task is, and · is still to come. AGE
-is how long it has been on that step, so a stuck task stands out. A task
-stacked on another sits under it (└) until that one is done. STATUS says what
-it is doing:
+Each row is a task's id, repo, title, step, age and status. The step is the
+one it is on out of its pipeline's steps: 3/4 is at the third of four, 0/4
+hasn't begun the first, and a done task has them all. The age is how long it
+has been on that step, so a stuck task stands out. Where there is nothing to
+say, a column is blank. A task stacked on another sits under it (└) until that
+one is done. A narrow terminal drops the repo first, then the status, then the
+age, never the step. The status says what the task is doing:
 
-- `review: read cart.js`: running, and this is the latest line its step printed
+- `review  read cart.js`: running, and this is the latest line its step printed
 - `next tick`: the next tick starts it; after a run that failed or has to
-  wait, followed by that run's last line (`next tick · ci: build pending`)
+  wait, followed by that run's last line (`next tick  ci: build pending`)
 - `after N`: stacked on task N, and waiting for it
-- `HELD why`: it needs you
+- `held  why`: it needs you
 - `done`, or `answered` for a question
 
 A title longer than 40 characters doesn't fit, so `t new` has an agent
@@ -59,25 +61,27 @@ A title longer than 40 characters doesn't fit, so `t new` has an agent
 name instead. `t name 3 "…"` changes it, and `t show` still prints the whole
 title.
 
-In a terminal, plain `t` shows this board live, in fzf. Rows move as tasks
+In a terminal, plain `t` shows this board live, in fzf: in greys, with red
+only for a held task, the one thing on it that needs you. Rows move as tasks
 run, the cursor starts on the newest running one, and the pane beside it shows
 the task you're on: its live log while it runs, else its details (`t peek`).
-`tab` switches the pane between details, steps, log and diff (its top line lists
-them, the one you're on in color), and `^d`/`^u` scroll it half a page
-(PgDn/PgUp a page, Shift-↓/↑ a line). The pane's label names the task and
-its step, and the header holds only the keys worth pressing now (`t keys`).
-Enter does the first of them: the log of a running task, say for a held one,
-the diff of a done one. Ctrl keys move around and alt keys act, so typing
-still searches, and all of them happen in the board: `^l` turns the pane to
-the log (again: the raw log), `alt-d` to the diff, `alt-r` runs the task in
-the background with the pane following it, `alt-h` holds it (the prompt asks
-why) or resumes it, `alt-c` cancels a running one (it stops the agent now and
-holds the task), `alt-e` renames it, and `alt-x` deletes it once the pane has
-said what that removes and you press Enter. Only `alt-a` attach leaves, for
-the agent's own screen. `?` lists every key in the pane, with the agent's
-session id, and `?` again goes back. `^w` widens the pane, and `alt-n` or the
-`+ new task` row starts a task. `^f` spells out each task's steps
-(`T_STEPS=names t ls` does the same as text). Without fzf, `t` prints `t ls`.
+`tab` switches the pane between details, steps, log and diff (its top line
+lists them, the one you're on bright), and `^d`/`^u` scroll it half a page
+(PgDn/PgUp a page, Shift-↓/↑ a line). The line at the bottom holds only the
+keys worth pressing now (`t keys`), and Enter does the first of them: the log
+of a running task, say for a held one, the diff of a done one.
+
+The keys are all ctrl-, so typing still searches, and they reach the board
+over ssh from any terminal. `^l` turns the pane to the log (again: the raw
+log), `^r` holds the task (the prompt asks why) or resumes it, `^t` stacks a
+task on it, and `^n` starts a new one. `^o` attaches to its agent, the one key
+that leaves the board, for the agent's own screen. Everything else is a word
+away: `?` lists every action in the pane, with the agent's session id, and you
+type the one you want, or its first letters, and press Enter. `cancel` stops a
+running agent now and holds the task, `run` runs it in the background with the
+pane following it, and `rm` deletes it once the pane has said what that
+removes and you press Enter again. `^w` widens the pane. Without fzf, `t`
+prints `t ls`.
 
 `t log` tells a task's story: every run of every step in the order it ran,
 each followed by how it ended. Three or more calls of one tool in a row fold
@@ -90,21 +94,21 @@ for the board keeps its end: `…/workers/notify.ts`.
 
 ### Starting a task
 
-On the board, `alt-n` (or Enter on `+ new task`) starts one without leaving
+On the board, `^n` (or Enter on an empty board) starts one without leaving
 it: the prompt becomes `new>` and takes the title, and the pane shows the task
 that is about to exist (`t new --dry`): its repo and where that came from,
 branch, base, who solves it, when it starts, and the command to type next
 time. `tab` picks the pipeline from the strip at the top of the pane. Enter
-creates it and puts the cursor on it, `alt-e` opens `$EDITOR` for details with
-the title already on line 1, `alt-r` picks another repo, `alt-a` another agent
-than the pipeline's (like `--cli`; the header says which), and esc goes back.
-`^a`, `^e` and `^u` edit the line as in a shell. With cron installed the task
-starts at once; without it, `alt-r` on its row runs it. Flags typed with the
-title work too: `Add proration -r amino`.
+creates it and puts the cursor on it, `^o` opens `$EDITOR` for details with
+the title already on line 1, `^r` picks another repo, `^s` another agent than
+the pipeline's (like `--cli`; the keys at the bottom say which), and esc goes
+back. `^a`, `^e` and `^u` edit the line as in a shell. With cron installed the
+task starts at once; without it, `? run` on its row runs it. Flags typed with
+the title work too: `Add proration -r amino`.
 
-`alt-t` stacks a task on the one you're on the same way (`stack on 7>`), and
-`alt-s` says something to it (`say to 7>`, and Enter on a held task): what you
-type goes to `feedback.md`, `tab` picks the step it restarts at, `alt-a` who
+`^t` stacks a task on the one you're on the same way (`stack on 7>`), and
+`? say` says something to it (`say to 7>`, and Enter on a held task): what you
+type goes to `feedback.md`, `tab` picks the step it restarts at, `^s` who
 solves it from then on, and the pane shows what will happen and its latest log.
 
 Outside the board, `t new` without a title opens the same form as a screen of
@@ -114,19 +118,25 @@ its own (`t compose`).
 
 ```
 $ t show 2
-2  Rename cart to basket everywhere
+Rename cart to basket everywhere
 
-  shop:  ▶ implement  · test  · review
-  state:     ON HOLD: implement ran 3 times without getting past it
-  repo:      /home/aksel/git/shop
-  branch:    t/0002-rename-cart-to-basket-everywhere  (from origin/main)
-  worktree:  /home/aksel/.tick/tasks/0002/work
-  feedback:  **cart.js:12** — the old name is still exported …
+state     held  implement ran 3 times without getting past it
+pipeline  shop · opencode
+          1 implement  2 test  3 review
+repo      ~/git/shop
+branch    t/0002-rename-cart-to-basket-everywhere
+worktree  ~/.tick/tasks/0002/work
+feedback  **cart.js:12** — the old name is still exported …
 
-  next:
-    t log 2            see why
-    t say 2 "..."      tell the implementer what to do; it resumes
-    t attach 2         take over the agent yourself, then: t resume 2
+history
+  14:02  implement  →  test
+  14:03  test       →  implement   looped back
+  14:20  held       implement ran 3 times
+
+next
+  t log 2            see why
+  t say 2 "..."      tell it what to do; it starts over from its first step
+  t attach 2         take over the agent yourself, then: t resume 2
 ```
 
 ### A normal coding task, start to finish
@@ -137,7 +147,7 @@ $ t show 2
    the diff).
 3. Failing tests and review changes go back to implement on their own, and a
    step gets 3 runs.
-4. It ends `done`, or on `HOLD` when it needs you. `t show` tells you what to
+4. It ends `done`, or `held` when it needs you. `t show` tells you what to
    do either way.
 5. When it's done, read it with `t diff`. Then take it with `git merge`, or
    with `-p feature`, review the PR it opened.
@@ -356,7 +366,7 @@ A task directory holds `task.md`, `name`, `pipeline`, `step`, `repo`, `base`,
 t                          the live board in a terminal (fzf), else t ls
 t ui [TASK [ACTION]]       with a TASK, the menu of what to do with it; with an ACTION, that at once
 t peek [TASK] [show|steps|log|raw|diff]   what the board's pane shows for it
-t keys [TASK]              the keys the board's header offers for it
+t keys [TASK]              the keys the board's bottom line offers for it
 t new ["what to do" [-]] [-p PIPELINE] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO] [--now] [--edit] [--dry]
 t compose [t new's flags]  the screen plain t new opens: title, pipeline, and the task it will make
 t PIPELINE ...             t new ... -p PIPELINE:  t ask --now "How do the tests run?"

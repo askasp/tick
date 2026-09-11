@@ -1,80 +1,130 @@
 #!/usr/bin/env bash
-# t show [TASK] — one task: where it is in its pipeline, its state, what you can do next, and its answer.
-# In a terminal it pages through less, like git, and glow renders the answer's markdown.
+# t show [TASK] [--pane] — one task: its title, where it is in its pipeline, its state, what you can do next,
+# and its answer. In a terminal it pages through less, like git, and glow renders the answer's markdown.
+# --pane: as t ui's pane shows it, whose top line says the state and whose board has the keys: without
+# those, and a long title cut to two lines.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 task=$(task_dir "${1:-}") || exit 1
+in_pane=
+if [ "${2:-}" = --pane ]; then in_pane=1; fi
 n=$(task_num "$task") step=$(cat "$task/step") pipeline=$(cat "$task/pipeline") st=$(state "$task")
 waits_for=
 if [[ $st == after* ]]; then waits_for=${st#after }; fi
-
-mark=✓ flow=
-for s in $(steps "$pipeline"); do
-  who=$(solver "$pipeline" "${s#*-}" "$task")
-  label=${s#*-}${who:+ ($who)}
-  if [ "$s" = "$step" ]; then flow+="▶ $label  "; mark=·; else flow+="$mark $label  "; fi
-done
+terminal_colors
 
 glow= width=${FZF_PREVIEW_COLUMNS:-$(tput cols 2> /dev/null || echo 80)}
 if { [ -t 1 ] || [ -n "${CLICOLOR_FORCE:-}" ]; } && command -v glow > /dev/null; then glow=1; fi   # t ui's pane forces it
 if [ "$width" -gt 100 ]; then width=100; fi
 
 answer() {   # glow writes into less, not a terminal: force its style and color, and hush its terminal queries
-  if [ -n "$glow" ]; then CLICOLOR_FORCE=1 glow -s "${GLAMOUR_STYLE:-dark}" -w "$width" - < "$task/answer.md" 2> /dev/null
+  if [ -n "$glow" ]; then CLICOLOR_FORCE=1 glow -s "${GLAMOUR_STYLE:-dark}" -w "$((width - 4))" - < "$task/answer.md" 2> /dev/null
   else cat "$task/answer.md"; fi
 }
 
-show() {
-  echo "$n  $(title "$task")"
-  echo
-  echo "  $pipeline:  $flow"
+field() { printf '%s%-10s%s%s\n' "$C_FAINT" "$1" "$C_OFF" "$2"; }
+home() { echo "${1/#"$HOME"/\~}"; }
+
+# under the name, the title it stands for (often a pasted prompt): dim, and in the pane two lines at most
+about() {
+  local text cut=$((2 * ${FZF_PREVIEW_COLUMNS:-80} - 1))
+  text=$(title "$task")
+  [ "$text" != "$(name "$task")" ] || return 0
+  if [ -n "$in_pane" ] && [ "${#text}" -gt "$cut" ]; then text=${text:0:cut}…; fi
+  echo "$C_DIM$text$C_OFF"
+}
+
+# who solves its steps, each named once: claude, or opencode, claude
+solvers() {
+  local s
+  for s in $(steps "$pipeline"); do solver "$pipeline" "${s#*-}" "$task"; done |
+    awk '!seen[$0]++ { out = out (out ? ", " : "") $0 } END { print out }'
+}
+
+# its steps, numbered as the board counts them: 1 implement  2 test  3 review. Behind it in the text's
+# grey, where it is bright (red when held there), still to come faint.
+numbered() {
+  local s i=0 color=$C_TEXT out=
+  for s in $(steps "$pipeline"); do
+    i=$((i + 1))
+    if [ "$s" != "$step" ]; then out+="$color$i ${s#*-}$C_OFF  "; continue; fi
+    if [ "$st" = HOLD ]; then out+=$C_RED; else out+=$C_BRIGHT; fi
+    out+="$i ${s#*-}$C_OFF  " color=$C_FAINT
+  done
+  printf '%s\n' "${out%  }"
+}
+
+# history without what each line repeats (the date, the task, ok): 22:41  merge      →  test   looped back
+moves() {
+  tail -n 5 "$task/history" | awk -v faint="$C_FAINT" -v dim="$C_DIM" -v red="$C_RED" -v off="$C_OFF" '
+    function step(s) { sub(/^[0-9]+-/, "", s); return s }
+                    { at = faint substr($2, 1, 5) off }
+    $3 == "resumed" { printf "  %s  %-9s  at %s\n", at, "resumed", step($5); next }
+    $4 == "on"      { sub(/^([^ ]+ ){5}/, ""); printf "  %s  %s%-9s  %s%s\n", at, red, "held", $0, off; next }
+    $5 == "ok"      { back = ($7 != "done" && $7 + 0 < $4 + 0) ? "   " dim "looped back" off : ""
+                      printf "  %s  %-9s  %s→%s  %s%s\n", at, step($4), faint, off, step($7), back; next }
+                    { s = $4; sub(/^([^ ]+ ){4}/, ""); sub(/;.*/, ""); printf "  %s  %-9s  %s\n", at, step(s), $0 }'
+}
+
+state_line() {
+  local run
   run=$(( $(cat "$task/runs/$step" 2> /dev/null || echo 1) - $(cat "$task/runs/$step.moved" 2> /dev/null || echo 0) ))
   case $st in
-    ready)   echo "  state:     waiting for the next tick" ;;
-    running) echo "  state:     running ${step#*-}, run $run of $MAX_RUNS" ;;
-    after*)  echo "  state:     queued behind task $waits_for" ;;
-    HOLD)    echo "  state:     ON HOLD: $(head -1 "$task/hold")" ;;
-    done)    echo "  state:     done" ;;
+    ready)   echo "waiting for the next tick" ;;
+    running) echo "running ${step#*-}, run $run of $MAX_RUNS" ;;
+    after*)  echo "queued behind task $waits_for" ;;
+    HOLD)    echo "${C_RED}held$C_OFF  $(head -1 "$task/hold")" ;;
+    done)    echo done ;;
   esac
-  if [ -f "$task/repo" ]; then echo "  repo:      $(cat "$task/repo")"; fi
+}
+
+next_steps() {
+  case $st in
+    ready)   echo "  t run $n            start it now, in this terminal" ;;
+    running) echo "  t log $n -f         watch it" ;;
+    after*)  echo "  t show $waits_for            the task it waits for" ;;
+    HOLD)    echo "  t log $n            see why"
+             echo "  t say $n \"...\"      tell it what to do; it starts over from its first step"
+             echo "  t attach $n         take over the agent yourself, then: t resume $n" ;;
+    done)    if [ -f "$task/answer.md" ]; then
+               echo "  t say $n \"...\"      ask a follow-up"
+             elif [ -f "$task/pr" ]; then
+               echo "  review and merge   $(cat "$task/pr")"
+               echo "  t say $n \"...\"      ask for more changes"
+             else
+               echo "  t diff $n           read the change"
+               echo "  git -C $(cat "$task/repo") merge $(cat "$task/branch")"
+               echo "  t say $n \"...\"      ask for more changes"
+             fi
+             echo "  t stack $n          start a task stacked on this one"
+             echo "  t rm $n             delete the task" ;;
+  esac
+}
+
+show() {
+  echo "$C_BRIGHT$(name "$task")$C_OFF"
+  about
+  echo
+  if [ -z "$in_pane" ]; then field state "$(state_line)"; fi
+  who=$(solvers)
+  field pipeline "$pipeline$C_FAINT${who:+ · $who}$C_OFF"
+  field "" "$(numbered)"
+  if [ -f "$task/repo" ]; then field repo "$(home "$(cat "$task/repo")")"; fi
   if [ -e "$task/work" ]; then
-    echo "  branch:    $(cat "$task/branch")  (from $(cat "$task/base"))"
-    echo "  worktree:  $(readlink -f "$task/work")"
+    field branch "$(cat "$task/branch")"
+    echo "${C_FAINT}worktree  $(home "$(readlink -f "$task/work")")$C_OFF"
   fi
-  if [ -f "$task/pr" ]; then echo "  PR:        $(cat "$task/pr")"; fi
-  if [ -s "$task/feedback.md" ]; then echo "  feedback:  $(grep -m1 . "$task/feedback.md" | cut -c1-90)"; fi
+  if [ -f "$task/pr" ]; then field pr "$(cat "$task/pr")"; fi
+  if [ -s "$task/feedback.md" ]; then field feedback "$(grep -m1 . "$task/feedback.md" | cut -c1-90)"; fi
   if [ -n "$waits_for" ]; then
     parent=$(tdir "$waits_for")
-    echo; echo "  waiting for:"
-    echo "    $waits_for  $(progress "$parent")  $(age "$parent")  $(name "$parent")"
-    echo "    $(status "$parent")"
+    echo; echo "${C_FAINT}waiting for$C_OFF"
+    echo "  $waits_for  $(name "$parent")  $(fraction "$parent")  $(age "$parent")"
+    echo "  $(status "$parent")"
     echo "  it starts on the tick after $waits_for is done."
   fi
-  if [ -f "$task/history" ]; then echo; echo "  history:"; tail -n 5 "$task/history" | sed 's/^/    /'; fi
-
-  echo
-  echo "  next:"
-  case $st in
-    ready)   echo "    t run $n            start it now, in this terminal" ;;
-    running) echo "    t log $n -f         watch it" ;;
-    after*)  echo "    t show $waits_for            the task it waits for" ;;
-    HOLD)    echo "    t log $n            see why"
-             echo "    t say $n \"...\"      tell it what to do; it starts over from its first step"
-             echo "    t attach $n         take over the agent yourself, then: t resume $n" ;;
-    done)    if [ -f "$task/answer.md" ]; then
-               echo "    t say $n \"...\"      ask a follow-up"
-             elif [ -f "$task/pr" ]; then
-               echo "    review and merge   $(cat "$task/pr")"
-               echo "    t say $n \"...\"      ask for more changes"
-             else
-               echo "    t diff $n           read the change"
-               echo "    git -C $(cat "$task/repo") merge $(cat "$task/branch")"
-               echo "    t say $n \"...\"      ask for more changes"
-             fi
-             echo "    t stack $n          start a task stacked on this one"
-             echo "    t rm $n             delete the task" ;;
-  esac
-
-  if [ -s "$task/answer.md" ]; then echo; echo "  answer:"; answer; fi
+  if [ -s "$task/history" ]; then echo; echo "${C_FAINT}history$C_OFF"; moves; fi
+  if [ -z "$in_pane" ]; then echo; echo "${C_FAINT}next$C_OFF"; next_steps; fi
+  if [ -s "$task/answer.md" ]; then echo; echo "${C_FAINT}answer$C_OFF"; answer; fi
 }
 
 if [ -t 1 ]; then show | LESS=${LESS-FRX} ${PAGER:-less}; else show; fi

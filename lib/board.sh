@@ -1,51 +1,40 @@
 # lib/board.sh — what the board and t ui show: rows, colors, the pane, pickers. Sourced by lib/tick.sh.
 
-# the board's colors (Tokyo Night), for t ui and for t log in a terminal
-C_GREEN=$'\e[38;2;158;206;106m' C_YELLOW=$'\e[38;2;224;175;104m' C_RED=$'\e[38;2;247;118;142m'
-C_BLUE=$'\e[38;2;122;162;247m' C_PURPLE=$'\e[38;2;187;154;247m' C_DIM=$'\e[38;2;86;95;137m'
-C_TEXT=$'\e[38;2;169;177;214m' C_OFF=$'\e[0m'
+# the board's colors: greys, and one red for what needs you. For t ui, and for t log in a terminal.
+C_BRIGHT=$'\e[38;2;242;242;242m' C_TEXT=$'\e[38;2;196;196;196m' C_MID=$'\e[38;2;168;168;168m'
+C_DIM=$'\e[38;2;138;138;138m' C_FAINT=$'\e[38;2;110;110;110m' C_RED=$'\e[38;2;208;112;112m' C_OFF=$'\e[0m'
 # the same for fzf; the spinner (always on while t ui waits for a change) has the background's color
-T_FZF_COLORS='fg:#c0caf5,bg:#1a1b26,fg+:#c0caf5,bg+:#292e42,hl:#7aa2f7,hl+:#7aa2f7,info:#e0af68,prompt:#7aa2f7:bold'
-T_FZF_COLORS+=',pointer:#f7768e,separator:#2a2e42,border:#3b4261,preview-bg:#17171f,preview-border:#3b4261'
-T_FZF_COLORS+=',scrollbar:#2a2e42,header:#565f89,spinner:#1a1b26'
+T_FZF_COLORS='fg:#c4c4c4,bg:#1c1c1c,fg+:#f2f2f2:regular,bg+:#2e2e2e,hl:#f2f2f2:underline,hl+:#f2f2f2:underline'
+T_FZF_COLORS+=',prompt:#8a8a8a:regular,query:#c4c4c4,info:#5a5a5a,pointer:#c07070,marker:#c07070,border:#2e2e2e'
+T_FZF_COLORS+=',preview-bg:#191919,preview-border:#2e2e2e,scrollbar:#323232,header:#6e6e6e,footer:#6e6e6e,spinner:#1c1c1c'
+T_FZF_COLORS+=',input-border:#1c1c1c,footer-border:#1c1c1c'
 
 # the C_ colors stay only on a terminal, or with CLICOLOR_FORCE (t ui's pane); elsewhere they print nothing
 terminal_colors() {
   if [ -t 1 ] || [ -n "${CLICOLOR_FORCE:-}" ]; then return; fi
-  C_GREEN= C_YELLOW= C_RED= C_BLUE= C_PURPLE= C_DIM= C_TEXT= C_OFF=
+  C_BRIGHT= C_TEXT= C_MID= C_DIM= C_FAINT= C_RED= C_OFF=
 }
 
-# $2 padded with spaces to $1 characters; bash's printf counts bytes, and ✓ is three.
+# $2 padded with spaces to $1 characters; bash's printf counts bytes, and … is three.
 # $3, when given, is printed in its place: the same text in color.
 pad() { printf '%s%*s' "${3:-$2}" $(($1 - ${#2})) ''; }
-pad_left() { printf '%*s%s' $(($1 - ${#2})) '' "$2"; }
 
-# ✓✓▶·· — the pipeline's steps: behind it, where it is, still to come.
-# T_STEPS=names spells them out: ✓ implement  ▶ test  · review
-progress() {
-  local s m mark=✓ step out=
-  step=$(cat "$1/step")
-  for s in $(steps "$(cat "$1/pipeline")"); do
-    if [ "$s" = "$step" ]; then m=▶ mark=·; else m=$mark; fi
-    if [ "${T_STEPS:-}" = names ]; then out+="$m ${s#*-}  "; else out+=$m; fi
+# whether the step a task is on has begun: it runs, ran, or was held there
+started() { [ -e "$1/log/$(cat "$1/step").log" ] || [ -e "$1/hold" ]; }
+
+# how far a task is: the step it is on of its pipeline's steps (2/4), or while that one hasn't begun,
+# the steps behind it (0/4 before the first; 4/4 done)
+fraction() {
+  local step all at=0 s
+  step=$(cat "$1/step") all=$(steps "$(cat "$1/pipeline")")
+  for s in $all; do
+    at=$((at + 1))
+    [ "$s" = "$step" ] || continue
+    if ! started "$1"; then at=$((at - 1)); fi
+    break
   done
-  printf %s "${out%  }"
+  echo "$at/$(wc -w <<< "$all")"
 }
-
-# how wide the board's STEPS column is: 8, or with the steps spelled out, the widest task's and a space
-steps_width() {
-  local t marks width=8
-  if [ "${T_STEPS:-}" = names ]; then
-    for t in "$T_TASKS"/*/; do
-      [ -f "$t/step" ] || continue
-      marks=$(progress "${t%/}")
-      if [ $((${#marks} + 1)) -gt "$width" ]; then width=$((${#marks} + 1)); fi
-    done
-  fi
-  echo "$width"
-}
-
-board_header() { printf '%-4s%-*s%3s  %-5s  %-28s %s\n' ID "$1" STEPS AGE REPO TITLE STATUS; }
 
 # the last line of a step log's latest run worth showing: not its header, a session line, a fence or a blank
 last_words() {
@@ -68,27 +57,28 @@ path_ends() {
   echo "${out[*]}"
 }
 
-# what a task is doing: while it runs or will run its step again, that step's latest line; else why not
+# what a task is doing, its state's word first: held and why, after 7, answered, done; while it runs,
+# its step and that step's latest line (review  read cart.js); else next tick, and why it runs again
 status() {
   local st step line
   st=$(state "$1") step=$(cat "$1/step")
   case $st in
-    HOLD)   echo "HELD $(head -1 "$1/hold")"; return ;;
+    HOLD)   echo "held  $(head -1 "$1/hold")"; return ;;
     after*) echo "$st"; return ;;
     done)   if [ -f "$1/answer.md" ]; then echo answered; else echo done; fi; return ;;
   esac
   line=$(path_ends "$(last_words "$1/log/$step.log")")
-  if [ "$st" = running ]; then echo "${step#*-}: ${line:-starting}"
-  elif [ -n "$line" ]; then echo "next tick · ${step#*-}: $line"      # it ran, and runs again
+  if [ "$st" = running ]; then echo "${step#*-}  ${line:-starting}"
+  elif [ -n "$line" ]; then echo "next tick  ${step#*-}: $line"      # it ran, and runs again
   else echo "next tick"
   fi
 }
 
-# how long a task has been on its step (<1m, 12m, 3h, 2d), or — where that says nothing
+# how long a task has been on its step (<1m, 12m, 3h, 2d); nothing where that says nothing
 age() {
   local s
-  case $(state "$1") in done | after*) echo —; return ;; esac
-  if [ ! -e "$1/log/$(cat "$1/step").log" ] && [ ! -e "$1/hold" ]; then echo —; return; fi
+  case $(state "$1") in done | after*) return ;; esac
+  started "$1" || return 0
   s=$(( $(printf '%(%s)T' -1) - $(stat -c %Y "$1/step") ))
   if [ "$s" -lt 60 ]; then echo "<1m"
   elif [ "$s" -lt 3600 ]; then echo "$((s / 60))m"
@@ -99,8 +89,7 @@ age() {
 
 # one row per task: open ones, then (with -a) done ones. A task waiting on another sits under it.
 board() {
-  local t done_rows= width
-  width=$(steps_width)
+  local t done_rows=
   for t in "$T_TASKS"/*/; do
     t=${t%/}
     [ -f "$t/step" ] || continue
@@ -114,34 +103,25 @@ board() {
 }
 
 # a task's row, then the rows of the tasks waiting on it, indented by $2:
-# 7   ✓✓▶·     3m  amino  Add a discount code field    review: read client.ts
+#   7  amino   Add a discount code field       3/4    3m  review  read client.ts
+# In color (T_COLOR=1, t ui's) it is greys, and red for held: the one thing on the board that needs you.
 rows() {
-  local t=$1 indent=${2:-} st repo=- marks painted since title says child under
-  st=$(state "$t")
+  local t=$1 indent=${2:-} st repo= title since says numbers child under
+  if [ -z "${T_COLOR:-}" ]; then local C_TEXT= C_MID= C_DIM= C_FAINT= C_RED= C_OFF=; fi
+  numbers=$C_DIM st=$(state "$t")
   if [ -f "$t/repo" ]; then
     repo=$(profile_of "$(cat "$t/repo")")
     repo=${repo:-$(basename "$(cat "$t/repo")")}
   fi
-  marks=$(progress "$t") since=$(age "$t") says=$(status "$t") title=$indent$(name "$t")
-  if [ "${#title}" -gt 28 ]; then title=${title:0:27}…; fi
-  painted=$marks
-  if [ -n "${T_COLOR:-}" ]; then          # t ui: done steps green, where it is yellow; a status in its state's color
-    painted=${painted//✓/$C_GREEN✓$C_OFF} painted=${painted//▶/$C_YELLOW▶$C_OFF} painted=${painted//·/$C_DIM·$C_OFF}
-    case $st in
-      running) says=$C_YELLOW$says ;;
-      ready)   if [ "$says" = "next tick" ]; then says=$C_DIM$says; else says=$C_YELLOW$says; fi ;;
-      HOLD)    says=$C_RED$says ;;
-      done)    says=$C_BLUE$says ;;
-      *)       says=$C_DIM$says ;;
-    esac
-    says+=$C_OFF
-  fi
-  printf '%-4s' "$(task_num "$t")"
-  pad "${width:-8}" "$marks" "$painted"
-  pad_left 3 "$since"
-  printf '  %-5.5s  ' "$repo"
-  pad 28 "$title"
-  printf ' %s\n' "$says"
+  title=$indent$(name "$t") since=$(age "$t") says=$(status "$t")
+  if [ "${#title}" -gt 30 ]; then title=${title:0:29}…; fi
+  if [ -n "$since" ]; then numbers=$C_MID; fi
+  case $st in
+    HOLD)    says=${C_RED}held$C_TEXT${says#held} ;;
+    running) says=$C_TEXT$says ;;
+    *)       says=$C_DIM$says ;;
+  esac
+  line "$(task_num "$t")" "$repo" "$title" "$numbers" "$(fraction "$t")" "$since" "$says$C_OFF"
 
   if [ -z "$indent" ]; then under="└ "; else under="  $indent"; fi
   for child in "$T_TASKS"/*/after; do
@@ -149,6 +129,20 @@ rows() {
       rows "${child%/after}" "$under"
     fi
   done
+}
+
+# one line of the board: id, repo, title, step, age, status, in the columns that fit in $T_COLS (unset:
+# all of them). A narrow board drops the repo first, then the status, then the age; never the step.
+line() {   # id repo title color-of-the-numbers step age status
+  local room=${T_COLS:-999} left=40
+  printf '%s%3s%s  ' "$C_DIM" "$1" "$C_OFF"
+  if [ "$room" -ge 100 ]; then printf '%s%-6.6s%s  ' "$C_FAINT" "$2" "$C_OFF"; fi
+  pad 30 "$3"
+  printf '  %s%3s' "$4" "$5"
+  if [ "$room" -ge $((left + 6)) ]; then printf '  %4s' "$6"; fi
+  printf %s "$C_OFF"
+  if [ "$room" -ge $((left + 6 + 22)) ]; then printf '  %s' "$7"; fi
+  echo
 }
 
 # cut lines to the terminal's width less $1, so a long title can't wrap and break the table
@@ -188,7 +182,7 @@ next_choice() {
   echo "${choices[0]}"
 }
 
-# the CLI after $1 when alt-a cycles it: the pipeline's own (empty), then each driver
+# the CLI after $1 when ^s cycles it: the pipeline's own (empty), then each driver
 next_cli() { next_choice "$1" "" $(ls "$T_ROOT/drivers"); }
 
 # what you typed at t ui's new> or t compose's prompt: t new's flags into $flags, the rest into $title
@@ -205,21 +199,22 @@ words() {
   done
 }
 
-# what t ui can do with a task, and its key on the board: ctrl moves around, alt acts
+# what t ui can do with a task, and its key on the board. Keys are ctrl- only: over ssh from a Mac, alt-
+# arrives only if the terminal sends Option as Meta. The rest are a word away, in the pane ? opens.
 ACTIONS='log     ctrl-l  its output, live; again: all of it, unfolded
-say     alt-s   send it back to a step with your notes
-attach  alt-a   take over the agent conversation (its own screen)
-stack   alt-t   start a task on this one (shared worktree, waits for it to finish)
-diff    alt-d   the change so far
-run     alt-r   run it now
-hold    alt-h   pause it after this step, or unpause it when it is held
-cancel  alt-c   stop its agent now, and hold it
-name    alt-e   change what the board calls it
-rm      alt-x   delete it and its worktree
+say     -       send it back to a step with your notes
+attach  ctrl-o  take over the agent conversation (its own screen)
+stack   ctrl-t  start a task on this one (shared worktree, waits for it to finish)
+diff    -       the change so far
+run     -       run it now
+hold    ctrl-r  pause it after this step, or unpause it when it is held
+cancel  -       stop its agent now, and hold it
+name    -       change what the board calls it
+rm      -       delete it and its worktree
 path    -       print its worktree'
 
-# how t ui writes a key: ctrl-l as ^l, alt-d as it is
-keyname() { echo "${1/#ctrl-/^}"; }
+# how t ui writes a key: ctrl-l as ^l, and a key an action hasn't (-) as nothing
+keyname() { if [ "$1" != - ]; then echo "${1/#ctrl-/^}"; fi; }
 
 # the actions worth offering for a task now; Enter does the first
 offers() {
@@ -252,18 +247,15 @@ pane_next() {
   esac
 }
 
-# a tab strip for t ui's pane: the choices $3..., the one that is $2 in color $1 (no color: in brackets)
+# a tab strip for t ui's pane: the choices $2..., the one that is $1 bright (no color: in brackets)
 strip() {
-  local color=$1 current=$2 choice out=
-  shift 2
+  local current=$1 choice out=
+  shift
   for choice; do
-    if [ "$choice" != "$current" ]; then out+="${color:+$C_DIM}$choice${color:+$C_OFF}  "
-    elif [ -n "$color" ]; then out+=$'\e[1m'"$color$choice$C_OFF  "
+    if [ "$choice" != "$current" ]; then out+="$C_FAINT$choice$C_OFF  "
+    elif [ -n "$C_OFF" ]; then out+="$C_BRIGHT$choice$C_OFF  "
     else out+="[$choice]  "
     fi
   done
   printf %s "$out"
 }
-
-# a line across t ui's pane, in color $1
-rule() { printf '%s%s%s\n' "${1:-}" "$(printf '─%.0s' $(seq "${FZF_PREVIEW_COLUMNS:-60}"))" "${1:+$C_OFF}"; }

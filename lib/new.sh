@@ -77,21 +77,21 @@ preview() {
   fi
   if [ -n "$cli" ]; then source=--cli; else source=CLI_$first; fi
   if [ -n "$who" ]; then row cli "$who$C_DIM  ($source)$C_OFF"; fi
-  if [ -n "$now" ]; then row starts "${C_GREEN}now, here$C_OFF"
+  if [ -n "$now" ]; then row starts "${C_BRIGHT}now, here$C_OFF"
   elif [ -n "$on" ]; then row starts "when task $(task_num "$parent") is done"
-  elif has_cron_tick; then row starts "${C_GREEN}next tick, < 60s$C_OFF"
+  elif has_cron_tick; then row starts "${C_BRIGHT}next tick, < 60s$C_OFF"
   else row starts "${C_RED}only when you run it: there is no cron tick (see t doctor)$C_OFF"
   fi
   if [ -n "$on" ]; then
     row shares "task $(task_num "$parent")'s worktree and lock"
     for sibling in "$T_TASKS"/*/after; do     # a sibling starts on the same tick, in the same worktree
       if [ "$(cat "$sibling" 2> /dev/null)" = "${parent##*/}" ] && [[ $(state "${sibling%/after}") == after* ]]; then
-        printf '\n%stask %s is already stacked here and starts on the same tick%s\n' "$C_YELLOW" "$(task_num "${sibling%/after}")" "$C_OFF"
+        printf '\n%stask %s is already stacked here and starts on the same tick%s\n' "$C_BRIGHT" "$(task_num "${sibling%/after}")" "$C_OFF"
       fi
     done
   fi
-  if [ "${#title}" -gt 40 ]; then printf '\n%sname      an agent will pick a short one (title > 40)%s\n' "$C_YELLOW" "$C_OFF"; fi
-  if [ -z "$repo" ] && [ -z "$now" ]; then printf '\n%sthe answer lands in the pane; ^N answers it here and now%s\n' "$C_DIM" "$C_OFF"; fi
+  if [ "${#title}" -gt 40 ]; then printf '\n%sname      an agent will pick a short one (title > 40)%s\n' "$C_BRIGHT" "$C_OFF"; fi
+  if [ -z "$repo" ] && [ -z "$now" ]; then printf '\n%sthe answer lands in the pane%s\n' "$C_DIM" "$C_OFF"; fi
 
   def=$(profile_get "$(profile_of "$repo")" PIPELINE)
   if [ -n "$on" ]; then flags+=" --on $(task_num "$parent")"
