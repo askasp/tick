@@ -312,6 +312,14 @@ test_a_worktree_has_a_name_of_its_own_and_teardown_follows_tests() {
   eq "$(grep -c down "$tmp/teardowns")" 2                 # and before its worktree went
 }
 
+test_a_task_started_from_the_board_keeps_the_board_out_of_its_steps() {
+  printf 'TEST_CMD="env > %s/env"\n' "$tmp" >> "$tmp/tick/pipelines/local/env"
+  id=$(new "add the widget")
+  T_UI=$tmp/board T_NEW=$tmp/board t run $id               # as t ui starts it
+  grep -q "^TASK_ID=$id$" "$tmp/env"
+  not grep -qE '^T_(UI|NEW)=' "$tmp/env"                  # plan's t new would write into the board
+}
+
 test_say_sends_a_done_task_back_with_your_notes() {
   id=$(new "add the widget")
   t run $id
