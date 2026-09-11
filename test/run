@@ -108,14 +108,29 @@ test_a_step_that_never_gets_past_holds_the_task() {
   printf 'changes\nchanges\nchanges\nchanges\n' > "$FAKE/verdicts"
   id=$(new "add the widget")
   t run $id
-  eq "$(step $id)" 10-implement
+  eq "$(step $id)" 30-review                              # implement moves on each time; review sends it back
   grep -q 'ran 3 times' "$(dir $id)/hold"
-  t ls | grep -q 'HELD implement ran 3 times'
+  t ls | grep -q 'HELD review ran 3 times'
   t run $id
-  eq "$(cat "$(dir $id)/runs/10-implement")" 3            # held: nothing ran
+  eq "$(cat "$(dir $id)/runs/30-review")" 3               # held: nothing ran
   t resume $id 2> /dev/null
   t run $id                                               # one more "changes", then approve
   eq "$(step $id)" done
+}
+
+test_a_step_counts_its_runs_afresh_once_the_task_moved_past_it() {
+  export SLOTS_opencode=1
+  printf 'BROKEN\nBROKEN\nfixed\n' > "$FAKE/impl"         # test sends it back twice, then passes
+  id=$(new "fix the widget" -p main)
+  mkdir -p "$T_VAR/run"
+  ( exec 8> "$T_VAR/run/opencode.1"; flock 8; sleep 2 ) &
+  sleep 0.5
+  t run $id                                               # makes the worktree, then waits for a slot
+  wait
+  echo other > other.txt && git add other.txt && git commit -q -m "meanwhile on main"
+  t run $id                                               # merge brings main in: test runs a 4th time
+  eq "$(step $id)" done
+  eq "$(grep -c '20-test ok' "$(dir $id)/history")" 4
 }
 
 test_an_implementer_that_changes_nothing_fails() {
