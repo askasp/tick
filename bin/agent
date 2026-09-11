@@ -3,8 +3,9 @@
 #
 #   git diff | agent reviewer > review.md
 #
-# The file says what the agent may do (mode: read, web or edit). Which CLI and model run it
-# is the pipeline's choice, per step: CLI_review=opencode, MODEL_review=... in its env.
+# The file says what the agent may do (mode: read, web or edit); a pipeline can change that
+# for one of its steps with MODE_<step>=. Which CLI and model run it is the pipeline's choice,
+# per step: CLI_review=opencode, MODEL_review=... in its env.
 # AGENT_CLI and AGENT_MODEL override that (t new --cli sets AGENT_CLI for one task).
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
@@ -16,7 +17,8 @@ body() { awk 'NR == 1 && $0 == "---" { fm = 1; next } fm && $0 == "---" { fm = 0
 
 step=${T_STEP:-}
 step=${step//[^a-zA-Z0-9_]/_}
-cli_var=CLI_$step model_var=MODEL_$step
+cli_var=CLI_$step model_var=MODEL_$step mode_var=MODE_$step
+mode=${!mode_var:-$mode}
 planned=${!cli_var:-$T_CLI}
 cli=${AGENT_CLI:-$planned}
 model=${AGENT_MODEL:-}

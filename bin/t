@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t — the task board. `t CMD ARGS` runs bin/t-CMD. Plain `t`: the interactive board in a terminal, `t ls` elsewhere.
+# t — the task board. `t CMD ARGS` runs bin/t-CMD, `t CMD --help` explains it. Plain `t`: the board.
 here=$(dirname "$(readlink -f "$0")")
 if [ $# -eq 0 ]; then
   if [ -t 0 ] && [ -t 1 ]; then exec "$here/t-ui"; fi
@@ -7,9 +7,7 @@ if [ $# -eq 0 ]; then
 fi
 cmd=$1
 shift
-[ ! -x "$here/t-$cmd" ] || exec "$here/t-$cmd" "$@"
-
-[ "$cmd" = help ] || echo "t: no command '$cmd'" >&2
-echo "usage (TASK is an id, a word from its title, or left out to choose from a list):" >&2
-for f in "$here"/t-*; do sed -n '2s/^# /  /p' "$f" >&2; done
-[ "$cmd" = help ]
+case $cmd in -h | --help) cmd=help ;; esac
+if [ ! -x "$here/t-$cmd" ]; then echo "t: no command '$cmd'" >&2; echo >&2; "$here/t-help" >&2; exit 1; fi
+if [ "${1:-}" = -h ] || [ "${1:-}" = --help ]; then sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$here/t-$cmd"; exit 0; fi
+exec "$here/t-$cmd" "$@"

@@ -1,4 +1,4 @@
 # local: code it, test it, review it; the branch is left for you to merge.
-# Who solves each agent step (claude or opencode). MODEL_<step>= picks a model for it.
-CLI_implement=claude
-CLI_review=claude
+# Who solves each agent step (claude or opencode). MODEL_<step>= pins a model for it.
+CLI_implement=opencode
+CLI_review=opencode

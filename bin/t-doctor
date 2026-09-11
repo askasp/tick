@@ -30,9 +30,7 @@ for d in "$T_ROOT"/pipelines/*/; do
   name=$(basename "$d")
   mark=' '
   [ "$name" != "$T_PIPELINE" ] || mark='*'
-  flow=
-  for s in $(steps "$name"); do who=$(solver "$name" "${s#*-}"); flow+=" → ${s#*-}${who:+ ($who)}"; done
-  printf '  %s %-10s %s\n' "$mark" "$name" "${flow# → }"
+  printf '  %s %-10s %s\n' "$mark" "$name" "$(flow "$name")"
   for s in $(steps "$name"); do [ -x "$d$s" ] || fix "$name/$s isn't an executable step" "ls -l $d$s"; done
   repo=$(pipeline_repo "$name")
   if [ -z "$repo" ]; then continue; fi

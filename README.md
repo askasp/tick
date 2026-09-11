@@ -93,16 +93,17 @@ t show 7                                                       # the question, t
 ```
 
 These are ordinary pipelines with one step, `answer`. The step pipes the
-question to the agent the pipeline's `env` names (`ANSWERER=explainer`, or
-`researcher`) and writes `answer.md`, which `t show` prints. Leave out `--now`
+question to `agents/answerer.md` and writes `answer.md`, which `t show`
+prints. The pipeline's `env` says how: `MODE_answer=web` lets research search
+the web, and `CLI_answer=` picks who answers. Leave out `--now`
 and the tick answers it in the background instead.
 
 An agent's `mode` decides what it may touch:
 
 | mode | may | used by |
 | --- | --- | --- |
-| `read` | read the repo | explainer, reviewer |
-| `web` | read, search the web, fetch pages | researcher |
+| `read` | read the repo | reviewer, answerer in `ask` |
+| `web` | read, search the web, fetch pages | answerer in `research` (`MODE_answer=web`) |
 | `edit` | read, edit files, run commands | implementer |
 
 A new kind of question is a new agent plus a pipeline. For example, a
@@ -121,9 +122,9 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 
 | pipeline | steps |
 | --- | --- |
-| `local` (the default) | implement (claude) → test → review (claude) |
+| `local` (the default) | implement (opencode) → test → review (opencode) |
 | `feature` | implement (opencode) → test → review (opencode) → pr → ci |
-| `ask` | answer (claude): reads the repo you're in and changes nothing |
+| `ask` | answer (opencode): reads the repo you're in and changes nothing |
 | `research` | answer (claude): searches the web; needs no repo |
 
 You pick one per task with `t new -p feature "…"`.
@@ -147,7 +148,7 @@ The first one set wins:
 
 1. `t new --cli claude "…"`: every step of that one task.
 2. `CLI_<step>=` in the pipeline's `env`: that step, in every task.
-3. `T_CLI` in `etc/tick.conf` (claude): any step the pipeline doesn't name.
+3. `T_CLI` in `etc/tick.conf` (opencode): any step the pipeline doesn't name.
 
 A pipeline can review twice with different solvers, because the key is the
 link's name, not the script's: add `ln -s ../../steps/review 35-second-review`

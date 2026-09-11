@@ -50,9 +50,13 @@ test_scripts_parse() {
   for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
 }
 
-test_help_lists_the_commands() {
-  t help 2>&1 | grep -q 't new'
-  t help 2>&1 | grep -q 't resume'
+test_help_shows_how_to_start_a_task() {
+  t help | grep -q 'Start a task'
+  t help | grep -q 'feature .*implement (opencode)'
+  t help | grep -q 't resume'
+  t new --help | grep -q 'stacks it'
+  not t nosuch 2> "$tmp/err"
+  grep -q 'Start a task' "$tmp/err"
 }
 
 test_a_task_runs_to_done_in_its_own_worktree() {
@@ -116,6 +120,7 @@ test_an_implementer_that_changes_nothing_fails() {
 }
 
 test_tasks_run_in_parallel_worktrees_off_main() {
+  export SLOTS_opencode=2
   a=$(new "task a")
   b=$(new "task b")
   t tick
@@ -160,9 +165,9 @@ test_a_stack_never_runs_two_steps_in_one_worktree() {
 }
 
 test_full_agent_slots_mean_try_again_later() {
-  export SLOTS_claude=1
+  export SLOTS_opencode=1
   mkdir -p "$T_VAR/run"
-  ( exec 8> "$T_VAR/run/claude.1"; flock 8; sleep 2 ) &
+  ( exec 8> "$T_VAR/run/opencode.1"; flock 8; sleep 2 ) &
   sleep 0.5
   id=$(new "add the widget")
   t run $id
@@ -202,13 +207,18 @@ test_feature_pipeline_opens_a_pr_and_waits_for_ci() {
   eq "$(git --git-dir="$tmp/origin.git" rev-list --count "main..t/$id-add-the-widget")" 2
 }
 
-test_opencode_can_do_the_coding() {
-  id=$(new "add the widget" --cli opencode)
+test_opencode_codes_by_default_and_claude_on_request() {
+  id=$(new "add the widget")
   t run $id
   eq "$(step $id)" done
   grep -q '^session: opencode ses_' "$(dir $id)/log/10-implement.log"
   grep -q -- '--agent plan' "$FAKE/opencode.calls"        # the reviewer only reads
   [ ! -e "$FAKE/claude.calls" ]
+  id=$(new "add the gadget" --cli claude)
+  t run $id
+  eq "$(step $id)" done
+  grep -q '^session: claude ' "$(dir $id)/log/10-implement.log"
+  grep -q -- '--tools Read,Grep,Glob' "$FAKE/claude.calls" # its reviewer only reads too
 }
 
 test_each_step_runs_on_the_cli_its_pipeline_names() {
@@ -303,7 +313,7 @@ test_ask_answers_about_the_repo_and_changes_nothing() {
   [ -s "$(dir $id)/answer.md" ]
   [ ! -e "$(dir $id)/work" ]                              # no worktree
   eq "$(git status --porcelain)" ""                       # the repo is untouched
-  grep -q -- '--tools Read,Grep,Glob$' "$FAKE/claude.calls"
+  grep -q -- '--agent plan' "$FAKE/opencode.calls"        # opencode's read-only agent
   t show $id | grep -q 'answer:'
 }
 
@@ -314,7 +324,7 @@ test_research_needs_no_repo_and_may_search_the_web() {
   t run $id
   eq "$(step $id)" done
   [ -s "$(dir $id)/answer.md" ]
-  grep -q 'WebSearch' "$FAKE/claude.calls"
+  grep -q 'WebSearch' "$FAKE/claude.calls"                 # the pipeline's MODE_answer=web
 }
 
 test_say_on_a_question_asks_a_follow_up() {
@@ -336,11 +346,11 @@ test_new_now_runs_the_task_at_once() {
 test_show_says_where_a_task_is_and_what_comes_next() {
   id=$(new "add the widget")
   out=$(t show $id)
-  grep -q '▶ implement (claude)  · test  · review (claude)' <<< "$out"
+  grep -q '▶ implement (opencode)  · test  · review (opencode)' <<< "$out"
   grep -q 't run 1 ' <<< "$out"
   t run $id
   out=$(t show widget)
-  grep -q '✓ implement (claude)  ✓ test  ✓ review (claude)' <<< "$out"
+  grep -q '✓ implement (opencode)  ✓ test  ✓ review (opencode)' <<< "$out"
   grep -q 't diff 1 ' <<< "$out"
   t ls -a | grep -q '✓✓✓'
 }

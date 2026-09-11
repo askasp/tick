@@ -1,4 +1,4 @@
-# research: a question for the web. No repo.
+# research: a question for the web. No repo. claude, because its web search is the tested one.
 REPO=none
-ANSWERER=researcher
+MODE_answer=web
 CLI_answer=claude

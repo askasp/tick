@@ -5,7 +5,8 @@ set -uo pipefail
 t=$PWD
 waited=$(( $(date +%s) - $(stat -c %Y pushed) ))
 
-out=$(cd work && gh pr checks "$(cat pr)" 2>&1)
+pr=$(cat pr)
+out=$(cd work && gh pr checks "$pr" 2>&1)
 code=$?
 echo "$out"
 

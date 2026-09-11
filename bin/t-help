@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# t help — how to start a task, the pipelines, and every command
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+
+cat << 'EOF'
+tick: AI coding tasks on a board of files; cron moves them along.
+
+Start a task (from inside a repo):
+  t new "Add a discount code field"          code it: implement, test, review
+  t new                                       the same, writing the title and details in $EDITOR
+  t new -p feature "..."                      ...then open a PR and wait for its CI
+  t new --on 3 "..."                          stack it on task 3: same worktree, starts when 3 is done
+  t new --cli claude "..."                    solve every step with claude instead
+  t new --now -p ask "How does X work?"       a question about the repo, answered right here
+  t new --now -p research "..."               a question for the web
+
+Follow it:
+  t                  the board: pick a task, then what to do with it
+  t show 3           where it is, and what to do next
+
+EOF
+echo "Pipelines (-p NAME; * is the default):"
+for d in "$T_ROOT"/pipelines/*/; do
+  name=$(basename "$d") mark=' '
+  [ "$name" != "$T_PIPELINE" ] || mark='*'
+  printf '  %s %-9s %s\n' "$mark" "$name" "$(flow "$name")"
+done
+echo
+echo "Commands (t CMD --help for more; TASK is a number, a word from its title, or left out to pick):"
+for f in "$T_ROOT"/bin/t-*; do sed -n '2s/^# /  /p' "$f"; done

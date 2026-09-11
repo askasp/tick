@@ -51,7 +51,7 @@ how to change it.
 | a step | an executable in `steps/` that follows the contract below | no |
 | an agent | `agents/NAME.md`: a prompt, with `mode: read`, `web` or `edit` in its frontmatter | no |
 | who solves a step | `CLI_<step>=claude` or `opencode`, and optionally `MODEL_<step>=`, in the pipeline's env; `t new --cli` overrides it for one task | no |
-| a kind of question | an agent, plus a pipeline whose one step is `steps/answer` and whose env says `ANSWERER=NAME` | no |
+| a kind of question | a pipeline whose one step is `steps/answer`; its env sets `MODE_answer=` (read or web), `CLI_answer=`, and `ANSWERER=NAME` only for a prompt of its own | no |
 | an AI CLI | `drivers/NAME`, same contract as `drivers/claude` | no |
 | a command | `bin/t-NAME`. Line 2 is its help line (`# t NAME ARGS — what`) | no |
 | a setting | `etc/tick.conf`, as `: "${NAME:=default}"` | no |

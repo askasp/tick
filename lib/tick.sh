@@ -44,6 +44,13 @@ solver() {
   )
 }
 
+# a pipeline's steps with their solvers: implement (opencode) → test → review (opencode)
+flow() {
+  local s who out=
+  for s in $(steps "$1"); do who=$(solver "$1" "${s#*-}"); out+=" → ${s#*-}${who:+ ($who)}"; done
+  echo "${out# → }"
+}
+
 # done | HOLD | after ID | running | ready
 state() {
   if [ "$(cat "$1/step")" = done ]; then echo done
