@@ -24,6 +24,7 @@ t show discount                              # one task: where it is, and what y
 t log discount -f                            # watch it work
 t say discount "also validate it"            # send it back to the implementer
 t diff discount                              # read the change
+t peek discount steps                        # how each step went, and which file each setting comes from
 t name discount "Discount field"             # what the board calls it
 ```
 
@@ -61,7 +62,7 @@ title.
 In a terminal, plain `t` shows this board live, in fzf. Rows move as tasks
 run, the cursor starts on the newest running one, and the pane beside it shows
 the task you're on: its live log while it runs, else its details (`t peek`).
-`tab` switches the pane between details, log and diff (its top line lists
+`tab` switches the pane between details, steps, log and diff (its top line lists
 them, the one you're on in color), and `^d`/`^u` scroll it half a page
 (PgDn/PgUp a page, Shift-↓/↑ a line).
 The header says where
@@ -338,7 +339,7 @@ A task directory holds `task.md`, `name`, `pipeline`, `step`, `repo`, `base`,
 ```
 t                          the live board in a terminal (fzf), else t ls
 t ui [TASK [ACTION]]       with a TASK, the menu of what to do with it; with an ACTION, that at once
-t peek [TASK] [show|log|diff]   what the board's pane shows for it
+t peek [TASK] [show|steps|log|diff]   what the board's pane shows for it
 t keys [TASK]              what the board's header offers for it
 t new ["what to do" [-]] [-p PIPELINE] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO] [--now] [--edit] [--dry]
 t compose [t new's flags]  the screen plain t new opens: title, pipeline, and the task it will make

@@ -673,7 +673,24 @@ test_the_pane_shows_details_log_or_diff() {
   not grep -q 'next:' <(t peek $id)                       # without the keys the header has
   timeout 2 t peek $id log | grep -q '30-review ok → done'
   t peek $id diff | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^+change'   # in color
+  t peek $id steps | grep -q '^✓ 30-review'
   t keys $id | grep -q '⏎ diff  ^t stack'
+}
+
+test_steps_says_how_each_step_went_and_which_file_each_setting_comes_from() {
+  profile                                                 # toy has a TEST_CMD of its own
+  printf 'BROKEN\nfixed\n' > "$FAKE/impl"                 # the tests fail once: back to implement
+  id=$(new -r toy -p local --test "make test" "add the widget")
+  t peek $id steps | grep -q '^▶ 10-implement  —  '       # nothing ran yet
+  t peek $id steps | grep -q '^implement — '              # what the step it is on does
+  t run $id
+  out=$(t peek $id steps)
+  grep -qE '^✓ 10-implement  2 runs   ok → test +→ steps/implement · [0-9]+ pipelines$' <<< "$out"
+  grep -qE '^✓ 20-test +2 runs   ok → review ' <<< "$out"
+  grep -qE '^✓ 30-review +1 run    ok → done ' <<< "$out"
+  grep -qE '^  CLI_implement +opencode  pipelines/local$' <<< "$out"
+  grep -qE '^  TEST_CMD +make test  task$' <<< "$out"      # the task's own beats the repo's
+  grep -qE "^  REPO +$tmp/repo  repos/toy$" <<< "$out"
 }
 
 test_compose_takes_flags_typed_with_the_title() {

@@ -69,7 +69,7 @@ if [ "${1:-}" = --pane ]; then
         [ "$key" = - ] || printf '%s%-6s%s %-7s %s%s%s\n' "$C_PURPLE" "^${key#ctrl-}" "$o" "$a" "$d" "$desc" "$o"
       done <<< "$ACTIONS"
       echo
-      for kd in "^n|new task" "tab|the pane: details, log, diff" "^d ^u|scroll the pane" "^w|a wide pane, and back" \
+      for kd in "^n|new task" "tab|the pane: details, steps, log, diff" "^d ^u|scroll the pane" "^w|a wide pane, and back" \
                 "^f|step names" "esc|quit (or back, from here)"; do
         printf '%s%-6s%s %s%s%s\n' "$C_PURPLE" "${kd%%|*}" "$o" "$d" "${kd#*|}" "$o"
       done ;;

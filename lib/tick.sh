@@ -57,13 +57,17 @@ repo_path() {
 # a pipeline that needs no repo says REPO=none in its env (research)
 no_repo() { [ "$(env_get "$T_ROOT/pipelines/$1/env" REPO)" = none ]; }
 
-# a task's settings, the most specific last: its pipeline's env, its repo's, its own
-load_env() {
-  local p f
+# a task's env files, the most specific last: its pipeline's, its repo's, its own
+env_files() {
+  local p
   p=$(profile_of "$(cat "$1/repo" 2> /dev/null)")
-  for f in "$T_ROOT/pipelines/$(cat "$1/pipeline")/env" ${p:+"$T_ROOT/repos/$p/env"} "$1/env"; do
-    [ ! -f "$f" ] || . "$f"
-  done
+  printf '%s\n' "$T_ROOT/pipelines/$(cat "$1/pipeline")/env" ${p:+"$T_ROOT/repos/$p/env"} "$1/env"
+}
+
+# a task's settings: its env files, one after the other
+load_env() {
+  local f
+  while read -r f; do [ ! -f "$f" ] || . "$f"; done < <(env_files "$1")
 }
 
 # the CLI that step $2 of pipeline $1 runs on, when the pipeline names one (CLI_<step>=);
@@ -235,10 +239,11 @@ next_cli() {
   { echo; ls "$T_ROOT/drivers"; } | awk -v c="$1" 'NR == 1 { f = $0 } s { print; n = 1; exit } $0 == c { s = 1 } END { if (!n) print f }'
 }
 
-# the pane tab goes to after $2: show, log, then diff when the task has a branch
+# the pane tab goes to after $2: show, steps, log, then diff when the task has a branch
 pane_next() {
   case $2 in
-    show) echo log ;;
+    show)  echo steps ;;
+    steps) echo log ;;
     log)  if [ -f "$1/branch" ] && git -C "$(cat "$1/repo")" rev-parse -q --verify "refs/heads/$(cat "$1/branch")" > /dev/null 2>&1
           then echo diff; else echo show; fi ;;
     *)    echo show ;;
