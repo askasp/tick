@@ -31,7 +31,7 @@ before=$(git rev-parse HEAD)
 {
   cat "$t/task.md"
   if [ -s "$t/feedback.md" ]; then printf '\n## Feedback to address\n\n'; cat "$t/feedback.md"; fi
-} | agent implementer
+} | agent implementer > /dev/null
 
 git add -A
 git diff --cached --quiet || git commit -q -m "$(sed -n '1s/^# //p' "$t/task.md")"

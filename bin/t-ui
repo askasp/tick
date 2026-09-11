@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# t ui — the interactive board: choose a task, then what to do with it (plain `t` opens this)
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+trap : INT          # Ctrl-C stops what you started (t log -f), not the board
+
+actions='log       follow its output live (Ctrl-C to stop)
+diff      read the change so far
+say       send it back to implement with your notes
+attach    take over the agent conversation
+run       run it now, in this terminal
+hold      pause it
+resume    unpause it
+path      print its worktree
+rm        delete it and its worktree'
+ask() { local a; read -rp "$1 " a < /dev/tty; echo "$a"; }
+
+while :; do
+  echo
+  row=$({ echo "+     new task"; board -a; } |
+    PICK_PREVIEW="[ {1} = + ] && echo 'start a new task' || $T_ROOT/bin/t-show {1}" pick "task") || exit 0
+  if [[ $row == +* ]]; then t-new; continue; fi
+  id=${row%% *}
+
+  echo; t-show "$id"; echo
+  act=$(pick "task $((10#$id))" <<< "$actions") || continue
+  case ${act%% *} in
+    log)  t-log "$id" -f ;;
+    say)  msg=$(ask "what should change?"); [ -z "$msg" ] || t-say "$id" "$msg" ;;
+    hold) t-hold "$id" "$(ask "why? (Enter: held by hand)")" ;;
+    rm)   [ "$(ask "delete task $((10#$id)) and its worktree? [y/N]")" != y ] || t-rm "$id" ;;
+    *)    "t-${act%% *}" "$id" ;;
+  esac
+  ask "(Enter: back to the board)" > /dev/null
+done

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# A stand-in for crontab, so tests never read or touch yours: `-l` prints $FAKE/crontab.
+[ "${1:-}" = -l ] && [ -f "$FAKE/crontab" ] && exec cat "$FAKE/crontab"
+echo "no crontab for $USER" >&2
+exit 1

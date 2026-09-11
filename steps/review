@@ -10,7 +10,6 @@ base=$(cat base)
   git -C work diff "$base...HEAD"
   printf '```\n'
 } | (cd work && agent reviewer) > review.md
-cat review.md
 
 case $(grep -oE '^VERDICT: *(approve|changes)' review.md | tail -1 || true) in
   *approve) ;;

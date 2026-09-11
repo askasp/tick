@@ -47,6 +47,7 @@ how to change it.
 | to add | do this | touch the runner? |
 | --- | --- | --- |
 | a pipeline | `mkdir pipelines/NAME`, then `ln -s ../../steps/X NN-X` for each step | no |
+| a pipeline for one repo | `pipelines/NAME/env` with `REPO=` and settings like `TEST_CMD=` (sourced before each step) | no |
 | a step | an executable in `steps/` that follows the contract below | no |
 | an agent | `agents/NAME.md`: frontmatter (`cli`, `mode`, `model`) and a prompt | no |
 | an AI CLI | `drivers/NAME`, same contract as `drivers/claude` | no |

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# t show [TASK] — one task: where it is in its pipeline, its state, and what you can do next
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+t=$(task_dir "${1:-}") || exit 1
+n=$((10#${t##*/})) step=$(cat "$t/step") p=$(cat "$t/pipeline") st=$(state "$t")
+
+mark=✓ flow=
+for s in $(steps "$p"); do
+  if [ "$s" = "$step" ]; then flow+="▶ ${s#*-}  "; mark=·; else flow+="$mark ${s#*-}  "; fi
+done
+
+echo "$n  $(title "$t")"
+echo
+echo "  $p:  $flow"
+case $st in
+  ready)   echo "  state:     waiting for the next tick" ;;
+  running) echo "  state:     running ${step#*-}, run $(cat "$t/runs/$step" 2> /dev/null || echo 1) of $MAX_RUNS" ;;
+  after*)  echo "  state:     queued behind task $((10#${st#after }))" ;;
+  HOLD)    echo "  state:     ON HOLD: $(head -1 "$t/hold")" ;;
+  done)    echo "  state:     done" ;;
+esac
+echo "  repo:      $(cat "$t/repo")"
+echo "  branch:    $(cat "$t/branch")  (from $(cat "$t/base"))"
+[ ! -e "$t/work" ] || echo "  worktree:  $(readlink -f "$t/work")"
+[ ! -f "$t/pr" ] || echo "  PR:        $(cat "$t/pr")"
+[ ! -s "$t/feedback.md" ] || echo "  feedback:  $(grep -m1 . "$t/feedback.md" | cut -c1-90)"
+if [ -f "$t/history" ]; then echo; echo "  history:"; tail -n 5 "$t/history" | sed 's/^/    /'; fi
+
+echo
+echo "  next:"
+case $st in
+  ready)   echo "    t run $n            start it now, in this terminal" ;;
+  running) echo "    t log $n -f         watch it" ;;
+  after*)  echo "    t show $((10#${st#after }))            the task it waits for" ;;
+  HOLD)    echo "    t log $n            see why"
+           echo "    t say $n \"...\"      tell the implementer what to do; it resumes"
+           echo "    t attach $n         take over the agent yourself, then: t resume $n" ;;
+  done)    if [ -f "$t/pr" ]; then
+             echo "    review and merge   $(cat "$t/pr")"
+           else
+             echo "    t diff $n           read the change"
+             echo "    git -C $(cat "$t/repo") merge $(cat "$t/branch")"
+           fi
+           echo "    t say $n \"...\"      ask for more changes"
+           echo "    t rm $n             delete the task and its worktree (the branch stays)" ;;
+esac

@@ -19,5 +19,6 @@ case "$1 $2" in
       fail)    printf 'build\tfail\t1m2s\t%s\n' $link; exit 1 ;;
     esac ;;
   "run view")  echo "FAIL test_widget: expected 2, got 3" ;;
+  "auth status") ;;
   *)           echo "fake gh: unhandled: $*" >&2; exit 1 ;;
 esac

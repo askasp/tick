@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# test/run [PATTERN] — every test (or those matching PATTERN), with fake claude/opencode/gh on PATH.
-# Never calls a model. Each test runs under set -e with its own T_VAR and a toy repo that has
-# a bare "origin" and a `make test` that fails while impl.txt ends in BROKEN.
+# test/run [PATTERN] — every test (or those matching PATTERN), with fake claude/opencode/gh/crontab.
+# Never calls a model. Each test runs under set -e in its own copy of tick, with its own T_VAR and a
+# toy repo that has a bare "origin" and a `make test` that fails while impl.txt ends in BROKEN.
 root=$(cd "$(dirname "$0")/.." && pwd)
-export PATH=$root/test/fake:$root/bin:$PATH
-export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+path=$PATH
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 SHELL=/bin/bash
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
-unset T_VAR T_PIPELINE MAX_RUNS SLOTS_claude SLOTS_opencode AGENT_CLI AGENT_MODEL
+unset T_VAR T_PIPELINE MAX_RUNS SLOTS_claude SLOTS_opencode AGENT_CLI AGENT_MODEL T_PICKER
 
 eq()   { [ "$1" = "$2" ] || { echo "expected '$2', got '$1'" >&2; return 1; }; }
 not()  { if "$@"; then echo "should have failed: $*" >&2; return 1; fi; }
 new()  { t new "$@" < /dev/null 2> /dev/null; }
 dir()  { echo "$T_VAR/tasks/$1"; }
 step() { cat "$(dir "$1")/step"; }
+tty()  { script -qec "$1" /dev/null; }      # run a command line in a pseudo-terminal
 wait_done() {
   local i id all
   for i in $(seq 150); do
@@ -26,7 +27,8 @@ wait_done() {
 
 setup() {
   tmp=$(mktemp -d)
-  export T_VAR=$tmp/var FAKE=$tmp/fake
+  cp -a "$root" "$tmp/tick"
+  export T_VAR=$tmp/var FAKE=$tmp/fake PATH=$tmp/tick/test/fake:$tmp/tick/bin:$path
   mkdir -p "$FAKE"
   git init -q --bare -b main "$tmp/origin.git"
   git init -q -b main "$tmp/repo"
@@ -36,6 +38,12 @@ setup() {
   git remote add origin "$tmp/origin.git"
   git push -q -u origin main 2> /dev/null
   git remote set-head origin main
+}
+
+tie() {   # a pipeline "widget" (implement → test → review) tied to the toy repo
+  mkdir "$tmp/tick/pipelines/widget"
+  for s in 10-implement 20-test 30-review; do ln -s "../../steps/${s#*-}" "$tmp/tick/pipelines/widget/$s"; done
+  printf 'REPO=%s\nTEST_CMD="touch %s/tested && make test"\n' "$tmp/repo" "$tmp" > "$tmp/tick/pipelines/widget/env"
 }
 
 test_scripts_parse() {
@@ -58,7 +66,7 @@ test_a_task_runs_to_done_in_its_own_worktree() {
   eq "$(git -C "$w" branch --show-current)" t/0001-add-the-widget
   eq "$(git -C "$w" rev-list --count origin/main..HEAD)" 1
   eq "$(git -C "$w" log -1 --format=%s)" "add the widget"
-  grep -q '30-review ok → done' "$(dir $id)/history"
+  grep -q ' 1 30-review ok → done' "$(dir $id)/history"   # history names the task, not the run
 }
 
 test_review_feedback_reaches_the_implementer() {
@@ -124,7 +132,7 @@ test_a_stacked_task_waits_then_builds_on_its_parent() {
   b=$(new "child work" --on $a)
   t run $b
   eq "$(step $b)" 10-implement                            # queued behind $a
-  t ls | grep "^$b" | grep -q "after $a"
+  t ls | grep "^$((10#$b)) " | grep -q "after $((10#$a))"
   t run $a
   eq "$(step $a)" done
   t run $b
@@ -170,7 +178,7 @@ test_a_killed_run_is_picked_up_again() {
   id=$(new "add the widget")
   FAKE_SLEEP=5 setsid t run $id > /dev/null 2>&1 &
   sleep 1
-  t ls | grep "^$id" | grep -q running
+  t ls | grep "^$((10#$id)) " | grep -q running
   fuser -s -k "$(dir $id)/lock"                           # like a reboot: everything in the run dies
   sleep 0.3
   eq "$(step $id)" 10-implement
@@ -224,6 +232,82 @@ test_rm_removes_the_worktree_and_keeps_the_branch() {
   git rev-parse -q --verify "refs/heads/t/$id-add-the-widget" > /dev/null
 }
 
+test_a_pipeline_tied_to_a_repo_works_from_anywhere() {
+  tie
+  cd /
+  id=$(new "add the widget" -p widget)
+  eq "$(cat "$(dir $id)/repo")" "$(realpath "$tmp/repo")"
+  t run $id
+  eq "$(step $id)" done                                   # its env file wasn't run as a step
+  [ -e "$tmp/tested" ]                                    # the pipeline's TEST_CMD ran
+  cd "$tmp/repo"
+  id=$(new "another widget")
+  eq "$(cat "$(dir $id)/pipeline")" widget                # standing in the repo picks its pipeline
+}
+
+test_a_task_can_be_named_by_a_word_from_its_title() {
+  a=$(new "add the widget")
+  b=$(new "fix the gadget")
+  eq "$(t path gadget)" "$T_VAR/tasks/$b/work"
+  not t path the 2> "$tmp/err"                            # two match, and no terminal to ask in
+  grep -q 'which task' "$tmp/err"
+  grep -q '^  1  add the widget' "$tmp/err"
+  grep -q '^  2  fix the gadget' "$tmp/err"
+}
+
+test_leaving_out_the_task_gives_a_menu() {
+  a=$(new "add the widget")
+  b=$(new "fix the gadget")
+  out=$(printf '2\n' | T_PICKER=select tty "t path")
+  grep -q "1) 1 " <<< "$out"
+  grep -q "$T_VAR/tasks/$b/work" <<< "$out"
+}
+
+test_new_without_a_title_opens_the_editor() {
+  cat > "$tmp/ed" << 'EOF'
+#!/bin/sh
+printf 'add the widget\n\n## Context\nuse tabs\n' > "$1"
+EOF
+  chmod +x "$tmp/ed"
+  EDITOR=$tmp/ed tty "t new" > /dev/null < /dev/null
+  eq "$(head -1 "$(dir 0001)/task.md")" "# add the widget"
+  grep -q '^## Context' "$(dir 0001)/task.md"            # markdown headings survive
+}
+
+test_details_come_from_stdin_only_with_a_dash() {
+  t new "add the widget" 2> /dev/null < /dev/zero > /dev/null   # an open stdin must not hang it
+  printf 'use tabs\n' | t new "fix the gadget" - > /dev/null 2>&1
+  eq "$(cat "$(dir 0001)/task.md")" "# add the widget"
+  grep -q '^use tabs' "$(dir 0002)/task.md"
+}
+
+test_show_says_where_a_task_is_and_what_comes_next() {
+  id=$(new "add the widget")
+  out=$(t show $id)
+  grep -q '▶ implement  · test  · review' <<< "$out"
+  grep -q 't run 1 ' <<< "$out"
+  t run $id
+  out=$(t show widget)
+  grep -q '✓ implement  ✓ test  ✓ review' <<< "$out"
+  grep -q 't diff 1 ' <<< "$out"
+  t ls -a | grep -q '✓✓✓'
+}
+
+test_diff_shows_the_change() {
+  id=$(new "add the widget")
+  t run $id
+  t diff $id | grep -q '^+change'
+}
+
+test_doctor_says_what_to_fix() {
+  not t doctor > "$tmp/out"
+  grep -q 'no cron line' "$tmp/out"
+  grep -q '\* local ' "$tmp/out"
+  echo "* * * * * $tmp/tick/bin/t tick" > "$FAKE/crontab"
+  t doctor > "$tmp/out"
+  grep -q 'all good' "$tmp/out"
+}
+
 test_drivers_read_real_cli_output() {
   fx=$root/test/fixtures
   out=$(echo hi | FAKE_REPLAY=$fx/claude-read.jsonl "$root/drivers/claude" 2> "$tmp/err")
@@ -246,7 +330,7 @@ for name in $(declare -F | awk '{ print $3 }' | grep '^test_' | grep -- "${1:-.}
   if [ $? -eq 0 ]; then
     pass=$((pass + 1)); echo "ok    $name"
   else
-    failed+=("$name"); echo "FAIL  $name"; tail -25 "$log" | sed 's/^/      /'
+    failed+=("$name"); echo "FAIL  $name"; tail -40 "$log" | sed 's/^/      /'
   fi
 done
 echo

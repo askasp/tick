@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# t new "what to do" [-p PIPELINE] [--on ID] [--cli claude|opencode] [--test CMD] [-r REPO] — create a task (details on stdin)
+# t new ["what to do" [-]] [-p PIPELINE] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO] — create a task
 #
-# A task gets its own worktree, on a new branch off the trunk (origin's main when
-# there is one). With --on ID it is stacked instead: it shares that task's worktree,
-# branches from that task's branch, and waits until that task is done.
+# No title: $EDITOR opens; line 1 is the title, the rest details for the agent.
+# A "-" reads the details from stdin instead:  cat spec.md | t new "Add proration" -
+# The repo is -r, else the repo the pipeline is tied to (REPO= in its env), else the repo you're in.
+# The pipeline is -p, else the one tied to that repo, else $T_PIPELINE.
+# --on TASK stacks it: that task's worktree, repo and pipeline, and it waits until that task is done.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 
-pipeline= on= cli= test= repo=. base= title=
+pipeline= on= cli= test= repo= base= title= details= stdin=
 while [ $# -gt 0 ]; do
   case $1 in
     -p)     pipeline=$2; shift ;;
@@ -16,13 +18,28 @@ while [ $# -gt 0 ]; do
     --test) test=$2; shift ;;
     --base) base=$2; shift ;;
     -r)     repo=$2; shift ;;
+    -)      stdin=1 ;;
     -*)     die "unknown flag $1" ;;
     *)      title=$1 ;;
   esac
   shift
 done
-[ -n "$title" ] || die 'usage: t new "what to do" [-p PIPELINE] [--on ID]'
 [ -z "$cli" ] || [ -x "$T_ROOT/drivers/$cli" ] || die "no driver '$cli'; there are: $(ls "$T_ROOT/drivers" | xargs)"
+[ -z "$pipeline" ] || [ -d "$T_ROOT/pipelines/$pipeline" ] || die "no pipeline '$pipeline'; there are: $(ls "$T_ROOT/pipelines" | xargs)"
+
+if [ -z "$title" ]; then
+  [ -t 0 ] && [ -t 1 ] || die 'usage: t new "what to do" [-p PIPELINE] [--on TASK]'
+  f=$(mktemp --suffix=.md)
+  printf '\n\n# tick: line 1 is the title. Below it, details for the agent: files, examples, what done means.\n# tick: lines like these are dropped. Save an empty file to cancel.\n' > "$f"
+  "${EDITOR:-vi}" "$f"
+  text=$(grep -v '^# tick:' "$f" || true)
+  rm -f "$f"
+  title=$(awk 'NF { print; exit }' <<< "$text")
+  details=$(awk 'f; !f && NF { f = 1 }' <<< "$text" | sed '/./,$!d')
+  [ -n "$title" ] || die "no title, so nothing was created"
+elif [ -n "$stdin" ]; then
+  details=$(cat)
+fi
 
 trunk() {   # origin's copy first: a local main may be behind
   git -C "$1" symbolic-ref -q --short refs/remotes/origin/HEAD && return
@@ -39,13 +56,19 @@ if [ -n "$on" ]; then
   base=$(cat "$parent/branch")
   pipeline=${pipeline:-$(cat "$parent/pipeline")}
 else
-  common=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2> /dev/null) ||
-    die "$repo is not in a git repo (cd into one, or use -r REPO)"
+  if [ -z "$repo" ] && [ -n "$pipeline" ]; then repo=$(pipeline_repo "$pipeline"); fi
+  common=$(git -C "${repo:-.}" rev-parse --path-format=absolute --git-common-dir 2> /dev/null) ||
+    die "${repo:-this directory} is not in a git repo: cd into one, use -r REPO, or tie a pipeline to one (REPO= in pipelines/NAME/env)"
   repo=${common%/.git}
+  if [ -z "$pipeline" ]; then
+    for d in "$T_ROOT"/pipelines/*/; do
+      d=${d%/}
+      if [ "$(pipeline_repo "${d##*/}")" = "$repo" ]; then pipeline=${d##*/}; break; fi
+    done
+  fi
   [ -n "$base" ] || base=$(trunk "$repo") || die "can't tell the trunk of $repo; pass --base BRANCH"
 fi
 pipeline=${pipeline:-$T_PIPELINE}
-[ -d "$T_ROOT/pipelines/$pipeline" ] || die "no pipeline '$pipeline'; there are: $(ls "$T_ROOT/pipelines" | xargs)"
 
 # the next free id; mkdir is atomic, so two `t new` at once never share one
 mkdir -p "$T_TASKS"
@@ -59,7 +82,7 @@ id=$(printf %04d "$n")
 cd "$T_TASKS/$id"
 
 slug=$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-40 | sed 's/^-*//; s/-*$//')
-{ echo "# $title"; if [ ! -t 0 ]; then echo; cat; fi; } > task.md
+{ echo "# $title"; [ -z "$details" ] || printf '\n%s\n' "$details"; } > task.md
 echo "$repo" > repo
 echo "$base" > base
 echo "t/$id${slug:+-$slug}" > branch
@@ -79,5 +102,8 @@ fi
 [ -z "$cli" ] || echo "AGENT_CLI=$cli" >> env
 [ -z "$test" ] || printf 'TEST_CMD=%q\n' "$test" >> env
 
+if [ -n "$on" ]; then when="It starts when task $((10#${parent##*/})) is done."
+elif crontab -l 2> /dev/null | grep -q 'bin/t tick'; then when="The next tick starts it, within a minute."
+else when="No cron tick is installed (see t doctor), so start it with: t run $n"; fi
 echo "$id"
-echo "t: task $id is queued at $(cat step)${on:+ behind $on}; the tick starts it, or now: t run $id" >&2
+echo "t: task $n: pipeline $pipeline, repo ${repo##*/}, branch $(cat branch). $when" >&2

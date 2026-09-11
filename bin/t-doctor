@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# t doctor — check everything tick needs, list the pipelines, and say how to fix what's missing
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+bad=0
+ok()   { echo "  ✓ $1"; }
+fix()  { echo "  ✗ $1"; echo "      fix: $2"; bad=1; }
+need() { if command -v "$1" > /dev/null; then ok "$1"; else fix "$1 not found" "$2"; fi; }
+
+echo "tools"
+need git      "sudo apt install git"
+need jq       "sudo apt install jq"
+need flock    "sudo apt install util-linux"
+need claude   "curl -fsSL https://claude.ai/install.sh | bash"
+need opencode "curl -fsSL https://opencode.ai/install | bash"
+need gh       "sudo apt install gh   (only pipelines with a pr step need it)"
+if command -v gh > /dev/null; then
+  if gh auth status > /dev/null 2>&1; then ok "gh is logged in"; else fix "gh is not logged in" "gh auth login"; fi
+fi
+if command -v fzf > /dev/null; then ok "fzf (fuzzy task picker)"; else echo "  · no fzf: pickers are numbered menus (sudo apt install fzf)"; fi
+
+echo "wiring"
+if [ "$(PATH=$T_PATH_BEFORE command -v t | xargs -r readlink -f)" = "$T_ROOT/bin/t" ]; then ok "t is on your PATH"
+else fix "t is not on your PATH" "ln -s $T_ROOT/bin/t ~/.local/bin/t"; fi
+if crontab -l 2> /dev/null | grep -q 'bin/t tick'; then ok "cron ticks every minute"
+else fix "no cron line, so tasks only move when you run them" "(crontab -l; echo '* * * * * $T_ROOT/bin/t tick') | crontab -"; fi
+if mkdir -p "$T_TASKS" 2> /dev/null && [ -w "$T_TASKS" ]; then ok "state in $T_VAR"; else fix "can't write $T_TASKS" "set T_VAR in $T_ROOT/etc/tick.conf"; fi
+
+echo "pipelines   (t new -p NAME; * is the default)"
+for d in "$T_ROOT"/pipelines/*/; do
+  name=$(basename "$d")
+  mark=' '
+  [ "$name" != "$T_PIPELINE" ] || mark='*'
+  printf '  %s %-10s %s\n' "$mark" "$name" "$(steps "$name" | sed 's/^[0-9]*-//' | paste -sd' ' | sed 's/ / → /g')"
+  for s in $(steps "$name"); do [ -x "$d$s" ] || fix "$name/$s isn't an executable step" "ls -l $d$s"; done
+  repo=$(pipeline_repo "$name")
+  if [ -z "$repo" ]; then continue; fi
+  if ! git -C "$repo" rev-parse > /dev/null 2>&1; then fix "$name is tied to $repo, which isn't a git repo" "edit REPO= in ${d}env"; continue; fi
+  echo "               tied to $repo"
+  tests=$(TEST_CMD=; . "${d}env" > /dev/null 2>&1; echo "$TEST_CMD")
+  if steps "$name" | grep -q -- '-test$' && [ -z "$tests" ] && ! grep -qs '^test:' "$repo/Makefile"; then
+    echo "               · no TEST_CMD and no 'make test', so its test step checks nothing (add TEST_CMD= to ${d}env)"
+  fi
+done
+
+[ "$bad" = 1 ] || echo "all good"
+exit "$bad"
