@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# A stand-in for curl against the Front API. Answers with the file in $FAKE/front whose name
+# (the URL's path, slashes as _) starts the requested path; longest name wins. No file: an empty page.
+# $FAKE/front/401 makes every request fail the way `curl -f` does.
+set -eu
+url=${!#}
+echo "$url" >> "$FAKE/curl.calls"
+path=${url#https://api2.frontapp.com/}
+path=${path%%\?*}
+path=${path//\//_}
+if [ -e "$FAKE/front/401" ]; then echo "curl: (22) The requested URL returned error: 401" >&2; exit 22; fi
+for name in $(ls "$FAKE/front" 2> /dev/null | sort -r); do
+  if [[ $path == "$name"* ]]; then cat "$FAKE/front/$name"; exit 0; fi
+done
+echo '{"_results": [], "_pagination": {"next": null}}'

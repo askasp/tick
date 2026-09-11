@@ -51,6 +51,7 @@ for d in "$T_ROOT"/pipelines/*/; do
   printf '  %s %-10s %s\n' "$mark" "$name" "$(flow "$name")"
   for s in $(steps "$name"); do [ -x "$d$s" ] || fix "$name/$s isn't an executable step" "ls -l $d$s"; done
   ! no_repo "$name" || echo "               needs no repo"
+  [ ! -e "$T_ROOT/bin/t-$name" ] || fix "pipeline $name has the name of a command, so t $name runs the command" "mv ${d%/} $T_ROOT/pipelines/OTHER-NAME"
 done
 
 [ "$bad" = 1 ] || echo "all good"

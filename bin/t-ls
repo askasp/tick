@@ -7,9 +7,11 @@ if [ -z "$rows" ]; then
   echo "no open tasks. start one: t new \"what to do\"${1:-   (t ls -a shows done ones)}"
   exit 0
 fi
-printf '%-5s %-8s %-7s %-13s %-9s %s\n' ID PIPE STEPS AT STATE TITLE
-while IFS= read -r row; do
-  echo "$row"
-  n=${row%% *}
-  [ ! -f "$(tdir "$n")/hold" ] || echo "      ↳ $(head -1 "$(tdir "$n")/hold")   (t show $n)"
-done <<< "$rows"
+{
+  printf '%-5s %-8s %-7s %-13s %-9s %s\n' ID PIPE STEPS AT STATE TITLE
+  while IFS= read -r row; do
+    echo "$row"
+    n=${row%% *}
+    [ ! -f "$(tdir "$n")/hold" ] || echo "      ↳ $(head -1 "$(tdir "$n")/hold")   (t show $n)"
+  done <<< "$rows"
+} | if [ -t 1 ]; then fit; else cat; fi

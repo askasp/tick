@@ -5,7 +5,7 @@
 # A "-" reads the details from stdin instead:  cat spec.md | t new "Add proration" -
 # The repo is -r NAME (a repo in repos/, a path, or a directory in $T_REPOS), else the one you're in,
 # else $T_REPO. A pipeline with REPO=none (research) needs none. --now runs the task here, at once.
-# The pipeline is -p, else the repo's own (PIPELINE= in repos/NAME/env), else $T_PIPELINE.
+# The pipeline is -p (or t PIPELINE "..."), else the repo's own (PIPELINE= in repos/NAME/env), else $T_PIPELINE.
 # --on TASK stacks it: that task's worktree, repo and pipeline, and it waits until that task is done.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
@@ -106,8 +106,9 @@ fi
 
 if [ -n "$now" ]; then when="Running it now."
 elif [ -n "$on" ]; then when="It starts when task $((10#${parent##*/})) is done."
-elif crontab -l 2> /dev/null | grep -q 'bin/t tick'; then when="The next tick starts it, within a minute."
+elif crontab -l 2> /dev/null | grep -q 'bin/t tick'; then when="Started; follow it with: t log $n -f" tick=1
 else when="No cron tick is installed (see t doctor), so start it with: t run $n"; fi
 echo "$id"
 echo "t: task $n: pipeline $pipeline${repo:+, repo ${repo##*/}, branch $(cat branch)}. $when" >&2
 [ -z "$now" ] || exec "$T_ROOT/bin/t-run" "$n"
+[ -z "${tick:-}" ] || setsid "$T_ROOT/bin/t-run" "$n" < /dev/null > /dev/null 2>&1 &

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# t show [TASK] — one task: where it is in its pipeline, its state, its answer, and what you can do next
+# t show [TASK] — one task: where it is in its pipeline, its state, what you can do next, and its answer.
+# In a terminal it pages through less, like git, and glow renders the answer's markdown.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 t=$(task_dir "${1:-}") || exit 1
 n=$((10#${t##*/})) step=$(cat "$t/step") p=$(cat "$t/pipeline") st=$(state "$t")
@@ -11,42 +12,57 @@ for s in $(steps "$p"); do
   if [ "$s" = "$step" ]; then flow+="▶ $name  "; mark=·; else flow+="$mark $name  "; fi
 done
 
-echo "$n  $(title "$t")"
-echo
-echo "  $p:  $flow"
-case $st in
-  ready)   echo "  state:     waiting for the next tick" ;;
-  running) echo "  state:     running ${step#*-}, run $(cat "$t/runs/$step" 2> /dev/null || echo 1) of $MAX_RUNS" ;;
-  after*)  echo "  state:     queued behind task ${st#after }" ;;
-  HOLD)    echo "  state:     ON HOLD: $(head -1 "$t/hold")" ;;
-  done)    echo "  state:     done" ;;
-esac
-[ ! -f "$t/repo" ] || echo "  repo:      $(cat "$t/repo")"
-[ ! -e "$t/work" ] || echo "  branch:    $(cat "$t/branch")  (from $(cat "$t/base"))"
-[ ! -e "$t/work" ] || echo "  worktree:  $(readlink -f "$t/work")"
-[ ! -f "$t/pr" ] || echo "  PR:        $(cat "$t/pr")"
-[ ! -s "$t/feedback.md" ] || echo "  feedback:  $(grep -m1 . "$t/feedback.md" | cut -c1-90)"
-if [ -f "$t/history" ]; then echo; echo "  history:"; tail -n 5 "$t/history" | sed 's/^/    /'; fi
-if [ -s "$t/answer.md" ]; then echo; echo "  answer:"; sed 's/^/    /' "$t/answer.md"; fi
+glow= w=$(tput cols 2> /dev/null || echo 80)
+if [ -t 1 ] && command -v glow > /dev/null; then glow=1; fi
+[ "$w" -le 100 ] || w=100
 
-echo
-echo "  next:"
-case $st in
-  ready)   echo "    t run $n            start it now, in this terminal" ;;
-  running) echo "    t log $n -f         watch it" ;;
-  after*)  echo "    t show ${st#after }            the task it waits for" ;;
-  HOLD)    echo "    t log $n            see why"
-           echo "    t say $n \"...\"      tell it what to do; it starts over from its first step"
-           echo "    t attach $n         take over the agent yourself, then: t resume $n" ;;
-  done)    if [ -f "$t/answer.md" ]; then
-             echo "    t say $n \"...\"      ask a follow-up"
-           elif [ -f "$t/pr" ]; then
-             echo "    review and merge   $(cat "$t/pr")"
-             echo "    t say $n \"...\"      ask for more changes"
-           else
-             echo "    t diff $n           read the change"
-             echo "    git -C $(cat "$t/repo") merge $(cat "$t/branch")"
-             echo "    t say $n \"...\"      ask for more changes"
-           fi
-           echo "    t rm $n             delete the task" ;;
-esac
+answer() {   # glow writes into less, not a terminal: force its style and color, and hush its terminal queries
+  if [ -n "$glow" ]; then CLICOLOR_FORCE=1 glow -s "${GLAMOUR_STYLE:-dark}" -w "$w" - < "$t/answer.md" 2> /dev/null
+  else cat "$t/answer.md"; fi
+}
+
+show() {
+  echo "$n  $(title "$t")"
+  echo
+  echo "  $p:  $flow"
+  case $st in
+    ready)   echo "  state:     waiting for the next tick" ;;
+    running) echo "  state:     running ${step#*-}, run $(cat "$t/runs/$step" 2> /dev/null || echo 1) of $MAX_RUNS" ;;
+    after*)  echo "  state:     queued behind task ${st#after }" ;;
+    HOLD)    echo "  state:     ON HOLD: $(head -1 "$t/hold")" ;;
+    done)    echo "  state:     done" ;;
+  esac
+  [ ! -f "$t/repo" ] || echo "  repo:      $(cat "$t/repo")"
+  [ ! -e "$t/work" ] || echo "  branch:    $(cat "$t/branch")  (from $(cat "$t/base"))"
+  [ ! -e "$t/work" ] || echo "  worktree:  $(readlink -f "$t/work")"
+  [ ! -f "$t/pr" ] || echo "  PR:        $(cat "$t/pr")"
+  [ ! -s "$t/feedback.md" ] || echo "  feedback:  $(grep -m1 . "$t/feedback.md" | cut -c1-90)"
+  if [ -f "$t/history" ]; then echo; echo "  history:"; tail -n 5 "$t/history" | sed 's/^/    /'; fi
+
+  echo
+  echo "  next:"
+  case $st in
+    ready)   echo "    t run $n            start it now, in this terminal" ;;
+    running) echo "    t log $n -f         watch it" ;;
+    after*)  echo "    t show ${st#after }            the task it waits for" ;;
+    HOLD)    echo "    t log $n            see why"
+              echo "    t say $n \"...\"      tell it what to do; it starts over from its first step"
+              echo "    t attach $n         take over the agent yourself, then: t resume $n" ;;
+    done)    if [ -f "$t/answer.md" ]; then
+                echo "    t say $n \"...\"      ask a follow-up"
+              elif [ -f "$t/pr" ]; then
+                echo "    review and merge   $(cat "$t/pr")"
+                echo "    t say $n \"...\"      ask for more changes"
+              else
+                echo "    t diff $n           read the change"
+                echo "    git -C $(cat "$t/repo") merge $(cat "$t/branch")"
+                echo "    t say $n \"...\"      ask for more changes"
+              fi
+              echo "    t stack $n          start a task stacked on this one"
+              echo "    t rm $n             delete the task" ;;
+  esac
+
+  if [ -s "$t/answer.md" ]; then echo; echo "  answer:"; answer; fi
+}
+
+if [ -t 1 ]; then show | LESS=${LESS-FRX} ${PAGER:-less}; else show; fi

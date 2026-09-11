@@ -27,6 +27,7 @@ wait_done() {
 
 setup() {
   tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
   cp -a "$root" "$tmp/tick"
   rm -rf "$tmp/tick/repos"                 # your own repos stay out of the tests
   export T_VAR=$tmp/var FAKE=$tmp/fake PATH=$tmp/tick/test/fake:$tmp/tick/bin:$path
@@ -46,8 +47,16 @@ profile() {   # a repo named "toy" for the toy repo: feature by default, with a 
   printf 'REPO=%s\nPIPELINE=feature\nTEST_CMD="touch %s/tested && make test"\n' "$tmp/repo" "$tmp" > "$tmp/tick/repos/toy/env"
 }
 
+front() {   # a Front account for jobs/front-digest, served by the fake curl: me@example.com is tea_me
+  export XDG_CONFIG_HOME=$tmp/config
+  mkdir -p "$tmp/config/front" "$FAKE/front"
+  printf 'FRONT_TOKEN=secret\nFRONT_EMAIL=me@example.com\n' > "$tmp/config/front/env"
+  echo '{"id": "tea_me"}' > "$FAKE/front/teammates_alt:email:me@example.com"
+}
+page() { jq -nc --argjson r "$1" '{_results: $r, _pagination: {next: null}}'; }
+
 test_scripts_parse() {
-  for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
+  for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/jobs/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
 }
 
 test_help_shows_how_to_start_a_task() {
@@ -149,6 +158,16 @@ test_a_stacked_task_waits_then_builds_on_its_parent() {
   eq "$(git -C "$w" rev-list --count "t/$a-parent-work..HEAD")" 1
   eq "$(cat "$(dir $b)/base")" "t/$a-parent-work"
   grep -q "git diff t/$a-parent-work...HEAD" "$FAKE/read.prompts"   # its review saw only its own diff
+}
+
+test_t_stack_starts_a_task_on_another() {
+  a=$(new "parent work")
+  b=$(t stack $a < /dev/null 2> /dev/null)
+  eq "$(cat "$(dir $b)/after")" "$a"
+  t run $a
+  eq "$(step $a)" done
+  t run $b
+  eq "$(step $b)" done
 }
 
 test_a_stack_never_runs_two_steps_in_one_worktree() {
@@ -325,6 +344,18 @@ test_leaving_out_the_task_gives_a_menu() {
   grep -q "$T_VAR/tasks/$b/work" <<< "$out"
 }
 
+test_a_long_title_is_cut_to_fit_the_terminal() {
+  new "add the widget" > /dev/null
+  new "make the board fit a narrow terminal, however long the title" > /dev/null
+  out=$(tty "stty cols 40; t ls" | tr -d '\r')
+  grep -q '^2 .*…$' <<< "$out"
+  [ "$(wc -L <<< "$out")" -le 40 ]
+  out=$(printf '1\n' | T_PICKER=select tty "stty cols 40; t path" | tr -d '\r')
+  grep -q '^2) .*…$' <<< "$out"
+  [ "$(grep '^[12]) ' <<< "$out" | wc -L)" -le 40 ]
+  t ls | grep -q 'however long the title$'                  # piped, the whole title stays
+}
+
 test_new_without_a_title_opens_the_editor() {
   cat > "$tmp/ed" << 'EOF'
 #!/bin/sh
@@ -351,7 +382,16 @@ test_ask_answers_about_the_repo_and_changes_nothing() {
   [ ! -e "$(dir $id)/work" ]                              # no worktree
   eq "$(git status --porcelain)" ""                       # the repo is untouched
   grep -q -- '--agent plan' "$FAKE/opencode.calls"        # opencode's read-only agent
-  t show $id | grep -q 'answer:'
+}
+
+test_show_puts_the_answer_last_and_pages_in_a_terminal() {
+  id=$(new -p ask "how do the tests run?")
+  t run $id
+  out=$(t show $id)
+  grep -A99 'next:' <<< "$out" | grep -q 'answer:'
+  [[ $out == *$'\n'"$(cat "$(dir $id)/answer.md")" ]]      # the answer as written, unindented, at the end
+  PAGER="tee $tmp/paged" tty "t show $id" > /dev/null
+  grep -q 'next:' "$tmp/paged"
 }
 
 test_research_needs_no_repo_and_may_search_the_web() {
@@ -378,6 +418,25 @@ test_say_on_a_question_asks_a_follow_up() {
 test_new_now_runs_the_task_at_once() {
   t new --now -p ask "how do the tests run?" < /dev/null > /dev/null 2>&1
   eq "$(step 0001)" done
+}
+
+test_with_cron_a_new_task_starts_without_waiting_for_the_tick() {
+  echo "* * * * * $tmp/tick/bin/t tick" > "$FAKE/crontab"
+  id=$(new "add the widget")
+  wait_done $id
+}
+
+test_a_pipeline_name_starts_a_task_in_that_pipeline() {
+  t ask --now "how do the tests run?" < /dev/null > /dev/null 2>&1
+  eq "$(cat "$(dir 0001)/pipeline")" ask
+  eq "$(step 0001)" done
+  t ask --help | grep -q 'stacks it'
+  t complete commands | grep -q '^research:new task: answer (claude)'
+  mkdir "$tmp/tick/pipelines/log"                          # a command wins over a pipeline, and doctor says so
+  t log --help | grep -q '^t log'
+  not grep -q '^log:new task' <(t complete commands)
+  not t doctor > "$tmp/out"
+  grep -q 'pipeline log has the name of a command' "$tmp/out"
 }
 
 test_show_says_where_a_task_is_and_what_comes_next() {
@@ -407,6 +466,43 @@ test_doctor_says_what_to_fix() {
   grep -q 'all good' "$tmp/out"
 }
 
+test_the_front_digest_puts_comments_that_mention_you_first() {
+  front
+  now=$(date +%s)
+  page "[{\"id\": \"cnv_mail\", \"subject\": \"Invoice question\", \"status\": \"open\", \"updated_at\": $now}]" > "$FAKE/front/conversations_search_recipient"
+  page "[{\"id\": \"cnv_tag\", \"subject\": \"Launch plan\", \"status\": \"open\", \"updated_at\": $((now - 60))}]" > "$FAKE/front/conversations_search_mention"
+  page "[{\"type\": \"email\", \"created_at\": $now, \"text\": \"Can you resend the invoice?\", \"recipients\": [{\"role\": \"from\", \"handle\": \"bob@shop.example\"}]},
+         {\"type\": \"email\", \"created_at\": 1, \"text\": \"old news\", \"recipients\": []}]" > "$FAKE/front/conversations_cnv_mail_messages"
+  page "[{\"id\": \"com_1\", \"posted_at\": $now, \"author\": {\"id\": \"tea_kari\", \"first_name\": \"Kari\", \"last_name\": \"N\"}, \"body\": \"@me can you sign off?\"}]" > "$FAKE/front/conversations_cnv_tag_comments"
+  page '[{"id": "tea_me"}]' > "$FAKE/front/comments_com_1_mentions"
+  "$tmp/tick/jobs/front-digest" > "$tmp/digest"
+  [ -s "$tmp/digest" ]
+  p=$FAKE/read.prompts
+  grep -q 'comment by Kari N, .* — MENTIONS YOU' "$p"
+  [ "$(grep -n 'Launch plan' "$p" | cut -d: -f1)" -lt "$(grep -n 'Invoice question' "$p" | cut -d: -f1)" ]
+  grep -q 'email from bob@shop.example' "$p"
+  not grep -q 'old news' "$p"
+}
+
+test_the_front_digest_calls_no_agent_when_nothing_is_new() {
+  front
+  out=$("$tmp/tick/jobs/front-digest")
+  grep -q '^Nothing new in Front since' <<< "$out"
+  [ ! -e "$FAKE/claude.calls" ]
+}
+
+test_the_front_digest_fails_with_the_fix_when_front_refuses() {
+  export XDG_CONFIG_HOME=$tmp/config
+  not "$tmp/tick/jobs/front-digest" 2> "$tmp/err"
+  grep -q 'FRONT_TOKEN=' "$tmp/err"
+  front
+  touch "$FAKE/front/401"
+  not "$tmp/tick/jobs/front-digest" > "$tmp/out" 2> "$tmp/err"
+  grep -q 'check FRONT_TOKEN' "$tmp/err"
+  [ ! -s "$tmp/out" ]
+  [ ! -e "$FAKE/claude.calls" ]
+}
+
 test_drivers_read_real_cli_output() {
   fx=$root/test/fixtures
   out=$(echo hi | FAKE_REPLAY=$fx/claude-read.jsonl "$root/drivers/claude" 2> "$tmp/err")
@@ -431,6 +527,7 @@ for name in $(declare -F | awk '{ print $3 }' | grep '^test_' | grep -- "${1:-.}
   else
     failed+=("$name"); echo "FAIL  $name"; tail -40 "$log" | sed 's/^/      /'
   fi
+  rm -f "$log"
 done
 echo
 echo "$pass passed, ${#failed[@]} failed"

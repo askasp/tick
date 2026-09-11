@@ -12,4 +12,5 @@ give the URL of each source. Prefer primary sources (docs, changelogs) over
 summaries of them.
 
 Answer first, in a few sentences, then give the details. Say how sure you are,
-and what is missing when the sources don't settle it.
+and what is missing when the sources don't settle it. Begin with the answer
+itself: don't say what you did to find it, or that you are about to answer.

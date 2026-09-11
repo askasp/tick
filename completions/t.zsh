@@ -5,7 +5,9 @@
 _t_complete() { reply=(${(f)"$(command t complete "$@" 2> /dev/null)"}) }
 
 _t() {
-  local -a reply
+  local -a reply new=('-p:pipeline' '-r:repo: a name or a path' '--on:stack it on a task'
+    '--cli:claude or opencode' '--test:the test command' '--base:the branch to start from'
+    '--now:run it here, now' '-:read the details from stdin')
   if (( CURRENT == 2 )); then
     _t_complete commands; _describe command reply; return
   fi
@@ -16,11 +18,7 @@ _t() {
     --on)  _t_complete tasks; _describe task reply; return ;;
   esac
   case $words[2] in
-    new)
-      reply=('-p:pipeline' '-r:repo: a name or a path' '--on:stack it on a task'
-             '--cli:claude or opencode' '--test:the test command' '--base:the branch to start from'
-             '--now:run it here, now' '-:read the details from stdin')
-      _describe option reply ;;
+    new) reply=($new); _describe option reply ;;
     show|log|diff|say|attach|run|hold|resume|path|rm)
       if (( CURRENT == 3 )); then
         _t_complete tasks; _describe task reply
@@ -30,6 +28,9 @@ _t() {
         reply=('-f:follow it live'); _describe option reply
       fi ;;
     ls) reply=('-a:done tasks too'); _describe option reply ;;
+    *)                                          # t PIPELINE is t new -p PIPELINE
+      _t_complete pipelines
+      if (( ${reply[(I)$words[2]:*]} )); then reply=($new); _describe option reply; fi ;;
   esac
 }
 

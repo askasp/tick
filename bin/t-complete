@@ -3,7 +3,12 @@
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 
 case ${1:-} in
-  commands)  for f in "$T_ROOT"/bin/t-*; do echo "${f##*/t-}:$(sed -n '2s/^.* — //p' "$f")"; done ;;
+  commands)
+    for f in "$T_ROOT"/bin/t-*; do echo "${f##*/t-}:$(sed -n '2s/^.* — //p' "$f")"; done
+    for d in "$T_ROOT"/pipelines/*/; do
+      d=${d%/}
+      [ -e "$T_ROOT/bin/t-${d##*/}" ] || echo "${d##*/}:new task: $(flow "${d##*/}")"
+    done ;;
   pipelines) for d in "$T_ROOT"/pipelines/*/; do d=${d%/}; echo "${d##*/}:$(flow "${d##*/}")"; done ;;
   repos)
     for d in "$T_ROOT"/repos/*/; do

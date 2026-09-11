@@ -118,6 +118,15 @@ board() {
 # the directory of task 7
 tdir() { echo "$T_TASKS/$(printf %04d "$((10#$1))")"; }
 
+# cut lines to the terminal's width less $1, so a long title can't wrap and break the table
+fit() {
+  local w line
+  w=$(stty size < /dev/tty 2> /dev/null) && w=$((${w#* } - ${1:-0})) && [ "$w" -gt 1 ] || { cat; return; }
+  while IFS= read -r line; do
+    if [ "${#line}" -gt "$w" ]; then echo "${line:0:w-1}…"; else echo "$line"; fi
+  done
+}
+
 # choose one line of stdin: with fzf if it is installed, else from a numbered menu
 pick() {
   { : < /dev/tty; } 2> /dev/null || return 1
@@ -126,7 +135,7 @@ pick() {
     return
   fi
   local rows row PS3="$1 (number; anything else cancels): "
-  mapfile -t rows
+  mapfile -t rows < <(fit 5)      # room for select's "12) "
   select row in "${rows[@]}"; do
     [ -n "$row" ] && echo "$row"
     return

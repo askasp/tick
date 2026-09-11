@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # t — the task board. `t CMD ARGS` runs bin/t-CMD, `t CMD --help` explains it. Plain `t`: the board.
+# `t PIPELINE ARGS` is `t new ARGS -p PIPELINE`, for a pipeline that no command shares a name with.
 here=$(dirname "$(readlink -f "$0")")
 if [ $# -eq 0 ]; then
   if [ -t 0 ] && [ -t 1 ]; then exec "$here/t-ui"; fi
@@ -8,6 +9,7 @@ fi
 cmd=$1
 shift
 case $cmd in -h | --help) cmd=help ;; esac
+if [ ! -x "$here/t-$cmd" ] && [ -d "$here/../pipelines/$cmd" ]; then set -- "$@" -p "$cmd"; cmd=new; fi
 if [ ! -x "$here/t-$cmd" ]; then echo "t: no command '$cmd'" >&2; echo >&2; "$here/t-help" >&2; exit 1; fi
 if [ "${1:-}" = -h ] || [ "${1:-}" = --help ]; then sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$here/t-$cmd"; exit 0; fi
 exec "$here/t-$cmd" "$@"

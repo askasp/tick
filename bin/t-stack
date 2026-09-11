@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# t stack TASK — start a task stacked on another: same worktree, repo and pipeline, starts when TASK is done
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+exec "$T_ROOT/bin/t-new" --on "$1"

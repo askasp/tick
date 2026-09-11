@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# jobs/front-digest [SINCE] — a digest of your Front conversations with activity since SINCE ("1 day"), on stdout
+#   Conversations where a teammate @mentions you in a comment come first.
+#   Reads FRONT_TOKEN= (a Front API token) and FRONT_EMAIL= (your Front login) from ~/.config/front/env.
+#   crontab: 0 7 * * * $HOME/git/tick/jobs/front-digest > $HOME/digest.tmp 2> $HOME/digest.log && mv $HOME/digest.tmp $HOME/digest.md
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+conf=${XDG_CONFIG_HOME:-$HOME/.config}/front/env
+[ -r "$conf" ] || die "no $conf; write FRONT_TOKEN=... and FRONT_EMAIL=... into it, then: chmod 600 $conf"
+. "$conf"
+since=$(date -d "${1:-1 day} ago" +%s)
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+touch "$tmp/mentioned" "$tmp/rest"
+
+get() {
+  curl -sfS --retry 5 -H "Authorization: Bearer $FRONT_TOKEN" "https://api2.frontapp.com$1" ||
+    die "Front refused $1; check FRONT_TOKEN and FRONT_EMAIL in $conf"
+}
+
+search() {   # conversations that match a Front search and have activity since $since, one JSON per line
+  local url page
+  url="/conversations/search/$(jq -rn --arg q "$1 after:$since" '$q | @uri')?limit=100"
+  while [ -n "$url" ]; do
+    page=$(get "$url")
+    jq -c '._results[]' <<< "$page"
+    url=$(jq -r '._pagination.next // empty | sub("^https://api2.frontapp.com"; "")' <<< "$page")
+  done
+}
+
+show() {   # one conversation's messages and comments since $since, oldest first, into mentioned or rest
+  local conv=$1 id msgs coms c hits=
+  id=$(jq -r .id <<< "$conv")
+  msgs=$(get "/conversations/$id/messages?limit=25")
+  coms=$(get "/conversations/$id/comments")
+  for c in $(jq -r --arg me "$me" --argjson t "$since" '._results[] | select(.posted_at >= $t and .author.id != $me) | .id' <<< "$coms"); do
+    if get "/comments/$c/mentions" | jq -e --arg me "$me" 'any(._results[]; .id == $me)' > /dev/null; then hits+=" $c"; fi
+  done
+  {
+    jq -r '"=== \(.subject // "(no subject)")  [\(.status), assigned to \(.assignee.email // "nobody")]"' <<< "$conv"
+    printf '%s\n%s\n' "$msgs" "$coms" | jq -rs --argjson t "$since" --arg hits "$hits" '
+      def when: strflocaltime("%a %d %b %H:%M");
+      (.[0]._results | map(select(.created_at >= $t) | {t: .created_at, s: "--- \(.type) from \([.recipients[] | select(.role == "from") | .name // .handle][0] // "?"), \(.created_at | when)\n\(.text // "" | split("\n") | map(select(startswith(">") | not)) | join("\n") | .[:4000])"}))
+      + (.[1]._results | map(select(.posted_at >= $t) | {t: .posted_at, s: "--- comment by \(.author.first_name) \(.author.last_name), \(.posted_at | when)\(if .id | IN($hits | split(" ")[]) then " — MENTIONS YOU" else "" end)\n\(.body)"}))
+      | sort_by(.t)[].s'
+    echo
+  } >> "$tmp/$([ -n "$hits" ] && echo mentioned || echo rest)"
+}
+
+me=$(get "/teammates/alt:email:$FRONT_EMAIL" | jq -r .id)
+convs=$({ search "mention:$me"; search "assignee:$me"; search "recipient:$FRONT_EMAIL"; } | jq -sc 'unique_by(.id) | sort_by(.updated_at) | reverse[]')
+[ -n "$convs" ] || { echo "Nothing new in Front since $(date -d "@$since" '+%a %d %b %H:%M')."; exit 0; }
+while read -r conv; do show "$conv"; done <<< "$convs"
+
+cd /   # the agent reads every CLAUDE.md above its cwd, and tick's would confuse it
+{ echo "Front conversations for $FRONT_EMAIL since $(date -d "@$since" '+%a %d %b %H:%M'):"; echo; cat "$tmp/mentioned" "$tmp/rest"; } |
+  agent summarizer

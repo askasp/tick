@@ -86,15 +86,16 @@ $ t show 2
 ### Questions instead of code
 
 ```sh
-t new --now -r amino -p ask "How does checkout compute tax?"    # reads amino, changes nothing
-t new --now -p research "What changed in Postgres 18 upgrades?" # searches the web, from anywhere
+t ask --now -r amino "How does checkout compute tax?"          # reads amino, changes nothing
+t research --now "What changed in Postgres 18 upgrades?"       # searches the web, from anywhere
 t say 7 "and where is that tested?"                            # a follow-up
 t show 7                                                       # the question, the answer, the history
 ```
 
 These are ordinary pipelines with one step, `answer`. The step pipes the
 question to `agents/answerer.md` and writes `answer.md`, which `t show`
-prints. The pipeline's `env` says how: `MODE_answer=web` lets research search
+prints last. In a terminal it pages through `less`, and `glow`, if you have
+it, renders the markdown (`GLAMOUR_STYLE=light` for a light terminal). The pipeline's `env` says how: `MODE_answer=web` lets research search
 the web, and `CLI_answer=` picks who answers. Leave out `--now`
 and the tick answers it in the background instead.
 
@@ -222,6 +223,25 @@ echo implement > "$t/goto"
 Add a step with `chmod +x steps/lint`, then
 `ln -s ../../steps/lint pipelines/shop/25-lint`.
 
+## Jobs: cron without a task
+
+A job is a pipe that runs on a schedule and has no steps to move through. A
+script fetches and filters the input, and an agent reads only what's left:
+
+```sh
+jobs/front-digest            # your Front conversations from the last day, summarized on stdout
+jobs/front-digest "3 days"   # after a holiday
+```
+
+Conversations where a teammate @mentions you in a comment come first. The job
+reads `FRONT_TOKEN=` and `FRONT_EMAIL=` from `~/.config/front/env` (`chmod
+600` it), and the `summarizer` agent writes the digest. To get one every
+morning:
+
+```sh
+(crontab -l; echo '0 7 * * * $HOME/git/tick/jobs/front-digest > $HOME/digest.tmp 2> $HOME/digest.log && mv $HOME/digest.tmp $HOME/digest.md') | crontab -
+```
+
 ## How it works
 
 | idea | here | Linux equivalent |
@@ -234,7 +254,8 @@ Add a step with `chmod +x steps/lint`, then
 - **The scheduler.** Cron runs `t tick` every minute, which starts `t run`
   for each open task. `t run` takes the task's lock and runs steps until one
   says "not yet" or fails. After a reboot, the next tick simply runs the step
-  again. `t run 7` is the same thing in your terminal.
+  again. `t run 7` is the same thing in your terminal. With cron installed,
+  `t new` starts the new task's `t run` itself, so it doesn't wait a minute.
 - **Feedback.** The review, the tests, CI and `t say` all write
   `feedback.md` and jump back to implement, which adds that file to the
   agent's prompt. Agents remember nothing; the task directory does.
@@ -256,6 +277,7 @@ A task directory holds `task.md`, `pipeline`, `step`, `repo`, `base`,
 ```
 t                          the board (interactive in a terminal)
 t new ["what to do" [-]] [-p PIPELINE] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO] [--now]
+t PIPELINE ...             t new ... -p PIPELINE:  t ask --now "How do the tests run?"
 t ls [-a]                  the board as text; -a adds done tasks
 t show [TASK]              where it is, and what you can do next
 t log [TASK] [-f]          history and latest output
@@ -274,6 +296,8 @@ t tick                     what cron runs
 ## Not covered yet
 
 - The `pr` and `ci` steps are tested only against a fake `gh`.
+- `jobs/front-digest` is tested only against a fake `curl`, whose answers
+  follow Front's API docs rather than recorded responses.
 - A stack doesn't rebase. If a parent changes after its child started,
   rebase the child yourself.
 - claude's `acceptEdits` lets the implementer edit files, but not run every
