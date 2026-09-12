@@ -8,3 +8,7 @@ MODEL_plan=opus
 EFFORT_plan=max
 CLI_implement=opencode
 CLI_review=opencode
+
+# The review reads the diff once per line here, each time for one thing only: a fast local model
+# is better at four small questions than at one big one, and a stacked PR gets no Copilot review.
+REVIEWS="does it do what the task asked, and only that|bugs: wrong logic, unhandled errors, races, lost data|tests: is every new path covered, and does each test assert the rule|security and data: authorization, input validation, secrets, what leaves the system"

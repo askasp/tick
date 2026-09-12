@@ -230,6 +230,17 @@ PR's checks (`exit 75` while they are pending), and a failing one becomes
 `feedback.md` and sends the task back to implement, which pushes again. Without
 it the pull request is yours to watch.
 
+### Reviewing more than once
+
+`REVIEWS=` in a pipeline's `env` is a `|`-separated list of what to look at. The
+review step reads the same diff once per line, each time for that one thing,
+and the task moves on only when every pass approves; the passes that ask for
+changes are what `feedback.md` holds. `feature` asks for four — the task, bugs,
+tests, security — because a small local model answers four narrow questions
+better than one wide one, and because GitHub's own review bot doesn't look at a
+pull request whose base isn't the default branch. Unset, the step reads once,
+for everything.
+
 `main` works in a worktree of its own, like `local`, but branches from tick's
 local `main` (`TRUNK=main` in its env) and ends with `merge`. That step merges
 `main` into the task's branch, and the merger agent resolves any conflicts. If

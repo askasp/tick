@@ -32,17 +32,38 @@ patches() {
   fi
 }
 
-{
+prompt() {
   cat task.md
   printf '\n## The change (git diff %s)\n\n```\n' "$range"
   reviewed --stat
   printf '```\n\n'
   patches
-} | (cd -P work && agent reviewer) > review.md
+}
 
-verdict=$(grep -oE '^VERDICT: *(approve|changes)' review.md | tail -1 || true)
-case $verdict in
-  *approve) ;;
-  *changes) cp review.md feedback.md; echo implement > goto ;;
-  *)        echo "the review has no VERDICT line" >&2; exit 1 ;;
-esac
+# REVIEWS= in the pipeline's env is a |-separated list of what to look at, one pass each: a fast
+# local model reads the same diff several times, each time for one thing. Unset, it reads once for
+# everything. The task moves on only when every pass approves; the ones that don't become feedback.
+IFS='|' read -ra passes <<< "${REVIEWS:-}"
+[ "${#passes[@]}" -gt 0 ] || passes=("")
+
+: > review.tmp
+: > changes.tmp
+for look_at in "${passes[@]}"; do
+  { prompt; if [ -n "$look_at" ]; then printf '\n## This review\n\nLook only at: %s\n' "$look_at"; fi; } |
+    (cd -P work && agent reviewer) > pass.tmp
+  case $(grep -oE '^VERDICT: *(approve|changes)' pass.tmp | tail -1) in
+    *approve) ;;
+    *changes) { printf '## %s\n\n' "${look_at:-review}"; cat pass.tmp; echo; } >> changes.tmp ;;
+    *)        echo "the review has no VERDICT line" >&2; exit 1 ;;
+  esac
+  { if [ -n "$look_at" ]; then printf '## %s\n\n' "$look_at"; fi; cat pass.tmp; echo; } >> review.tmp
+done
+rm -f pass.tmp
+mv review.tmp review.md
+
+if [ -s changes.tmp ]; then
+  mv changes.tmp feedback.md
+  echo implement > goto
+else
+  rm -f changes.tmp
+fi
