@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # t diff [TASK] [git diff args] — the task's change so far, against what it branched from. In a terminal: the
-# files it changed, each one's diff beside them (enter: all of it). With CLICOLOR_FORCE (t ui's pane): in color.
+# files it changed, with the diff of each beside them (enter: all of it). With CLICOLOR_FORCE (t ui's pane): in color.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 task=$(task_dir "${1:-}") || exit 1
 if [ $# -gt 0 ]; then shift; fi
