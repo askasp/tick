@@ -33,6 +33,13 @@ about() {
   echo "$C_DIM$text$C_OFF"
 }
 
+# what the branch started from, and whose branch that is when the task is stacked on another
+base_on() {
+  local on=
+  if [ -f "$task/after" ]; then on=" · task $(task_num "$(cat "$task/after")")"; fi
+  printf '%s%s%s%s\n' "$(cat "$task/base")" "$C_FAINT" "$on" "$C_OFF"
+}
+
 # who solves its steps, each named once: claude, or opencode, claude
 solvers() {
   local s
@@ -109,10 +116,11 @@ show() {
   field pipeline "$pipeline$C_FAINT${who:+ · $who}$C_OFF"
   field "" "$(numbered)"
   if [ -f "$task/repo" ]; then field repo "$(home "$(cat "$task/repo")")"; fi
-  if [ -e "$task/work" ]; then
+  if [ -f "$task/branch" ]; then
     field branch "$(cat "$task/branch")"
-    echo "${C_FAINT}worktree  $(home "$(readlink -f "$task/work")")$C_OFF"
+    field base "$(base_on)"
   fi
+  if [ -e "$task/work" ]; then echo "${C_FAINT}worktree  $(home "$(readlink -f "$task/work")")$C_OFF"; fi
   if [ -f "$task/pr" ]; then field pr "$(cat "$task/pr")"; fi
   if [ -s "$task/feedback.md" ]; then field feedback "$(grep -m1 . "$task/feedback.md" | cut -c1-90)"; fi
   if [ -n "$waits_for" ]; then

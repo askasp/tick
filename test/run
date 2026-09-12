@@ -219,6 +219,7 @@ test_a_stacked_task_waits_then_builds_on_its_parent() {
   git -C "$w" merge-base --is-ancestor "t/$a-parent-work" HEAD
   eq "$(git -C "$w" rev-list --count "t/$a-parent-work..HEAD")" 1
   eq "$(cat "$(dir $b)/base")" "t/$a-parent-work"
+  t show $b | grep -q "^base      t/$a-parent-work · task $((10#$a))$"   # stacked: whose branch that is
   grep -q "git diff t/$a-parent-work...HEAD" "$FAKE/read.prompts"   # its review saw only its own diff
 }
 
@@ -774,6 +775,7 @@ test_show_says_where_a_task_is_and_what_comes_next() {
   grep -q '^pipeline  local · opencode$' <<< "$out"      # the agent named once
   grep -q '^          1 implement  2 test  3 review$' <<< "$out"
   grep -q '^state     waiting for the next tick$' <<< "$out"
+  grep -q '^base      origin/main$' <<< "$out"           # what its diff is against, before it has a worktree
   grep -q 't run 1 ' <<< "$out"
   t run $id
   out=$(t show widget)
