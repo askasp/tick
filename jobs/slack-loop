@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# jobs/slack-loop — slack-in and slack-out every 10 seconds, so a Slack message
+# is read and answered in ~10s, not a minute. Started by cron with flock so only
+# one runs:
+#   * * * * * flock -n $T_VAR/slack-loop $HOME/git/tick/jobs/slack-loop
+. "$(dirname "$(readlink -f "$0")")/slack.sh"
+
+while sleep 10; do
+  "$T_ROOT/jobs/slack-in"
+  "$T_ROOT/jobs/slack-out"
+done
