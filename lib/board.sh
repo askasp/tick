@@ -45,7 +45,7 @@ last_words() {
   tail -n 40 "$1" 2> /dev/null | sed 's/\x1b\[[0-9;]*m//g' | awk '
     /^=== /                      { last = ""; next }
     /^session: |^```/ || NF == 0 { next }
-    /^tokens/                    { next }
+    /^tokens[:\/]/              { next }
                                   { sub(/^ *(· |! )/, ""); last = $0 }
     END                          { print last }'
 }
@@ -69,7 +69,7 @@ gpu_stats() {
   command -v nvidia-smi > /dev/null 2>&1 || return 0
   nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total \
     --format=csv,noheader,nounits 2>/dev/null | \
-    awk -F', ' '{ printf "GPU %d%% %.1f/%.1fGiB", $1, $2/1024, $3/1024 }'
+    awk -F', ' '{ printf "GPU %d%% %.1f/%.1fGiB\n", $1, $2/1024, $3/1024 }'
 }
 
 # the latest token info from a task's step log, for the board footer: "tokens/s: 1234" or "tokens: 9214"

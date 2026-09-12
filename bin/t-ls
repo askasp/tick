@@ -20,4 +20,4 @@ for t in "$T_TASKS"/*/; do
   rate=$(token_rate "$t")
   [ -n "$rate" ] && footer="${footer:+$footer  }$rate"
 done
-[ -n "$footer" ] && echo "$footer"
+if [ -n "$footer" ]; then echo "$footer"; fi

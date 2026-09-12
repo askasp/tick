@@ -1472,7 +1472,7 @@ test_drivers_read_real_cli_output() {
   printf '%s\n' '{"type":"tool_use","sessionID":"ses_x","part":{"tool":"glob","state":{"input":{"pattern":"**/*.sh"},"title":""}}}' > "$tmp/untitled.jsonl"
   echo hi | FAKE_REPLAY=$tmp/untitled.jsonl "$root/drivers/opencode" > /dev/null 2> "$tmp/err"
   grep -q '· glob \*\*/\*.sh' "$tmp/err"                  # no title: what it looked for
-   not bash -c "echo hi | FAKE_REPLAY=$fx/opencode-error.jsonl '$root/drivers/opencode' > /dev/null 2>&1"
+  not bash -c "echo hi | FAKE_REPLAY=$fx/opencode-error.jsonl '$root/drivers/opencode' > /dev/null 2>&1"
 }
 
 test_gpu_stats_show_on_the_board() {
@@ -1480,6 +1480,15 @@ test_gpu_stats_show_on_the_board() {
   chmod +x "$tmp/tick/test/fake/nvidia-smi"
   new "add the widget" > /dev/null
   t ls | grep -q 'GPU 45% 8.0/16.0GiB'
+}
+
+test_gpu_stats_separate_multiple_gpus() {
+  printf '#!/usr/bin/env bash\necho "45, 8192, 16384\n30, 4096, 16384"\n' > "$tmp/tick/test/fake/nvidia-smi"
+  chmod +x "$tmp/tick/test/fake/nvidia-smi"
+  new "add the widget" > /dev/null
+  t ls | grep -q 'GPU 45% 8.0/16.0GiB'
+  t ls | grep -q 'GPU 30% 4.0/16.0GiB'
+  ! t ls | grep -q 'GiBGPU'
 }
 
 test_opencode_driver_writes_token_rate() {
