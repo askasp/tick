@@ -15,11 +15,11 @@ ask() { local answer; read -rp "$1 " answer < /dev/tty; echo "$answer"; }
 # $T_UI/mode is "board", or "MODE ID" while the prompt takes words for new, stack, say, hold, name or the
 # action to do (? asks), or waits on rm; and $T_UI/pick is the pipeline (new, stack) or the step (say) tab went to.
 
-# how wide a row can be: fzf's columns less its margin, padding and pointer, less the pane beside them
+# how wide a row can be: fzf's columns less the list's borders and pointer, less the pane beside them
 list_width() {
   local cols=${FZF_COLUMNS:-}
   if [ -z "$cols" ]; then read -r _ cols < <(stty size < /dev/tty 2> /dev/null); fi
-  cols=$((${cols:-200} - 8))
+  cols=$((${cols:-200} - 6))
   if [ $((cols * 45 / 100)) -ge 60 ]; then cols=$((cols * 55 / 100)); fi
   echo "$cols"
 }
@@ -389,7 +389,9 @@ while read -r n _; do
   if [ "$(state "$(tdir "$n")")" = running ]; then pos=$row; fi
 done < <(board -a)
 
-t-ui --rows | fzf "${BOARD_FZF[@]}" --sync --padding=1,2 --margin=0,1 --prompt 'task> ' --info inline-right --footer ' ' \
+# the air around the list is borders in the background's color: fzf leaves --padding and --margin the terminal's
+t-ui --rows | fzf "${BOARD_FZF[@]}" --sync --input-border sharp --list-border vertical --footer-border sharp \
+  --prompt 'task> ' --info inline-right --footer ' ' \
   --preview 't-ui --pane {1} {q}' --preview-window 'right,45%,wrap,border-left,~2,<60(down,60%,border-top)' \
   --bind "start:pos($pos)+bg-transform:t-ui --key focus {1} {q}" --bind "focus:bg-transform:t-ui --key focus {1} {q}" \
   --bind 'load:transform:t-ui --onload {1} {q}' "${binds[@]}" \

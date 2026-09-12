@@ -7,7 +7,7 @@ C_DIM=$'\e[38;2;138;138;138m' C_FAINT=$'\e[38;2;110;110;110m' C_RED=$'\e[38;2;20
 T_FZF_COLORS='fg:#c4c4c4,bg:#1c1c1c,fg+:#f2f2f2:regular,bg+:#2e2e2e,hl:#f2f2f2:underline,hl+:#f2f2f2:underline'
 T_FZF_COLORS+=',prompt:#8a8a8a:regular,query:#c4c4c4,info:#5a5a5a,pointer:#c07070,marker:#c07070,border:#2e2e2e'
 T_FZF_COLORS+=',preview-bg:#191919,preview-border:#2e2e2e,scrollbar:#323232,header:#6e6e6e,footer:#6e6e6e,spinner:#1c1c1c'
-T_FZF_COLORS+=',input-border:#1c1c1c,footer-border:#1c1c1c'
+T_FZF_COLORS+=',input-border:#1c1c1c,list-border:#1c1c1c,footer-border:#1c1c1c'
 # fzf as the board and its screens look: fzf's own pointer, air around the prompt (borders in the
 # background's color, the separator in spaces), and keys at the bottom. t doctor checks fzf knows them.
 BOARD_FZF=(--ansi --reverse --no-sort --with-shell 'bash -c' --color "$T_FZF_COLORS" --pointer '>' --gutter ' '

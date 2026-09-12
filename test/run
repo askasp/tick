@@ -1074,10 +1074,16 @@ test_the_live_board_draws_its_rows_and_the_keys_at_the_bottom() {
     if grep -q 'implement · next tick' "$tmp/screen"; then break; fi
     sleep 0.1
   done
+  last=$(($(tmux -L "$server" display-message -p '#{pane_height}') - 1))
+  tmux -L "$server" capture-pane -p -e -E 0 > "$tmp/top"
+  tmux -L "$server" capture-pane -p -e -S "$last" > "$tmp/bottom"
   tmux -L "$server" kill-server
   cat "$tmp/screen" >&2                                    # what it drew, should a line below fail
-  grep -q '^ *task> ' "$tmp/screen"
-  grep -qE '^ *> +1 +add the widget +0/3 +next tick' "$tmp/screen"   # fzf's pointer; 160 columns leave no room for the repo
+  for corner in top bottom; do                             # the list's grey reaches the edges, with no gap in the terminal's
+    grep -qE $'^[\e[0-9;m]*48;2;28;28;28' "$tmp/$corner"
+  done
+  grep -q '^[│ ]*task> ' "$tmp/screen"
+  grep -qE '^[│ ]*> +1 +add the widget +0/3 +next tick' "$tmp/screen"   # fzf's pointer; 160 columns leave no room for the repo
   grep -q 'implement · next tick' "$tmp/screen"                      # the pane on it
   grep -qE 'enter:run .*:keys' "$tmp/screen"
 }
