@@ -231,7 +231,7 @@ run     -       run it now
 hold    ctrl-r  pause it after this step, or unpause it when it is held
 cancel  -       stop its agent now, and hold it
 name    -       change what the board calls it
-rm      -       delete it and its worktree
+rm      ctrl-x  delete it and its worktree
 path    -       print its worktree'
 
 # the board's keys besides the actions', and a form's (new, stack and say on the board, and t compose).
@@ -259,7 +259,7 @@ hint() {
 # the actions worth offering for a task now; Enter does the first
 offers() {
   case $(state "$1") in
-    running) echo log diff cancel hold ;;
+    running) echo log diff cancel hold rm ;;
     ready)   if [ -s "$1/log/$(cat "$1/step").log" ]; then echo log run hold; else echo run hold rm; fi ;;
     after*)  echo log rm ;;
     HOLD)    echo say log attach hold ;;

@@ -74,13 +74,14 @@ of a running task, say for a held one, the diff of a done one.
 The keys are all ctrl-, so typing still searches, and they reach the board
 over ssh from any terminal. `^l` turns the pane to the log (again: the raw
 log), `^r` holds the task (the prompt asks why) or resumes it, `^t` stacks a
-task on it, and `^n` starts a new one. `^o` attaches to its agent, the one key
-that leaves the board, for the agent's own screen. Everything else is a word
-away: `?` lists every action in the pane, with the agent's session id, and you
-type the one you want, or its first letters, and press Enter. `cancel` stops a
-running agent now and holds the task, `run` runs it in the background with the
-pane following it, and `rm` deletes it once the pane has said what that
-removes and you press Enter again. `^w` widens the pane. Without fzf, `t`
+task on it, `^n` starts a new one, and `^x` deletes one. `^o` attaches to its
+agent, the one key that leaves the board, for the agent's own screen. Everything
+else is a word away: `?` lists every action in the pane, with the agent's
+session id, and you type the one you want, or its first letters, and press
+Enter. `cancel` stops a running agent now and holds the task, `run` runs it
+in the background with the pane following it, and `rm` deletes it once the
+pane has said what that removes and you press Enter again. `^x` on a running
+task stops its agent first. `^w` widens the pane. Without fzf, `t`
 prints `t ls`.
 
 `t log` tells a task's story: every run of every step in the order it ran,

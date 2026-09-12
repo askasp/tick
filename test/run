@@ -515,6 +515,39 @@ test_rm_removes_the_worktree_and_keeps_the_branch() {
   git rev-parse -q --verify "refs/heads/t/$id-add-the-widget" > /dev/null
 }
 
+test_rm_f_stops_the_running_agent_and_deletes_the_task() {
+  id=$(new "add the widget")
+  FAKE_SLEEP=30 t run $id > /dev/null 2>&1 &
+  pid=$!
+  for i in $(seq 50); do [ ! -s "$FAKE/opencode.calls" ] || break; sleep 0.1; done
+  t rm -f $id 2> /dev/null
+  not wait $pid
+  [ ! -e "$(dir $id)" ]
+}
+
+test_ctrl_x_deletes_a_task_in_place() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  new "add the widget" > /dev/null
+  new "fix the gadget" > /dev/null
+  eq "$(keyfor rm)" ctrl-x
+  t ui --key "$(keyfor rm)" 1 '' | grep -q 'delete 1?'
+  t ui --pane 1 '' | grep -q 'Deletes its directory'
+  [ -d "$(dir 0001)" ]
+  t ui --key enter 1 '' > /dev/null
+  [ ! -e "$(dir 0001)" ]
+  eq "$(cat "$T_UI/new")" 2
+}
+
+test_ctrl_x_is_offered_for_a_running_task() {
+  id=$(new "add the widget")
+  ( exec 9> "$(dir $id)/lock"; flock 9; sleep 30 ) &
+  pid=$!
+  sleep 0.5
+  t keys $id | grep -q 'x:rm'
+  kill $pid 2>/dev/null || true
+}
+
 test_main_codes_in_a_worktree_and_lands_on_the_local_main() {
   git commit -q --allow-empty -m "not pushed yet"
   id=$(new "fix the widget" -p main)
