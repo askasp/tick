@@ -1,9 +1,21 @@
 #!/usr/bin/env bash
-# t diff [TASK] [git diff args] — the task's change so far, against what it branched from
+# t diff [TASK] [git diff args] — the task's change so far, against what it branched from. In a terminal: the
+# files it changed, each one's diff beside them (enter: all of it). With CLICOLOR_FORCE (t ui's pane): in color.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 task=$(task_dir "${1:-}") || exit 1
 if [ $# -gt 0 ]; then shift; fi
 [ -f "$task/repo" ] || die "task $(task_num "$task") has no repo, so no change"
-repo=$(cat "$task/repo") branch=$(cat "$task/branch")
-git -C "$repo" rev-parse -q --verify "refs/heads/$branch" > /dev/null || die "task $(task_num "$task") has no branch yet"
-exec git -C "$repo" diff "$(cat "$task/base")...$branch" "$@"
+repo=$(cat "$task/repo") branch=$(cat "$task/branch") n=$(task_num "$task")
+git -C "$repo" rev-parse -q --verify "refs/heads/$branch" > /dev/null || die "task $n has no branch yet"
+range="$(cat "$task/base")...$branch"
+
+if [ $# -eq 0 ] && [ -t 1 ] && command -v fzf > /dev/null; then
+  changed_files "$task" | fzf "${BOARD_FZF[@]}" --prompt "task $n> " --delimiter '\t' \
+    --preview "CLICOLOR_FORCE=1 t-diff $n -- {2}" --preview-window 'right,70%,border-left,<100(down,70%,border-top)' \
+    --footer "$(hint enter 'all of it' '^d ^u' scroll esc back)" \
+    --bind "enter:execute(CLICOLOR_FORCE=1 t-diff $n -- {2} | less -R)" \
+    --bind 'ctrl-d:preview-half-page-down,ctrl-u:preview-half-page-up' || true
+  exit
+fi
+if [ -z "${CLICOLOR_FORCE:-}" ]; then exec git -C "$repo" diff "$range" "$@"; fi
+git -C "$repo" diff --color=always "$range" "$@" | if command -v delta > /dev/null; then delta --paging=never; else cat; fi

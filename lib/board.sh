@@ -236,7 +236,7 @@ ACTIONS='log     ctrl-l  its output, live; again: all of it, unfolded
 say     ctrl-y  send it back to a step with your notes
 attach  ctrl-o  take over the agent conversation (its own screen)
 stack   ctrl-t  start a task that branches from this one (waits for it to finish)
-diff    -       the change so far
+diff    -       the files it changed, each one's diff beside them
 run     -       run it now
 hold    ctrl-r  pause it after this step, or unpause it when it is held
 cancel  -       stop its agent now, and hold it
@@ -295,6 +295,22 @@ pane_next() {
            then echo diff; else echo show; fi ;;
     *)     echo show ;;
   esac
+}
+
+# the files task $1 changed, a line each, tab-separated: +12 -3, the path, and "generated" for what
+# tooling writes (GENERATED= in its env)
+changed_files() {
+  local - generated added deleted file mark glob
+  set -f                                      # a GENERATED glob matches the change's paths, not files here
+  generated=$(load_env "$1" > /dev/null 2>&1; echo "${GENERATED:-}")
+  CLICOLOR_FORCE= t-diff "$1" --numstat --no-renames | while IFS=$'\t' read -r added deleted file; do
+    mark=
+    for glob in $generated; do
+      if [[ $file == $glob ]]; then mark=generated; fi
+    done
+    if [ "$added" = - ]; then added=binary; else added="+$added -$deleted"; fi
+    printf '%s%12s%s\t%s\t%s\n' "$C_DIM" "$added" "$C_OFF" "$file" "${mark:+$C_FAINT$mark$C_OFF}"
+  done
 }
 
 # a tab strip for t ui's pane: the choices $2..., the one that is $1 bright (no color: in brackets)

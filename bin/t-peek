@@ -98,6 +98,17 @@ settings() {
   )
 }
 
+# the files it changed, then the diff of those tooling didn't write
+change() {
+  local counts file mark skip=(.)
+  while IFS=$'\t' read -r counts file mark; do
+    echo "$counts  $file${mark:+  $mark}"
+    if [ -n "$mark" ]; then skip+=(":(exclude,literal)$file"); fi
+  done < <(changed_files "$task")
+  echo
+  t-diff "$id" -- "${skip[@]}" 2>&1
+}
+
 case $mode in
   log | raw)
     raw=
@@ -108,6 +119,6 @@ case $mode in
     fi
     exec t-log "$id" -f $raw ;;
   steps) step_rows; echo; settings ;;
-  diff)  t-diff "$id" --color=always 2>&1 | if command -v delta > /dev/null; then delta --paging=never; else cat; fi ;;
+  diff)  change ;;
   *)     t-show "$id" --pane ;;
 esac
