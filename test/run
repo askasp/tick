@@ -1078,6 +1078,17 @@ test_idle_review_reads_finished_work_with_a_mindset_its_pipeline_skipped() {
   eq "$(cut -d' ' -f1 "$(dir $id)/idle/$m")" "$(git -C "$(t path $id)" rev-parse HEAD)"
 }
 
+test_the_board_says_which_mindset_is_reading_a_finished_task() {
+  id=$(new "add the widget")
+  t run $id
+  FAKE_SLEEP=3 setsid "$tmp/tick/jobs/idle-review" > /dev/null 2>&1 &
+  for _ in $(seq 50); do [ -s "$(dir $id)/note" ] && break; sleep 0.2; done
+  t ls -a | grep "^ *$((10#$id)) " | grep -q 'idle review  '      # something is happening, and what
+  wait
+  [ ! -e "$(dir $id)/note" ]                                      # and the board says done again
+  t ls -a | grep "^ *$((10#$id)) " | grep -q ' done$'
+}
+
 test_idle_review_goes_quiet_when_every_mindset_has_read_the_commit() {
   export IDLE_PASSES=1
   id=$(new "add the widget")

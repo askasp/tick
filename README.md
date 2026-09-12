@@ -537,6 +537,11 @@ mindset has approved the code as it stands. It leaves alone anything it cannot
 help: work that already landed, a task another is stacked on, a held task, a
 question with no worktree, and a pull request that is closed.
 
+While a pass is running, the task's row on the board says so — `idle review
+data` where it would say `done` — because the job writes what it is doing into
+the task's `note` and removes it when it is finished. Any job can do that; the
+board shows a `note` while it is there.
+
 Its whole memory is `idle/<mindset>` in each task directory, holding the commit
 it read and how often. `rm ~/.tick/tasks/*/idle/craft` makes every task get
 another reading from that mindset — which is what to do after editing one. Drop

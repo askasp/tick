@@ -77,9 +77,12 @@ standing() {
 }
 
 # what a task is doing: where it stands, and on a step, that step's latest line
-# (review  read records.types.d.ts); before it has run, next tick, and why it runs again
+# (review  read records.types.d.ts); before it has run, next tick, and why it runs again.
+# A job working on a task writes what it is doing into the task's `note`, and that wins while
+# it is there: a finished task says done until something is reading it.
 status() {
   local st step line
+  if [ -s "$1/note" ]; then head -1 "$1/note"; return; fi
   st=$(state "$1") step=$(cat "$1/step")
   case $st in ready | running) ;; *) standing "$1"; return ;; esac
   line=$(doing "$(last_words "$1/log/$step.log")")

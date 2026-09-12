@@ -61,6 +61,7 @@ how to change it.
 | the board's look | `lib/board.sh`: the `C_` greys and red, `T_FZF_COLORS`, and `BOARD_FZF`, which every fzf screen and `t doctor` use | no |
 | a setting | `etc/tick.conf`, as `: "${NAME:=default}"` | no |
 | a cron job that isn't a task | a pipe script in `jobs/`, plus a crontab line | no |
+| a line on the board from a job | write it to `note` in the task directory, and remove it when you're done | no |
 
 `bin/t-run` is the runner, and it should almost never change. If a feature
 seems to need a change there, look for a file convention first. `goto`,

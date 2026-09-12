@@ -53,11 +53,15 @@ if [ -s "$task/pr" ] && ! (cd -P "$task/work" && gh pr view --json state --jq .s
   review=
 else
   echo "$(date '+%F %T') task $n: $mindset, at $(cut -c1-8 <<< "$head")" >&2
+  trap 'rm -f "$task/note"' EXIT INT TERM           # the board says who is reading it, while we read
+  put "$task/note" "idle review  $mindset"
   code=0
   review=$(set -a; load_env "$task" > /dev/null 2>&1; set +a; export T_STEP=review
            review_pass "$task" "$mindset") || code=$?
   [ "$code" != 75 ] || exit 0                     # every slot busy: this is not the time
 fi
+
+rm -f "$task/note"
 
 # the pass took minutes, and anything may have happened meanwhile: say nothing unless it stood still
 [ "$(cat "$task/step" 2> /dev/null)" = done ] || exit 0
