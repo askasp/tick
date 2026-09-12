@@ -6,7 +6,7 @@
 #   SLACK_CHANNELS="C0AMINO=amino"  CHANNEL=repo, a pair for each repo in repos/ you want on Slack
 #   SLACK_ME=U0AKSEL               who a held task mentions
 #
-# Nothing else in tick reads a line either script writes, so `rm jobs/slack*`, the two crontab lines
+# Nothing else in tick reads a line either script writes, so `rm jobs/slack*`, the crontab line
 # and $T_VAR/slack leave tick exactly as it was.
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/tick.sh"
 set -euo pipefail

@@ -403,7 +403,7 @@ morning:
 Two more jobs put the board in a Slack channel and let you answer it from
 there. They are the only part of tick that talks to anything outside your
 machine, and nothing else in tick reads a line they write: `rm jobs/slack*`,
-drop the two crontab lines, and tick is exactly as it was.
+drop the crontab line, and tick is exactly as it was.
 
 A channel is bound to a repo — and a task you start in a channel stays in it
 whether or not it has one, so a question (`research …`, which sets `REPO=none`)
@@ -417,8 +417,11 @@ SLACK_ME=U0AKSEL                 # who a held task mentions
 ```
 
 ```sh
-(crontab -l; echo '* * * * * $HOME/git/tick/jobs/slack-out'; echo '* * * * * $HOME/git/tick/jobs/slack-in') | crontab -
+(crontab -l; echo '* * * * * $HOME/git/tick/jobs/slack-loop >> $HOME/.tick/slack.log 2>&1') | crontab -
 ```
+
+`slack-loop` runs `slack-in` and `slack-out` every 10 seconds, so a message is
+answered in about that. It locks itself, and what fails lands in `~/.tick/slack.log`.
 
 From then on the channel holds one message per task, posted once and edited in
 place — an edit is silent, so four agents work without touching your phone. It
