@@ -207,7 +207,7 @@ words() {
 # what t ui can do with a task, and its key on the board. Keys are ctrl- only: over ssh from a Mac, alt-
 # arrives only if the terminal sends Option as Meta. The rest are a word away, in the pane ? opens.
 ACTIONS='log     ctrl-l  its output, live; again: all of it, unfolded
-say     -       send it back to a step with your notes
+say     ctrl-y  send it back to a step with your notes
 attach  ctrl-o  take over the agent conversation (its own screen)
 stack   ctrl-t  start a task on this one (shared worktree, waits for it to finish)
 diff    -       the change so far
