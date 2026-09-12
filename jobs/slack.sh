@@ -46,11 +46,12 @@ channel_of() {
   return 1
 }
 
-# where a task is, in the board's own words: 3/4 · 3m · review  read client.ts
+# where a task is, in the board's own words: 3/4 · 3m · review. Not what its agent is doing this
+# second: a pushed message is a snapshot, and that line is stale by the time you read it.
 where() {
   local since
   since=$(age "$1")
-  echo "$(fraction "$1")${since:+ · $since} · $(status "$1")"
+  echo "$(fraction "$1")${since:+ · $since} · $(standing "$1")"
 }
 
 put() { printf '%s\n' "$2" > "$1.tmp" && mv "$1.tmp" "$1"; }

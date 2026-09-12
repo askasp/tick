@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # jobs/slack-out — one message per task, posted once and edited from then on, and the board as the
-# channel's canvas. What the task did goes to its own thread; only a hold mentions you, because an
-# edit is silent and a mention is not. From cron, right after the tick:
+# channel's canvas. What the task did goes to one message in its thread, edited too; only a hold or an
+# answer mentions you, because an edit is silent and a mention is not. From cron, right after the tick:
 #   * * * * * $HOME/git/tick/jobs/slack-out
 . "$(dirname "$(readlink -f "$0")")/slack.sh"
 
@@ -9,31 +9,67 @@
 # a terminal's business (t show), and the thread under it is the rest.
 task_text() { printf '*task %s*  %s\n%s' "$(task_num "$1")" "$(name "$1")" "$(where "$1")"; }
 
-# the board: every open task, two ragged lines each. Not columns, because Slack's proportional font
-# would only pretend they lined up.
+# the board: the channel's open tasks in the board's own columns, in a code block, because Slack's
+# proportional font would only pretend ragged lines lined up. Columns align, so an id needs no badge
+# and a title no bold — position carries the hierarchy instead.
 board_text() {
-  local ch=$1 repo=$2 t rows= open=0 held=0 done_n=0 mark
+  local ch=$1 repo=$2 t ids= open=0 held=0 done_n=0 table
   for t in "$T_TASKS"/*/; do
     t=${t%/}
     [ -f "$t/step" ] || continue
     [ "$(channel_of "$t" 2> /dev/null || true)" = "$ch" ] || continue
+    ids+="$(task_num "$t") "
     if [ "$(cat "$t/step")" = done ]; then done_n=$((done_n + 1)); continue; fi
-    open=$((open + 1)) mark=
-    if [ -e "$t/hold" ]; then held=$((held + 1)) mark='🔴 '; fi
-    rows+="$mark\`$(task_num "$t")\` *$(name "$t")*"$'\n'"$(where "$t")"$'\n'
+    open=$((open + 1))
+    if [ -e "$t/hold" ]; then held=$((held + 1)); fi
   done
-  printf '*%s*  ·  %s active%s\n\n%s\n%s done' "$repo" "$open" \
-    "$(if [ "$held" -gt 0 ]; then echo ", $held needs you"; fi)" \
-    "${rows:-nothing running}" "$done_n"
+  table=$(T_SNAPSHOT=1 T_COLS=68 board | awk -v ids=" $ids" 'index(ids, " " $1 " ")')
+  printf '*%s* — %s active%s, %s done\n```\n%s\n```' "$repo" "$open" \
+    "$(if [ "$held" -gt 0 ]; then echo ", $held needs you"; fi)" "$done_n" \
+    "${table:-nothing running}"
 }
 
-# the lines history grew since we last looked, without the date and the task number it repeats
-moves() {
-  awk -v from="$1" 'NR > from {
-    when = substr($2, 1, 5); $1 = ""; $2 = ""; sub(/^ +/, "")
-    if ($1 ~ /^[0-9]+$/) { $1 = ""; sub(/^ +/, "") }
-    print when "  " $0 }' "$2"
+# a task's history as one message: the time, the steps it went through, and a loop it went round more
+# than once as ↺ ×3 — churn is the thing you want to see, and a line each hides it. Steps chain while
+# each starts where the last ended, ok goes without saying, and the numbers that sort the step files
+# are not for reading.
+story() {
+  awk '
+    function step(s) { sub(/^[0-9]+-/, "", s); return s }
+    function emit(   out, i, round) {
+      if (n == 0) return
+      out = chain[1]
+      for (i = 2; i <= n; i++) out = out " → " chain[i]
+      round = times - (pos < n)                    # the pass it is in the middle of is not one it made
+      if (round > 1) out = out "  *↺ ×" round "*"
+      print start "  " out
+      n = 0
+    }
+    function begin(from) { emit(); chain[1] = from; n = 1; pos = 1; times = 1; start = substr($2, 1, 5) }
+    function seen(s,   i) { for (i = 1; i <= n; i++) if (chain[i] == s) return i; return 0 }
+
+    { at = substr($2, 1, 5) }
+
+    $5 == "ok" {
+      from = step($4); to = step($7)
+      if (n > 0 && chain[pos] != from) emit()               # it went on from somewhere else
+      if (n == 0) begin(from)
+      if (times == 1 && !seen(to)) { chain[++n] = to; pos = n; next }    # the chain is still growing
+      want = (pos < n) ? chain[pos + 1] : chain[1]          # else it is round again, from where we are
+      if (to != want) { begin(from); chain[2] = to; n = 2; pos = 2; next }   # a loop of its own
+      if (pos < n) pos++
+      else { pos = 1; times++ }
+      next
+    }
+    $3 == "resumed" { emit(); print at "  resumed at " step($5); next }
+    $4 == "on"      { emit(); sub(/^([^ ]+ ){5}/, ""); print at "  held  " $0; next }
+                    { emit(); what = step($4)                  # a failure names itself, and what comes
+                      sub(/^([^ ]+ ){4}/, ""); sub(/;.*/, "")   # after the semicolon the next line says
+                      print at "  " what " " $0 }
+    END             { emit() }' "$1/history"
 }
+
+thread_text() { printf '*task %s — %s*\n%s' "$(task_num "$1")" "$(name "$1")" "$(story "$1")"; }
 
 # There is one board message in a channel, ever, and it lives where you last asked for it: saying
 # `status` there moves it to the bottom, which on a phone is the only place that is easy to find.
@@ -76,15 +112,29 @@ for task in "$T_TASKS"/*/; do
   put "$task/slack_sent" "$text"
   echo "$ch $ts" >> "$SLACK_STATE/cards.tmp"
 
-  if [ -f "$task/history" ]; then
-    seen=$(get "$task/slack_seen") seen=${seen:-0}
-    lines=$(moves "$seen" "$task/history")
-    if [ -n "$lines" ]; then
-      if grep -q 'on hold' <<< "$lines" && [ -n "${SLACK_ME:-}" ]; then lines+=$'\n'"<@$SLACK_ME>"; fi
-      api chat.postMessage channel="$ch" thread_ts="$ts" text="$lines" > /dev/null || true
-      put "$task/slack_seen" "$(wc -l < "$task/history")"
+  # one message in the thread, edited from then on, so what happened is where you look for it and not
+  # spread over a reply per tick, each under an app header of its own
+  if [ -s "$task/history" ]; then
+    told=$(thread_text "$task")
+    if [ "$told" != "$(get "$task/slack_story")" ]; then
+      thread=$(get "$task/slack_thread")
+      if [ -z "$thread" ]; then
+        posted=$(api chat.postMessage channel="$ch" thread_ts="$ts" text="$told") || continue
+        put "$task/slack_thread" "$(jq -r .ts <<< "$posted")"
+      else
+        api chat.update channel="$ch" ts="$thread" text="$told" > /dev/null || true
+      fi
+      put "$task/slack_story" "$told"
     fi
   fi
+
+  # an edit is silent, so a hold says itself once, in a message of its own: tick is waiting on you
+  if [ -e "$task/hold" ] && [ ! -f "$task/slack_held" ]; then
+    api chat.postMessage channel="$ch" thread_ts="$ts" \
+      text="held  $(head -1 "$task/hold")${SLACK_ME:+$'\n\n'<@$SLACK_ME>}" > /dev/null || true
+    touch "$task/slack_held"
+  fi
+  if [ ! -e "$task/hold" ]; then rm -f "$task/slack_held"; fi    # resumed: the next hold says itself too
 
   # an answer is the whole point of the question, so it goes to the thread as itself, and mentions
   # you the way a hold does: both are tick waiting on you

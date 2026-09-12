@@ -89,8 +89,10 @@ into one line (`· Read ×8  src/lib/health-*, src/app.ts`); while the task
 runs, its last three calls stay lines of their own. `--raw` shows every call,
 and the session line `t attach` resumes. `-f` keeps following it into the
 steps still to come. The drivers log paths relative to where the agent works,
-so the log and the board's status say `src/app.ts`, and a path still too long
-for the board keeps its end: `…/workers/notify.ts`.
+so the log says `src/app.ts`. The board's status column keeps a column's worth
+of that line: a path by its basename (`notify.ts`), and so a command by its
+verb and the file it names, never the shell around it — `bash cd "$(git
+rev-parse --show-toplevel)" && ./ci.sh 2>&1` is `bash ci.sh`.
 
 ### Starting a task
 
@@ -398,16 +400,30 @@ SLACK_ME=U0AKSEL                 # who a held task mentions
 ```
 
 From then on the channel holds one message per task, posted once and edited in
-place — an edit is silent, so four agents work without touching your phone.
-What a task did goes into its own thread, and only a hold or an answer mentions
-you — both are tick waiting on you. A question's answer lands in that thread as
-itself, not as the news that there is one. `t rm` takes the message with the
-task, so the channel holds what the board holds.
+place — an edit is silent, so four agents work without touching your phone. It
+says where the task stands, not what its agent is doing this second: a pushed
+message is read minutes later, and that line is stale by then.
+
+What a task did goes into one message in its thread, edited the same way, so
+the whole run is where you look instead of a reply per tick. Steps that follow
+each other join up (`implement → test → review`), and a loop it went round more
+than once says so (`↺ ×3`) — churn is the thing you want to see, and a line
+each hides it. Only a hold or an answer mentions you, because an edit is silent
+and a mention is not, and both are tick waiting on you. A question's answer
+lands in that thread as itself, not as the news that there is one. `t rm` takes
+the message with the task, so the channel holds what the board holds.
 
 There is one board message in the channel, ever, and it lives where you last
 asked for it: say `status` and it moves to the bottom, where you are already
 looking. Between asks it is edited where it stands, so it is current wherever
-you left it.
+you left it. It is the board's own columns in a code block, because Slack's
+proportional font would only pretend ragged lines lined up:
+
+```
+  7  Android Health Connect sync +…  3/4   4m  review
+  8  └ Health Connect across sourc…  0/4       after 7
+  9  Flaky Test Verification         1/4   1m  implement
+```
 
 | you do | it runs |
 | --- | --- |

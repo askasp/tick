@@ -863,11 +863,16 @@ test_the_board_says_what_each_task_is_doing_and_for_how_long() {
   t keys $id | grep -qE '^enter:say .*:resume .*:keys$'  # enter says to it, a key resumes it, ? has the rest
 }
 
-test_the_board_keeps_the_end_of_a_long_path() {
+test_the_board_names_the_file_and_never_a_whole_command() {
   id=$(new "add the widget")
   mkdir -p "$(dir $id)/log"
-  printf '=== 2026-09-11 10:00:00 10-implement, run 1\n  · Read frontend/lib/wearables/workers/notify.ts\n' > "$(dir $id)/log/10-implement.log"
-  t ls | grep -q 'implement: Read …/workers/notify.ts$'
+  did() { printf '=== 2026-09-11 10:00:00 10-implement, run 1\n  · %s\n' "$1" > "$(dir $id)/log/10-implement.log"; }
+  did 'Read frontend/lib/wearables/workers/notify.ts'
+  t ls | grep -q 'implement: Read notify.ts$'
+  did 'Bash cd "$(git rev-parse --show-toplevel)" && ./fetch-pr-comments.sh 2>&1'
+  t ls | grep -q 'implement: Bash fetch-pr-comments.sh$'
+  did 'reading the discount code field and the proration it needs'
+  t ls | grep -q 'implement: reading the discount code field…$'   # nothing gets more than a column
 }
 
 test_the_log_folds_a_run_of_one_tool_and_raw_shows_it_all() {
@@ -1074,7 +1079,7 @@ test_slack_posts_a_task_once_and_edits_that_message_after_that() {
   eq "$(calls chat.update)" 0
   t hold $id "waiting for you"
   "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 2
+  eq "$(calls chat.postMessage)" 3                 # the two, and the mention no edit of them can be
   eq "$(calls chat.update)" 2                      # the same two messages, edited where they are
   grep -A2 '^chat.update' "$FAKE/slack.calls" | grep -q "ts=$(cat "$(dir $id)/slack_ts")"
   grep -q 'held  waiting for you' "$FAKE/slack.calls"
@@ -1183,18 +1188,48 @@ test_a_reply_that_is_a_command_runs_it_and_posts_what_it_printed() {
   grep -q "no 'frobnicate' here" "$FAKE/slack.calls"
 }
 
-test_a_held_task_mentions_you_in_its_thread_and_nowhere_else() {
+test_what_a_task_did_is_one_thread_message_edited_with_its_loops_collapsed() {
   slack
   id=$(new -r toy "add the widget")
   "$tmp/tick/jobs/slack-out"
+  eq "$(calls chat.postMessage)" 2                  # nothing happened yet, so the thread is empty
+  n=$((10#$id))
+  cat >> "$(dir $id)/history" <<EOF
+2026-01-01 09:00:00 $n 10-implement ok → 20-test
+2026-01-01 09:01:00 $n 20-test ok → 30-review
+2026-01-01 09:02:00 $n 30-review ok → 10-implement
+2026-01-01 09:10:00 $n 10-implement ok → 20-test
+2026-01-01 09:11:00 $n 20-test ok → 30-review
+2026-01-01 09:12:00 $n 30-review ok → 10-implement
+EOF
+  "$tmp/tick/jobs/slack-out"
+  eq "$(calls chat.postMessage)" 3
+  grep -q 'implement → test → review  \*↺ ×2\*' "$FAKE/slack.calls"   # the churn, not a line each
+  not grep -q '10-implement ok' "$FAKE/slack.calls"
+  thread=$(cat "$(dir $id)/slack_thread")
+  printf '2026-01-01 09:20:00 %s 10-implement failed (exit 127); it runs again on the next tick\n' \
+    "$((10#$id))" >> "$(dir $id)/history"
+  "$tmp/tick/jobs/slack-out"
+  grep -q '09:20  implement failed (exit 127)$' "$FAKE/slack.calls"   # a failure names itself, once
+  eq "$(calls chat.postMessage)" 3                  # the same message, edited where it stands
+  grep -A2 '^chat.update' "$FAKE/slack.calls" | grep -q "ts=$thread"
+  "$tmp/tick/jobs/slack-out"
+  eq "$(calls chat.update)" 1                       # and left alone while nothing happens
+}
+
+test_a_held_task_mentions_you_in_its_thread_and_nowhere_else() {
+  slack
+  id=$(new -r toy "add the widget")
   printf '2026-01-01 09:00:00 %s 10-implement ok → 20-test\n' "$((10#$id))" >> "$(dir $id)/history"
   "$tmp/tick/jobs/slack-out"
-  grep -q '09:00  10-implement ok → 20-test' "$FAKE/slack.calls"
+  grep -q '09:00  implement → test' "$FAKE/slack.calls"
   not grep -q 'U0AKSEL' "$FAKE/slack.calls"
-  printf '2026-01-01 09:20:00 %s on hold: test ran 3 times\n' "$((10#$id))" >> "$(dir $id)/history"
+  t hold $id "test ran 3 times"
   "$tmp/tick/jobs/slack-out"
   grep -q '<@U0AKSEL>' "$FAKE/slack.calls"
-  eq "$(grep -c 'thread_ts=' "$FAKE/slack.calls")" 2
+  eq "$(grep -c 'thread_ts=' "$FAKE/slack.calls")" 2   # the thread message, and the mention an edit can't be
+  "$tmp/tick/jobs/slack-out"
+  eq "$(grep -c 'thread_ts=' "$FAKE/slack.calls")" 2   # said once, not on every tick
 }
 
 test_slack_is_a_job_tick_itself_knows_nothing_about() {

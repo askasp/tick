@@ -49,29 +49,40 @@ last_words() {
     END                          { print last }'
 }
 
-# a long path keeps its end, which says the most: frontend/lib/wearables/workers/notify.ts → …/workers/notify.ts
-path_ends() {
-  local words word parts out=()
+# what a log line says the agent is doing, in a column's worth: a path by its basename, since the
+# directory is never the part you needed, and so a command by its verb and the file it names:
+#   Read frontend/types/records.types.d.ts                      → Read records.types.d.ts
+#   Bash cd "$(git rev-parse --show-toplevel)" && ./ci.sh 2>&1  → Bash ci.sh
+doing() {
+  local words word out=$1
   read -ra words <<< "$1"
-  for word in "${words[@]}"; do
-    IFS=/ read -ra parts <<< "$word"
-    if [ ${#parts[@]} -gt 3 ]; then word="…/${parts[-2]}/${parts[-1]}"; fi
-    out+=("$word")
+  for word in "${words[@]:1}"; do
+    if [[ $word == */* ]]; then out="${words[0]} ${word##*/}"; break; fi
   done
-  echo "${out[*]}"
+  if [ "${#out}" -gt 32 ]; then out=${out:0:31}…; fi
+  echo "$out"
 }
 
-# what a task is doing, its state's word first: held and why, after 7, answered, done; while it runs,
-# its step and that step's latest line (review  read cart.js); else next tick, and why it runs again
+# where a task stands, in a word or two: held and why, after 7, answered, done, else the step it is on.
+# What its agent is doing this second is status's business; a pushed message has no use for it.
+standing() {
+  local st step
+  st=$(state "$1") step=$(cat "$1/step")
+  case $st in
+    HOLD)   echo "held  $(head -1 "$1/hold")" ;;
+    after*) echo "$st" ;;
+    done)   if [ -f "$1/answer.md" ]; then echo answered; else echo done; fi ;;
+    *)      echo "${step#*-}" ;;
+  esac
+}
+
+# what a task is doing: where it stands, and on a step, that step's latest line
+# (review  read records.types.d.ts); before it has run, next tick, and why it runs again
 status() {
   local st step line
   st=$(state "$1") step=$(cat "$1/step")
-  case $st in
-    HOLD)   echo "held  $(head -1 "$1/hold")"; return ;;
-    after*) echo "$st"; return ;;
-    done)   if [ -f "$1/answer.md" ]; then echo answered; else echo done; fi; return ;;
-  esac
-  line=$(path_ends "$(last_words "$1/log/$step.log")")
+  case $st in ready | running) ;; *) standing "$1"; return ;; esac
+  line=$(doing "$(last_words "$1/log/$step.log")")
   if [ "$st" = running ]; then echo "${step#*-}  ${line:-starting}"
   elif [ -n "$line" ]; then echo "next tick  ${step#*-}: $line"      # it ran, and runs again
   else echo "next tick"
@@ -109,6 +120,7 @@ board() {
 # a task's row, then the rows of the tasks waiting on it, indented by $2:
 #   7  amino   Add a discount code field       3/4    3m  review  read client.ts
 # In color (T_COLOR=1, t ui's) it is greys, and red for held: the one thing on the board that needs you.
+# T_SNAPSHOT=1 leaves out what the agent is doing, for a board that is read after it was drawn.
 rows() {
   local t=$1 indent=${2:-} st repo= title since says numbers child under
   if [ -z "${T_COLOR:-}" ]; then local C_TEXT= C_MID= C_DIM= C_FAINT= C_RED= C_OFF=; fi
@@ -117,7 +129,8 @@ rows() {
     repo=$(profile_of "$(cat "$t/repo")")
     repo=${repo:-$(basename "$(cat "$t/repo")")}
   fi
-  title=$indent$(name "$t") since=$(age "$t") says=$(status "$t")
+  title=$indent$(name "$t") since=$(age "$t")
+  if [ -n "${T_SNAPSHOT:-}" ]; then says=$(standing "$t"); else says=$(status "$t"); fi
   if [ "${#title}" -gt 30 ]; then title=${title:0:29}…; fi
   if [ -n "$since" ]; then numbers=$C_MID; fi
   case $st in
