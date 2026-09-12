@@ -154,6 +154,16 @@ test_a_review_reads_the_diff_once_per_mindset() {
   grep -q '^## tests$' "$(dir $id)/review.md"
 }
 
+test_the_board_says_which_mindset_a_running_review_is_on_of_how_many() {
+  echo 'MINDSETS="intent tests"' >> "$tmp/tick/pipelines/local/env"
+  id=$(new "add the widget")
+  t run $id
+  echo 30-review > "$(dir $id)/step"                              # as if it were reviewing again
+  flock "$(dir $id)/lock" t ls | grep "^ *$((10#$id)) " | grep -q ' review  tests 2/2  '
+  echo "=== $(date '+%F %T') 30-review, run 2" >> "$(dir $id)/log/30-review.log"
+  flock "$(dir $id)/lock" t ls | grep "^ *$((10#$id)) " | grep -q ' review  starting$'   # a new run hasn't one yet
+}
+
 test_an_unknown_mindset_names_the_ones_there_are() {
   echo 'MINDSETS="tests nosuch"' >> "$tmp/tick/pipelines/local/env"
   id=$(new "add the widget")
@@ -848,6 +858,24 @@ test_diff_shows_the_change() {
   t diff $id | grep -q '^+change'
 }
 
+test_the_diff_lists_the_files_and_leaves_out_what_tooling_wrote() {
+  echo 'GENERATED="*.gen.json"' >> "$tmp/tick/pipelines/local/env"
+  id=$(new "add the widget")
+  t run $id
+  w=$(t path $id)
+  echo '{"huge": 1}' > "$w/api.gen.json"
+  git -C "$w" add api.gen.json && git -C "$w" commit -q -m generated
+  out=$(t peek $id diff)
+  grep -qE '^ +\+1 -0  impl\.txt$' <<< "$out"
+  grep -qE '^ +\+1 -0  api\.gen\.json  generated$' <<< "$out"
+  grep -q '^+change$' <<< "$out"
+  not grep -q 'huge' <<< "$out"                           # named, but its diff left out
+  t diff $id | grep -q 'huge'                             # piped, t diff is all of it
+  export T_UI=$tmp/ui                                     # enter on the board opens a file at a time
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  eq "$(t ui --key enter $((10#$id)) '')" "execute(t-diff $((10#$id)))"
+}
+
 test_log_shows_every_run_in_order_each_followed_by_how_it_ended() {
   printf 'BROKEN\nfixed\n' > "$FAKE/impl"                 # the tests fail once: back to implement, in one second
   id=$(new "add the widget")
@@ -966,7 +994,8 @@ test_the_pane_shows_details_log_or_diff() {
   t peek $id | grep -q '^          1 implement  2 test  3 review$'   # done: its details,
   not grep -q 't diff 1' <(t peek $id)                    # without what to do next: the board's keys say
   timeout 0.5 t peek $id log | grep -q 'review → done'
-  t peek $id diff | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^+change'   # in color
+  CLICOLOR_FORCE=1 t peek $id diff | grep -q $'\e\\['     # in color
+  t peek $id diff | grep -q '^+change'
   t peek $id steps | grep -qE '^30-review +1 run'
   timeout 0.5 t peek $id raw | grep -q '^session: opencode'
   t keys $id | grep -qE '^enter:diff +[^ ]+:stack +[^ ]+:say '

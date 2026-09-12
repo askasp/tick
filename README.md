@@ -69,7 +69,10 @@ the task you're on: its live log while it runs, else its details (`t peek`).
 lists them, the one you're on bright), and `^d`/`^u` scroll it half a page
 (PgDn/PgUp a page, Shift-↓/↑ a line). The line at the bottom holds only the
 keys worth pressing now (`t keys`), and Enter does the first of them: the log
-of a running task, say for a held one, the diff of a done one.
+of a running task, say for a held one, the diff of a done one: the files it
+changed, with the diff of each beside them, and Enter again for all of one. The
+diff tab lists the files too, and names what tooling wrote (`GENERATED=`)
+without its diff.
 
 The keys are all ctrl-, so typing still searches, and they reach the board
 over ssh from any terminal. `^l` turns the pane to the log (again: the raw
@@ -246,6 +249,8 @@ the one `VERDICT: approve | changes` contract. Same reviewer, different mindset.
 diff once per name. The task moves on only when every pass approves; the passes
 that ask for changes are what `feedback.md` holds, so the implementer is not
 handed four approvals to read. Unset, the step reads once, for everything.
+While it reads, the board says which pass it is on and of how many
+(`review  tests 2/3  Read client.ts`).
 
 | mindset | what it asks |
 | --- | --- |
@@ -510,7 +515,7 @@ t PIPELINE ...             t new ... -p PIPELINE:  t ask --now "How do the tests
 t ls [-a]                  the board as text; -a adds done tasks
 t show [TASK]              where it is, and what you can do next
 t log [TASK] [-f] [--raw]  every run in order, rendered in one column; -f follows it, --raw is the file itself
-t diff [TASK]              the change so far
+t diff [TASK]              the files it changed, with the diff of each beside them
 t say [TASK] "notes"       back to implement, with your notes
 t attach [TASK]            resume the agent's conversation yourself
 t run [TASK]               run it now, in this terminal

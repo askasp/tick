@@ -46,8 +46,16 @@ last_words() {
     /^=== /                      { last = ""; next }
     /^session: |^```/ || NF == 0 { next }
     /^tokens[:\/]/              { next }
+    /^mindset [0-9]+\/[0-9]+: / { next }
                                   { sub(/^ *(· |! )/, ""); last = $0 }
     END                          { print last }'
+}
+
+# the mindset a review's latest run is reading with, and how many it has (tests 2/3); nothing outside one
+mindset_of() {
+  tac "$1" 2> /dev/null | awk '
+    /^=== /                     { exit }
+    /^mindset [0-9]+\/[0-9]+: / { sub(/:$/, "", $2); print $3, $2; exit }'
 }
 
 # what a log line says the agent is doing, in a column's worth: a path by its basename, since the
@@ -100,12 +108,14 @@ standing() {
 # A job working on a task writes what it is doing into the task's `note`, and that wins while
 # it is there: a finished task says done until something is reading it.
 status() {
-  local st step line
+  local st step line mindset
   if [ -s "$1/note" ]; then head -1 "$1/note"; return; fi
   st=$(state "$1") step=$(cat "$1/step")
   case $st in ready | running) ;; *) standing "$1"; return ;; esac
   line=$(doing "$(last_words "$1/log/$step.log")")
-  if [ "$st" = running ]; then echo "${step#*-}  ${line:-starting}"
+  if [ "$st" = running ]; then
+    mindset=$(mindset_of "$1/log/$step.log")
+    echo "${step#*-}  ${mindset:+$mindset  }${line:-starting}"
   elif [ -n "$line" ]; then echo "next tick  ${step#*-}: $line"      # it ran, and runs again
   else echo "next tick"
   fi
@@ -245,7 +255,7 @@ ACTIONS='log     ctrl-l  its output, live; again: all of it, unfolded
 say     ctrl-y  send it back to a step with your notes
 attach  ctrl-o  take over the agent conversation (its own screen)
 stack   ctrl-t  start a task that branches from this one (waits for it to finish)
-diff    -       the change so far
+diff    -       the files it changed, with the diff of each beside them
 run     -       run it now
 hold    ctrl-r  pause it after this step, or unpause it when it is held
 cancel  -       stop its agent now, and hold it
@@ -304,6 +314,22 @@ pane_next() {
            then echo diff; else echo show; fi ;;
     *)     echo show ;;
   esac
+}
+
+# the files task $1 changed, a line each, tab-separated: +12 -3, the path, and "generated" for what
+# tooling writes (GENERATED= in its env)
+changed_files() {
+  local - generated added deleted file mark glob
+  set -f                                      # a GENERATED glob matches the change's paths, not files here
+  generated=$(load_env "$1" > /dev/null 2>&1; echo "${GENERATED:-}")
+  CLICOLOR_FORCE= t-diff "$1" --numstat --no-renames | while IFS=$'\t' read -r added deleted file; do
+    mark=
+    for glob in $generated; do
+      if [[ $file == $glob ]]; then mark=generated; fi
+    done
+    if [ "$added" = - ]; then added=binary; else added="+$added -$deleted"; fi
+    printf '%s%12s%s\t%s\t%s\n' "$C_DIM" "$added" "$C_OFF" "$file" "${mark:+$C_FAINT$mark$C_OFF}"
+  done
 }
 
 # a tab strip for t ui's pane: the choices $2..., the one that is $1 bright (no color: in brackets)

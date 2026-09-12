@@ -214,7 +214,7 @@ if [ "${1:-}" = --key ]; then
               elif [ "$key" = "$(key_of log)" ] && [ "$(pane "$task" "$(cat "$T_UI/pane")")" = log ]; then
                 show raw                                 # its key again: the log as it is
               else show log; fi ;;
-      diff)   if [ "$(pane_next "$task" log)" = diff ]; then show diff
+      diff)   if [ "$(pane_next "$task" log)" = diff ]; then echo "execute(t-diff $id)"   # a file at a time: its own screen
               else echo "change-footer~task $id has no change yet~"; fi ;;
       run)    if flock -n -s "$task/lock" true 2> /dev/null; then setsid t-run "$id" < /dev/null > /dev/null 2>&1 & fi
               echo log > "$T_UI/pane"
