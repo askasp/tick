@@ -359,6 +359,42 @@ morning:
 (crontab -l; echo '0 7 * * * $HOME/git/tick/jobs/front-digest > $HOME/digest.tmp 2> $HOME/digest.log && mv $HOME/digest.tmp $HOME/digest.md') | crontab -
 ```
 
+## Slack: the board on your phone
+
+Two more jobs put the board in a Slack channel and let you answer it from
+there. They are the only part of tick that talks to anything outside your
+machine, and nothing else in tick reads a line they write: `rm jobs/slack*`,
+drop the two crontab lines, and tick is exactly as it was.
+
+A channel is bound to a repo. Write `~/.config/slack/env` (`chmod 600` it):
+
+```sh
+SLACK_TOKEN=xoxb-…               # chat:write, channels:history, reactions:write, pins:write
+SLACK_CHANNELS="C0AMINO=amino"   # CHANNEL=repo, one pair per repo you want on Slack
+SLACK_ME=U0AKSEL                 # who a held task mentions
+```
+
+```sh
+(crontab -l; echo '* * * * * $HOME/git/tick/jobs/slack-out'; echo '* * * * * $HOME/git/tick/jobs/slack-in') | crontab -
+```
+
+From then on the channel holds a pinned board and one message per task, each
+posted once and edited in place — an edit is silent, so four agents work
+without touching your phone. What a task did goes into its own thread, and
+only a hold mentions you.
+
+| you do | it runs |
+| --- | --- |
+| type in the channel | `t new -r REPO` there, first line the title and the rest details |
+| reply in a task's thread | `t say` to that task |
+| reply starting with `t ` | that one command (`t log`, `t diff`, `t stack …`) on that task |
+
+Your own message wears the answer: **👀** means tick has it, **✅** means the
+task it started is done. No 👀 yet means the task was busy — `t say` waits for
+a step to end, so it lands on a later tick, and the missing reaction says so
+without a word. 👀 is also the only thing the job remembers, so nothing it has
+already taken can run twice.
+
 ## How it works
 
 | idea | here | Linux equivalent |

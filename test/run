@@ -60,6 +60,18 @@ front() {   # a Front account for jobs/front-digest, served by the fake curl: me
 }
 page() { jq -nc --argjson r "$1" '{_results: $r, _pagination: {next: null}}'; }
 
+slack() {   # a Slack workspace for jobs/slack-*: the toy repo is #C0TOY, and the past is already seen
+  profile
+  export XDG_CONFIG_HOME=$tmp/config
+  mkdir -p "$tmp/config/slack" "$FAKE/slack" "$T_VAR/slack"
+  printf 'SLACK_TOKEN=xoxb-test\nSLACK_CHANNELS="C0TOY=toy"\nSLACK_ME=U0AKSEL\n' > "$tmp/config/slack/env"
+  echo 0 > "$T_VAR/slack/since.C0TOY"
+}
+said() {   # what conversations.history or replies ($2) answers: said '[{"ts": "1.0", "text": "hi"}]' history
+  jq -nc --argjson m "$1" '{ok: true, messages: $m}' > "$FAKE/slack/conversations.$2"
+}
+calls() { grep -c "^$1\$" "$FAKE/slack.calls" 2> /dev/null || true; }
+
 test_scripts_parse() {
   for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/jobs/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
 }
@@ -1017,6 +1029,85 @@ test_the_front_digest_fails_with_the_fix_when_front_refuses() {
   grep -q 'check FRONT_TOKEN' "$tmp/err"
   [ ! -s "$tmp/out" ]
   [ ! -e "$FAKE/claude.calls" ]
+}
+
+test_slack_posts_a_task_once_and_edits_that_message_after_that() {
+  slack
+  id=$(new -r toy "add the widget")
+  "$tmp/tick/jobs/slack-out"
+  eq "$(calls chat.postMessage)" 2                 # the board, and the task under it
+  eq "$(calls pins.add)" 1
+  "$tmp/tick/jobs/slack-out"
+  eq "$(calls chat.postMessage)" 2                 # nothing changed: nothing said
+  eq "$(calls chat.update)" 0
+  t hold $id "waiting for you"
+  "$tmp/tick/jobs/slack-out"
+  eq "$(calls chat.postMessage)" 2
+  eq "$(calls chat.update)" 2                      # the same two messages, edited where they are
+  grep -A2 '^chat.update' "$FAKE/slack.calls" | grep -q "ts=$(cat "$(dir $id)/slack_ts")"
+  grep -q 'held  waiting for you' "$FAKE/slack.calls"
+  grep -q '1 needs you' "$FAKE/slack.calls"
+}
+
+test_a_message_in_the_slack_channel_starts_a_task_and_gets_an_eye() {
+  slack
+  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "add the widget\nit goes next to the cart"}]' history
+  "$tmp/tick/jobs/slack-in"
+  eq "$(step 0001)" 10-implement
+  eq "$(head -1 "$(dir 0001)/task.md")" "# add the widget"     # what you wrote after line 1 is the details
+  grep -q 'it goes next to the cart' "$(dir 0001)/task.md"
+  eq "$(cat "$(dir 0001)/pipeline")" feature       # the channel's repo decides, as in a terminal
+  grep -A3 '^reactions.add' "$FAKE/slack.calls" | grep -q 'name=eyes'
+  eq "$(cat "$(dir 0001)/slack_src")" 10.0
+  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "add the widget",
+          "reactions": [{"name": "eyes", "users": ["U0BOT"]}]}]' history
+  "$tmp/tick/jobs/slack-in"
+  not test -d "$(dir 0002)"                        # 👀 is the whole memory: it never starts twice
+}
+
+test_a_reply_in_a_task_thread_says_it_to_that_task() {
+  slack
+  id=$(new -r toy "add the widget")
+  "$tmp/tick/jobs/slack-out"
+  said '[{"ts": "1701.000000", "bot_id": "B0", "text": "task 1"},
+         {"ts": "20.0", "user": "U0AKSEL", "text": "use a fixture, not the live API"}]' replies
+  "$tmp/tick/jobs/slack-in"
+  grep -q 'use a fixture, not the live API' "$(dir $id)/feedback.md"
+  eq "$(step $id)" 10-implement
+  grep -q 'timestamp=20.0' "$FAKE/slack.calls"
+}
+
+test_a_reply_that_is_a_command_runs_it_and_posts_what_it_printed() {
+  slack
+  id=$(new -r toy "add the widget")
+  "$tmp/tick/jobs/slack-out"
+  said '[{"ts": "1701.000000", "bot_id": "B0", "text": "task 1"},
+         {"ts": "20.0", "user": "U0AKSEL", "text": "t hold sleep on it"}]' replies
+  "$tmp/tick/jobs/slack-in"
+  eq "$(cat "$(dir $id)/hold")" "sleep on it"
+  [ ! -f "$(dir $id)/feedback.md" ]
+  said '[{"ts": "1701.000000", "bot_id": "B0", "text": "task 1"},
+         {"ts": "21.0", "user": "U0AKSEL", "text": "t frobnicate"}]' replies
+  "$tmp/tick/jobs/slack-in"
+  grep -q "no 'frobnicate' here" "$FAKE/slack.calls"
+}
+
+test_a_held_task_mentions_you_in_its_thread_and_nowhere_else() {
+  slack
+  id=$(new -r toy "add the widget")
+  "$tmp/tick/jobs/slack-out"
+  printf '2026-01-01 09:00:00 %s 10-implement ok → 20-test\n' "$((10#$id))" >> "$(dir $id)/history"
+  "$tmp/tick/jobs/slack-out"
+  grep -q '09:00  10-implement ok → 20-test' "$FAKE/slack.calls"
+  not grep -q 'U0AKSEL' "$FAKE/slack.calls"
+  printf '2026-01-01 09:20:00 %s on hold: test ran 3 times\n' "$((10#$id))" >> "$(dir $id)/history"
+  "$tmp/tick/jobs/slack-out"
+  grep -q '<@U0AKSEL>' "$FAKE/slack.calls"
+  eq "$(grep -c 'thread_ts=' "$FAKE/slack.calls")" 2
+}
+
+test_slack_is_a_job_tick_itself_knows_nothing_about() {
+  not grep -rlq slack "$root/bin" "$root/lib" "$root/steps" "$root/drivers" "$root/pipelines" "$root/etc"
 }
 
 test_drivers_read_real_cli_output() {

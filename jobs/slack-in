@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# jobs/slack-in — what you type in Slack, as tick commands. A message in a bound channel starts a task
+# there; a reply in a task's thread is `t say`; a reply that begins with "t " runs that one command and
+# posts what it printed. 👀 on your message means tick has it, and is the only thing it remembers, so
+# nothing runs twice. No 👀 yet means the task was busy: it lands on a later tick. From cron:
+#   * * * * * $HOME/git/tick/jobs/slack-in
+. "$(dirname "$(readlink -f "$0")")/slack.sh"
+
+me=$(get "$SLACK_STATE/bot")
+if [ -z "$me" ]; then
+  me=$(api auth.test | jq -r .user_id)
+  put "$SLACK_STATE/bot" "$me"
+fi
+
+# the messages a person wrote, oldest first, that we haven't taken yet
+untaken() {
+  jq -c --arg me "$me" '[(.messages // [])[]
+    | select(has("bot_id") | not) | select(has("subtype") | not) | select((.text // "") != "")
+    | select(any(.reactions[]?; .name == "eyes" and any(.users[]; . == $me)) | not)]
+    | sort_by(.ts)[]'
+}
+
+take()  { api reactions.add channel="$1" timestamp="$2" name=eyes > /dev/null || true; }
+reply() { api chat.postMessage channel="$1" thread_ts="$2" text="$3" > /dev/null || true; }
+
+# "t log", "t stack also drop the old column" — one verb tick has, run on this task, its output back
+runs=(log diff show hold resume stack rm name)
+command_on() {
+  local n=$1 ch=$2 ts=$3 verb rest out
+  read -r _ verb rest <<< "$4"
+  if [[ " ${runs[*]} " != *" $verb "* ]]; then
+    reply "$ch" "$ts" "task $n has no '$verb' here; there is ${runs[*]}"
+    return
+  fi
+  out=$(cd / && t "$verb" "$n" ${rest:+"$rest"} < /dev/null 2>&1) || true
+  reply "$ch" "$ts" "\`\`\`${out: -2800}\`\`\`"
+}
+
+for pair in ${SLACK_CHANNELS:-}; do
+  ch=${pair%%=*} repo=${pair#*=}
+  seen=$SLACK_STATE/since.$ch
+  if [ ! -f "$seen" ]; then                     # what was said before you bound the channel isn't a queue
+    put "$seen" "$(printf '%(%s)T' -1).000000"
+    continue
+  fi
+  said=$(api conversations.history channel="$ch" oldest="$(get "$seen")" limit=50) || continue
+  while read -r msg; do
+    ts=$(jq -r .ts <<< "$msg") text=$(jq -r .text <<< "$msg")
+    take "$ch" "$ts"                            # taken before it runs, so a crash never starts it twice
+    title=${text%%$'\n'*} rest=${text#"$title"}
+    if id=$(printf '%s' "${rest#$'\n'}" | t new -r "$repo" "$title" ${rest:+-} 2> "$SLACK_STATE/err"); then
+      put "$(tdir "$((10#$id))")/slack_src" "$ts"
+    else
+      reply "$ch" "$ts" "$(tail -3 "$SLACK_STATE/err")"
+    fi
+  done < <(untaken <<< "$said")
+  newest=$(jq -r '[(.messages // [])[].ts] | max // empty' <<< "$said")
+  if [ -n "$newest" ]; then put "$seen" "$newest"; fi
+done
+
+for task in "$T_TASKS"/*/; do
+  task=${task%/}
+  [ -f "$task/slack_ts" ] || continue
+  ch=$(get "$task/slack_channel") ts=$(get "$task/slack_ts") n=$(task_num "$task")
+  said=$(api conversations.replies channel="$ch" ts="$ts" limit=50) || continue
+  while read -r msg; do
+    mts=$(jq -r .ts <<< "$msg") text=$(jq -r .text <<< "$msg")
+    [ "$mts" != "$ts" ] || continue
+    if [[ $text == t\ * ]]; then
+      command_on "$n" "$ch" "$mts" "$text"
+      take "$ch" "$mts"
+    elif t say "$n" "$text" < /dev/null > /dev/null 2>&1; then
+      take "$ch" "$mts"                         # a running task takes it on a later tick; no 👀 says so
+    fi
+  done < <(untaken <<< "$said")
+done

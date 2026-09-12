@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# jobs/slack-out — one message per task, posted once and edited from then on, under a board message
+# pinned to the channel. What the task did goes to its own thread; only a hold mentions you, because
+# an edit is silent and a mention is not. From cron, right after the tick:
+#   * * * * * $HOME/git/tick/jobs/slack-out
+. "$(dirname "$(readlink -f "$0")")/slack.sh"
+
+# the message a task owns: what it is, where it is, and nothing that moves on its own
+task_text() {
+  printf '*task %s*  %s\n%s\n%s' "$(task_num "$1")" "$(name "$1")" \
+    "$(get "$1/branch")" "$(where "$1")"
+}
+
+# two ragged lines per task, and the count of what needs you: the board can't be columns, because
+# Slack's proportional font would only pretend they lined up
+board_text() {
+  local ch=$1 repo=$2 t rows= open=0 held=0 done_n=0 mark
+  for t in "$T_TASKS"/*/; do
+    t=${t%/}
+    [ -f "$t/step" ] || continue
+    [ "$(channel_of "$t" 2> /dev/null || true)" = "$ch" ] || continue
+    if [ "$(cat "$t/step")" = done ]; then done_n=$((done_n + 1)); continue; fi
+    open=$((open + 1)) mark=
+    if [ -e "$t/hold" ]; then held=$((held + 1)) mark='🔴 '; fi
+    rows+="$mark\`$(task_num "$t")\` *$(name "$t")*"$'\n'"$(where "$t")"$'\n'
+  done
+  printf '*%s*  ·  %s active%s\n\n%s\n%s done' "$repo" "$open" \
+    "$(if [ "$held" -gt 0 ]; then echo ", $held needs you"; fi)" \
+    "${rows:-nothing running}" "$done_n"
+}
+
+# the lines history grew since we last looked, without the date and the task number it repeats
+moves() {
+  awk -v from="$1" 'NR > from {
+    when = substr($2, 1, 5); $1 = ""; $2 = ""; sub(/^ +/, "")
+    if ($1 ~ /^[0-9]+$/) { $1 = ""; sub(/^ +/, "") }
+    print when "  " $0 }' "$2"
+}
+
+for pair in ${SLACK_CHANNELS:-}; do            # the board first, so it sits above the tasks it counts
+  ch=${pair%%=*}
+  text=$(board_text "$ch" "${pair#*=}")
+  [ "$text" != "$(get "$SLACK_STATE/board.$ch.sent")" ] || continue
+  ts=$(get "$SLACK_STATE/board.$ch.ts")
+  if [ -n "$ts" ]; then
+    api chat.update channel="$ch" ts="$ts" text="$text" > /dev/null || true
+  else
+    posted=$(api chat.postMessage channel="$ch" text="$text") || continue
+    ts=$(jq -r .ts <<< "$posted")
+    put "$SLACK_STATE/board.$ch.ts" "$ts"
+    api pins.add channel="$ch" timestamp="$ts" > /dev/null || true
+  fi
+  put "$SLACK_STATE/board.$ch.sent" "$text"
+done
+
+for task in "$T_TASKS"/*/; do
+  task=${task%/}
+  [ -f "$task/step" ] || continue
+  ch=$(channel_of "$task" 2> /dev/null) || continue
+  ts=$(get "$task/slack_ts")
+  text=$(task_text "$task")
+
+  if [ -z "$ts" ]; then
+    # a task that was already done when you bound the channel is history, not news
+    if [ "$(cat "$task/step")" = done ]; then continue; fi
+    posted=$(api chat.postMessage channel="$ch" text="$text") || continue
+    ts=$(jq -r .ts <<< "$posted")
+    put "$task/slack_channel" "$ch"
+    put "$task/slack_ts" "$ts"
+  elif [ "$text" != "$(get "$task/slack_sent")" ]; then
+    api chat.update channel="$ch" ts="$ts" text="$text" > /dev/null || true
+  fi
+  put "$task/slack_sent" "$text"
+
+  if [ -f "$task/history" ]; then
+    seen=$(get "$task/slack_seen") seen=${seen:-0}
+    lines=$(moves "$seen" "$task/history")
+    if [ -n "$lines" ]; then
+      if grep -q 'on hold' <<< "$lines" && [ -n "${SLACK_ME:-}" ]; then lines+=$'\n'"<@$SLACK_ME>"; fi
+      api chat.postMessage channel="$ch" thread_ts="$ts" text="$lines" > /dev/null || true
+      put "$task/slack_seen" "$(wc -l < "$task/history")"
+    fi
+  fi
+
+  # the message you typed to start it wears the answer: 👀 tick has it, ✅ it is done
+  if [ "$(cat "$task/step")" = done ] && [ -f "$task/slack_src" ] && [ ! -f "$task/slack_ok" ]; then
+    api reactions.add channel="$ch" timestamp="$(get "$task/slack_src")" name=white_check_mark > /dev/null || true
+    touch "$task/slack_ok"
+  fi
+done
