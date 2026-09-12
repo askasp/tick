@@ -859,6 +859,7 @@ test_log_shows_every_run_in_order_each_followed_by_how_it_ended() {
 test_log_f_follows_the_task_into_the_steps_still_to_come() {
   id=$(new "add the widget")
   timeout 20 t log $id -f > "$tmp/out" 2>&1 &
+  for i in $(seq 50); do grep -q '(no step has run yet)' "$tmp/out" && break; sleep 0.1; done
   t run $id
   for i in $(seq 50); do grep -q 'review → done' "$tmp/out" && break; sleep 0.1; done
   kill $!
@@ -1083,7 +1084,7 @@ test_the_live_board_draws_its_rows_and_the_keys_at_the_bottom() {
     grep -qE $'^[\e[0-9;m]*48;2;28;28;28' "$tmp/$corner"
   done
   grep -q '^[│ ]*task> ' "$tmp/screen"
-  grep -qE '^[│ ]*> +1 +add the widget +0/3 +next tick' "$tmp/screen"   # fzf's pointer; 160 columns leave no room for the repo
+  grep -qE '^[│ ]*> +1 +(repo +)?add the widget +0/3 +next tick' "$tmp/screen"   # fzf's pointer
   grep -q 'implement · next tick' "$tmp/screen"                      # the pane on it
   grep -qE 'enter:run .*:keys' "$tmp/screen"
 }
