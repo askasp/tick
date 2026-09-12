@@ -13,7 +13,10 @@ done
 
 : > review.tmp
 : > changes.tmp
+at=0
 for look_at in "${mindsets[@]}"; do
+  at=$((at + 1))
+  if [ -n "$look_at" ]; then echo "mindset $at/${#mindsets[@]}: $look_at"; fi   # the board shows it
   pass=$(review_pass "$PWD" "$look_at")
   case $(verdict_of "$pass") in
     *approve) ;;

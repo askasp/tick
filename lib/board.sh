@@ -45,8 +45,16 @@ last_words() {
   tail -n 40 "$1" 2> /dev/null | sed 's/\x1b\[[0-9;]*m//g' | awk '
     /^=== /                      { last = ""; next }
     /^session: |^```/ || NF == 0 { next }
+    /^mindset [0-9]+\/[0-9]+: /  { next }
                                  { sub(/^ *(· |! )/, ""); last = $0 }
     END                          { print last }'
+}
+
+# the mindset a review's latest run is reading with, and how many it has (tests 2/3); nothing outside one
+mindset_of() {
+  tac "$1" 2> /dev/null | awk '
+    /^=== /                     { exit }
+    /^mindset [0-9]+\/[0-9]+: / { sub(/:$/, "", $2); print $3, $2; exit }'
 }
 
 # what a log line says the agent is doing, in a column's worth: a path by its basename, since the
@@ -81,12 +89,14 @@ standing() {
 # A job working on a task writes what it is doing into the task's `note`, and that wins while
 # it is there: a finished task says done until something is reading it.
 status() {
-  local st step line
+  local st step line mindset
   if [ -s "$1/note" ]; then head -1 "$1/note"; return; fi
   st=$(state "$1") step=$(cat "$1/step")
   case $st in ready | running) ;; *) standing "$1"; return ;; esac
   line=$(doing "$(last_words "$1/log/$step.log")")
-  if [ "$st" = running ]; then echo "${step#*-}  ${line:-starting}"
+  if [ "$st" = running ]; then
+    mindset=$(mindset_of "$1/log/$step.log")
+    echo "${step#*-}  ${mindset:+$mindset  }${line:-starting}"
   elif [ -n "$line" ]; then echo "next tick  ${step#*-}: $line"      # it ran, and runs again
   else echo "next tick"
   fi

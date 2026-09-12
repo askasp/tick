@@ -154,6 +154,16 @@ test_a_review_reads_the_diff_once_per_mindset() {
   grep -q '^## tests$' "$(dir $id)/review.md"
 }
 
+test_the_board_says_which_mindset_a_running_review_is_on_of_how_many() {
+  echo 'MINDSETS="intent tests"' >> "$tmp/tick/pipelines/local/env"
+  id=$(new "add the widget")
+  t run $id
+  echo 30-review > "$(dir $id)/step"                              # as if it were reviewing again
+  flock "$(dir $id)/lock" t ls | grep "^ *$((10#$id)) " | grep -q ' review  tests 2/2  '
+  echo "=== $(date '+%F %T') 30-review, run 2" >> "$(dir $id)/log/30-review.log"
+  flock "$(dir $id)/lock" t ls | grep "^ *$((10#$id)) " | grep -q ' review  starting$'   # a new run hasn't one yet
+}
+
 test_an_unknown_mindset_names_the_ones_there_are() {
   echo 'MINDSETS="tests nosuch"' >> "$tmp/tick/pipelines/local/env"
   id=$(new "add the widget")

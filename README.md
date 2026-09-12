@@ -246,6 +246,8 @@ the one `VERDICT: approve | changes` contract. Same reviewer, different mindset.
 diff once per name. The task moves on only when every pass approves; the passes
 that ask for changes are what `feedback.md` holds, so the implementer is not
 handed four approvals to read. Unset, the step reads once, for everything.
+While it reads, the board says which pass it is on and of how many
+(`review  tests 2/3  Read client.ts`).
 
 | mindset | what it asks |
 | --- | --- |
