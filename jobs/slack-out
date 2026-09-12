@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
-# jobs/slack-out — one message per task, posted once and edited from then on, under a board message
-# pinned to the channel. What the task did goes to its own thread; only a hold mentions you, because
-# an edit is silent and a mention is not. From cron, right after the tick:
+# jobs/slack-out — one message per task, posted once and edited from then on, and the board as the
+# channel's canvas. What the task did goes to its own thread; only a hold mentions you, because an
+# edit is silent and a mention is not. From cron, right after the tick:
 #   * * * * * $HOME/git/tick/jobs/slack-out
 . "$(dirname "$(readlink -f "$0")")/slack.sh"
 
-# the message a task owns: what it is, where it is, and nothing that moves on its own
-task_text() {
-  printf '*task %s*  %s\n%s\n%s' "$(task_num "$1")" "$(name "$1")" \
-    "$(get "$1/branch")" "$(where "$1")"
-}
+# the message a task owns: two lines, because it is read on a phone. Its branch and its worktree are
+# a terminal's business (t show), and the thread under it is the rest.
+task_text() { printf '*task %s*  %s\n%s' "$(task_num "$1")" "$(name "$1")" "$(where "$1")"; }
 
-# two ragged lines per task, and the count of what needs you: the board can't be columns, because
-# Slack's proportional font would only pretend they lined up
+# the board: every open task, two ragged lines each. Not columns, because Slack's proportional font
+# would only pretend they lined up, and real markdown, because a canvas is a document, not a message.
 board_text() {
   local ch=$1 repo=$2 t rows= open=0 held=0 done_n=0 mark
   for t in "$T_TASKS"/*/; do
@@ -22,9 +20,9 @@ board_text() {
     if [ "$(cat "$t/step")" = done ]; then done_n=$((done_n + 1)); continue; fi
     open=$((open + 1)) mark=
     if [ -e "$t/hold" ]; then held=$((held + 1)) mark='🔴 '; fi
-    rows+="$mark\`$(task_num "$t")\` *$(name "$t")*"$'\n'"$(where "$t")"$'\n'
+    rows+="$mark**$(task_num "$t")**  $(name "$t")"$'\n'"$(where "$t")"$'\n\n'
   done
-  printf '*%s*  ·  %s active%s\n\n%s\n%s done' "$repo" "$open" \
+  printf '# %s\n\n%s active%s\n\n%s\n%s done' "$repo" "$open" \
     "$(if [ "$held" -gt 0 ]; then echo ", $held needs you"; fi)" \
     "${rows:-nothing running}" "$done_n"
 }
@@ -37,22 +35,25 @@ moves() {
     print when "  " $0 }' "$2"
 }
 
-for pair in ${SLACK_CHANNELS:-}; do            # the board first, so it sits above the tasks it counts
+# the board is the channel's canvas, not a message in it: a message would sink under the very tasks
+# it counts, and the canvas is one tap from anywhere in the channel, wherever you have scrolled to.
+for pair in ${SLACK_CHANNELS:-}; do
   ch=${pair%%=*}
   text=$(board_text "$ch" "${pair#*=}")
   [ "$text" != "$(get "$SLACK_STATE/board.$ch.sent")" ] || continue
-  ts=$(get "$SLACK_STATE/board.$ch.ts")
-  if [ -n "$ts" ]; then
-    api chat.update channel="$ch" ts="$ts" text="$text" > /dev/null || true
-  else
-    posted=$(api chat.postMessage channel="$ch" text="$text") || continue
-    ts=$(jq -r .ts <<< "$posted")
-    put "$SLACK_STATE/board.$ch.ts" "$ts"
-    api pins.add channel="$ch" timestamp="$ts" > /dev/null || true
+  canvas=$(get "$SLACK_STATE/canvas.$ch")
+  if [ -z "$canvas" ]; then
+    made=$(api conversations.canvases.create channel_id="$ch" \
+      document_content="$(jq -nc --arg m "$text" '{type: "markdown", markdown: $m}')") || continue
+    put "$SLACK_STATE/canvas.$ch" "$(jq -r .canvas_id <<< "$made")"
+  else                                         # no section_id: the whole document, which is the board
+    api canvases.edit canvas_id="$canvas" changes="$(jq -nc --arg m "$text" \
+      '[{operation: "replace", document_content: {type: "markdown", markdown: $m}}]')" > /dev/null || continue
   fi
   put "$SLACK_STATE/board.$ch.sent" "$text"
 done
 
+: > "$SLACK_STATE/cards.tmp"
 for task in "$T_TASKS"/*/; do
   task=${task%/}
   [ -f "$task/step" ] || continue
@@ -71,6 +72,7 @@ for task in "$T_TASKS"/*/; do
     api chat.update channel="$ch" ts="$ts" text="$text" > /dev/null || true
   fi
   put "$task/slack_sent" "$text"
+  echo "$ch $ts" >> "$SLACK_STATE/cards.tmp"
 
   if [ -f "$task/history" ]; then
     seen=$(get "$task/slack_seen") seen=${seen:-0}
@@ -88,3 +90,11 @@ for task in "$T_TASKS"/*/; do
     touch "$task/slack_ok"
   fi
 done
+
+# `t rm` takes the task directory, so its card goes too: what is left in the channel is what is left
+# on the board. A card whose task is still there but done stays, because you still want its diff.
+sort -o "$SLACK_STATE/cards.tmp" "$SLACK_STATE/cards.tmp"
+comm -13 "$SLACK_STATE/cards.tmp" <(sort "$SLACK_STATE/cards" 2> /dev/null) | while read -r ch ts; do
+  api chat.delete channel="$ch" ts="$ts" > /dev/null || true
+done
+mv "$SLACK_STATE/cards.tmp" "$SLACK_STATE/cards"

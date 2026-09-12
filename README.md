@@ -369,7 +369,7 @@ drop the two crontab lines, and tick is exactly as it was.
 A channel is bound to a repo. Write `~/.config/slack/env` (`chmod 600` it):
 
 ```sh
-SLACK_TOKEN=xoxb-…               # chat:write, channels:history, reactions:write, pins:write
+SLACK_TOKEN=xoxb-…               # chat:write, channels:history, reactions:write, canvases:write
 SLACK_CHANNELS="C0AMINO=amino"   # CHANNEL=repo, one pair per repo you want on Slack
 SLACK_ME=U0AKSEL                 # who a held task mentions
 ```
@@ -378,10 +378,14 @@ SLACK_ME=U0AKSEL                 # who a held task mentions
 (crontab -l; echo '* * * * * $HOME/git/tick/jobs/slack-out'; echo '* * * * * $HOME/git/tick/jobs/slack-in') | crontab -
 ```
 
-From then on the channel holds a pinned board and one message per task, each
-posted once and edited in place — an edit is silent, so four agents work
-without touching your phone. What a task did goes into its own thread, and
-only a hold mentions you.
+From then on the channel holds one message per task, posted once and edited in
+place — an edit is silent, so four agents work without touching your phone.
+What a task did goes into its own thread, and only a hold mentions you. `t rm`
+takes the message with the task, so the channel holds what the board holds.
+
+The board itself is the channel's **canvas**, not a message in it: a message
+would sink under the very tasks it counts, and the canvas tab is one tap from
+anywhere in the channel.
 
 | you do | it runs |
 | --- | --- |

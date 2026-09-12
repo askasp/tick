@@ -1050,18 +1050,35 @@ test_slack_posts_a_task_once_and_edits_that_message_after_that() {
   slack
   id=$(new -r toy "add the widget")
   "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 2                 # the board, and the task under it
-  eq "$(calls pins.add)" 1
+  eq "$(calls chat.postMessage)" 1                 # the task; the board is the canvas, not a message
+  eq "$(calls conversations.canvases.create)" 1
   "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 2                 # nothing changed: nothing said
+  eq "$(calls chat.postMessage)" 1                 # nothing changed: nothing said
   eq "$(calls chat.update)" 0
+  eq "$(calls canvases.edit)" 0
   t hold $id "waiting for you"
   "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 2
-  eq "$(calls chat.update)" 2                      # the same two messages, edited where they are
+  eq "$(calls chat.postMessage)" 1
+  eq "$(calls chat.update)" 1                      # the same message, edited where it is
+  eq "$(calls conversations.canvases.create)" 1    # the same canvas, edited where it is
+  eq "$(calls canvases.edit)" 1
+  grep -A1 '^canvases.edit' "$FAKE/slack.calls" | grep -q 'canvas_id=F0CANVAS'
   grep -A2 '^chat.update' "$FAKE/slack.calls" | grep -q "ts=$(cat "$(dir $id)/slack_ts")"
   grep -q 'held  waiting for you' "$FAKE/slack.calls"
   grep -q '1 needs you' "$FAKE/slack.calls"
+  not grep -q "$(cat "$(dir $id)/branch")" "$FAKE/slack.calls"   # a branch is a terminal's business
+}
+
+test_slack_takes_the_card_of_a_task_you_removed() {
+  slack
+  id=$(new -r toy "add the widget")
+  "$tmp/tick/jobs/slack-out"
+  ts=$(cat "$(dir $id)/slack_ts")
+  t rm $id
+  "$tmp/tick/jobs/slack-out"
+  grep -A2 '^chat.delete' "$FAKE/slack.calls" | grep -q "ts=$ts"
+  "$tmp/tick/jobs/slack-out"
+  eq "$(calls chat.delete)" 1                      # deleted once, and never asked about again
 }
 
 test_a_message_in_the_slack_channel_starts_a_task_and_gets_an_eye() {

@@ -19,7 +19,7 @@ if [[ $url == https://slack.com/api/* ]]; then
   if [ -e "$FAKE/slack/$method" ]; then cat "$FAKE/slack/$method"; exit 0; fi
   n=$(( $(cat "$FAKE/slack.n" 2> /dev/null || echo 0) + 1 ))
   echo "$n" > "$FAKE/slack.n"
-  printf '{"ok": true, "user_id": "U0BOT", "ts": "%d.000000"}\n' "$((1700 + n))"
+  printf '{"ok": true, "user_id": "U0BOT", "canvas_id": "F0CANVAS", "ts": "%d.000000"}\n' "$((1700 + n))"
   exit 0
 fi
 path=${url#https://api2.frontapp.com/}
