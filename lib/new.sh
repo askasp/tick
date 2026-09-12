@@ -84,10 +84,10 @@ preview() {
   else row starts "${C_RED}only when you run it: there is no cron tick (see t doctor)$C_OFF"
   fi
   if [ -n "$on" ]; then
-    row shares "task $(task_num "$parent")'s worktree and lock"
-    for sibling in "$T_TASKS"/*/after; do     # a sibling starts on the same tick, in the same worktree
+    row branches "from task $(task_num "$parent")'s branch, into a worktree of its own"
+    for sibling in "$T_TASKS"/*/after; do     # a sibling branches from the same task on the same tick
       if [ "$(cat "$sibling" 2> /dev/null)" = "${parent##*/}" ] && [[ $(state "${sibling%/after}") == after* ]]; then
-        printf '\n%stask %s is already stacked here and starts on the same tick%s\n' "$C_BRIGHT" "$(task_num "${sibling%/after}")" "$C_OFF"
+        printf '\n%stask %s is already stacked here and branches from the same place%s\n' "$C_BRIGHT" "$(task_num "${sibling%/after}")" "$C_OFF"
       fi
     done
   fi

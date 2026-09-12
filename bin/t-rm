@@ -11,15 +11,14 @@ for other in "$T_TASKS"/*/; do
     die "task $(task_num "${other%/}") is stacked on $n; remove that one first"
   fi
 done
-# a task waiting on another shares that one's lock, so a held lock isn't its own run
-if [[ $(state "$task") != after* ]] && ! flock -n "$task/lock" true; then
+if ! flock -n "$task/lock" true; then
   [ -n "$force" ] || die "task $n is running; stop it and delete it with: t rm -f $n"
   stop "$task"
 fi
 
 branch=$(cat "$task/branch" 2> /dev/null || true)
 work=$(readlink -f "$task/work" 2> /dev/null || true)
-if [ -d "$work" ] && [[ $work == "$(readlink -f "$task")"/* ]]; then   # its own, not a stacked parent's
+if [ -d "$work" ]; then
   teardown=$(load_env "$task" > /dev/null 2>&1; echo "${TEARDOWN:-}")
   if [ -n "$teardown" ]; then (cd "$work" && bash -c "$teardown") || echo "t: teardown failed: $teardown" >&2; fi
   git -C "$(cat "$task/repo")" worktree remove --force "$work"

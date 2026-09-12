@@ -7,8 +7,7 @@ if [ "${1:-}" = -f ]; then force=1; shift; fi
 task=$(task_dir "${1:-}") || exit 1
 n=$(task_num "$task") st=$(state "$task") step=$(cat "$task/step")
 echo "${2:-held by hand}" > "$task/hold"
-# a task waiting on another shares that one's lock, so a held lock isn't its own run
-if [[ $st == after* ]] || flock -n "$task/lock" true; then exit 0; fi
+if flock -n "$task/lock" true; then exit 0; fi
 if [ -z "$force" ]; then
   echo "t: the step that is running now finishes first; to stop it now: t hold -f $n" >&2
   exit 0

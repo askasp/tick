@@ -209,7 +209,7 @@ words() {
 ACTIONS='log     ctrl-l  its output, live; again: all of it, unfolded
 say     ctrl-y  send it back to a step with your notes
 attach  ctrl-o  take over the agent conversation (its own screen)
-stack   ctrl-t  start a task on this one (shared worktree, waits for it to finish)
+stack   ctrl-t  start a task that branches from this one (waits for it to finish)
 diff    -       the change so far
 run     -       run it now
 hold    ctrl-r  pause it after this step, or unpause it when it is held

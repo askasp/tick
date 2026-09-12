@@ -194,7 +194,7 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 | pipeline | steps |
 | --- | --- |
 | `local` (the default) | implement (opencode) → test → review (opencode) |
-| `feature` | +plan (claude) → implement (opencode) → test → review (opencode) → pr → +ci |
+| `feature` | +plan (claude) → implement (opencode) → test → review (opencode) → sync → pr → +ci |
 | `main` | local's steps, then merge (opencode): tick only, from any directory; lands on its `main` |
 | `ask` | answer (opencode): reads the repo you're in and changes nothing |
 | `research` | answer (claude): searches the web; needs no repo |
@@ -206,8 +206,8 @@ A step written `+plan` is optional: the pipeline lists it in `OPTIONAL=` in its
 `env` and leaves it out unless the task asks for it with `t feature +plan "…"`
 (the same `+plan` works on the board, typed after the title, and `+plan +ci`
 asks for both). The task keeps what it asked for in its `opt` file, and every
-screen counts only its own steps, so a plain feature is 0/4 and one with both
-is 0/6.
+screen counts only its own steps, so a plain feature is 0/5 and one with both
+is 0/7.
 
 `feature` has two: **plan** and **ci**. With **plan**, `agents/planner.md` reads
 the task and the repo and decides how many pull requests it needs. One is the
@@ -217,6 +217,13 @@ part 1, and each later part is a task stacked on the one before it (`t new
 --on`), so its PR's base is the branch below. The parts run one after another,
 each once the one below is done, and none of them is planned again.
 `plan.md` keeps what the planner said.
+
+**sync**, before `pr`, merges what the branch started from back into it: for a
+stacked task that is the task below, which keeps working after its child
+branched off, and otherwise the trunk. The merger agent resolves conflicts, and
+anything that came in sends the task back to test, so what the PR holds is what
+was tested and reviewed. Nothing new in the base and the step says so and moves
+on.
 
 With **ci**, the task doesn't end at the open pull request: it waits for the
 PR's checks (`exit 75` while they are pending), and a failing one becomes
@@ -418,8 +425,9 @@ already taken can run twice.
   agent's prompt. Agents remember nothing; the task directory does.
 - **Parallel tasks and stacks.** Each `t new` gets its own worktree off the
   trunk, in a directory named `<repo>-<id>` (repos derive ports and container
-  names from it; `work` links to it), and those run in parallel. `t new --on 7 "…"` shares task 7's
-  worktree and lock, branches from 7's branch, and waits until 7 is done.
+  names from it; `work` links to it), and those run in parallel. `t new --on 7 "…"`
+  branches from task 7's branch into a worktree of its own and waits until 7 is
+  done; the two never share a lock, so you can still say to 7 while its child runs.
 - **Agents.** `agents/*.md` are prompts with a `mode` (read, web or edit).
   Which CLI and model solve a step is the pipeline's choice (`CLI_<step>=`). `drivers/claude` and `drivers/opencode` are the only files that
   know CLI flags. `SLOTS_claude` and `SLOTS_opencode` in `etc/tick.conf` cap
@@ -462,8 +470,8 @@ t tick                     what cron runs
 - The `pr` and `ci` steps are tested only against a fake `gh`.
 - `jobs/front-digest` is tested only against a fake `curl`, whose answers
   follow Front's API docs rather than recorded responses.
-- A stack doesn't rebase. If a parent changes after its child started,
-  rebase the child yourself.
+- A stack merges, and doesn't rebase: the `sync` step brings the task below
+  into the branch as a merge commit, so a stacked PR shows that merge.
 - claude's `acceptEdits` lets the implementer edit files, but not run every
   command. Set `CLAUDE_EDIT_MODE=bypassPermissions` in `etc/tick.conf` if your
   worktrees are safe to let it loose in.

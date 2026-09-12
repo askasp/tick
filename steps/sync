@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# sync — merge what the branch started from into it: the task below in a stack, or the trunk. A task
+# below keeps working after this one branched off it, and its fixes belong here too. The merger agent
+# resolves conflicts, and anything that came in sends the task back to test, so what ships is what was
+# tested and reviewed.
+set -euo pipefail
+t=$PWD base=$(cat base)
+cd -P work
+git merge --abort 2> /dev/null || true            # left over from a run that died
+
+case $base in
+  origin/*) git fetch -q origin || echo "fetch failed; merging the local copy of $base" >&2 ;;
+esac
+if git merge-base --is-ancestor "$base" HEAD; then echo "nothing new in $base"; exit 0; fi
+
+if ! git merge -q --no-edit "$base"; then
+  mapfile -t files < <(git diff --name-only --diff-filter=U)
+  [ "${#files[@]}" -gt 0 ] || { echo "git merge $base failed without a conflict" >&2; exit 1; }
+  {
+    cat "$t/task.md"
+    printf '\n## Conflicts merging %s into this branch\n\n' "$base"
+    printf -- '- %s\n' "${files[@]}"
+  } | agent merger > /dev/null
+  left=$(grep -lsE '^(<<<<<<<|>>>>>>>)( |$)' -- "${files[@]}" || true)
+  if [ -n "$left" ]; then
+    git merge --abort
+    echo "the merger left conflict markers in: $left" >&2
+    exit 1
+  fi
+  git add -A
+  git commit -q --no-edit
+fi
+echo "merged $base into $(git branch --show-current); it goes through test and review again"
+echo test > "$t/goto"

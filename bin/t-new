@@ -103,14 +103,10 @@ if [ -n "$opt" ]; then printf '%s\n' $opt > opt; fi     # the optional steps it 
 steps "$pipeline" "$opt" | head -1 > step
 mkdir log
 
+: > lock
 if [ -n "$on" ]; then
-  parent_id=${parent##*/}
-  echo "$parent_id" > after
-  ln -s "../$parent_id/work" work          # the parent's checkout...
-  ln -s "../$parent_id/lock" lock          # ...and its lock, so two tasks never run in it at once
+  echo "${parent##*/}" > after             # it branches from the task below, in a worktree of its own
   if [ -f "$parent/env" ]; then cp "$parent/env" env; fi
-else
-  : > lock
 fi
 if [ -n "$cli" ]; then echo "AGENT_CLI=$cli" >> env; fi
 if [ -n "$test" ]; then printf 'TEST_CMD=%q\n' "$test" >> env; fi

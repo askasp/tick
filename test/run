@@ -213,7 +213,7 @@ test_a_stacked_task_waits_then_builds_on_its_parent() {
   eq "$(step $a)" done
   t run $b
   eq "$(step $b)" done
-  eq "$(t path $b)" "$(t path $a)"                        # one worktree
+  [ "$(t path $b)" != "$(t path $a)" ]                    # a worktree of its own, off the parent's branch
   w=$(t path $b)
   eq "$(git -C "$w" branch --show-current)" "t/$b-child-work"
   git -C "$w" merge-base --is-ancestor "t/$a-parent-work" HEAD
@@ -223,19 +223,19 @@ test_a_stacked_task_waits_then_builds_on_its_parent() {
   grep -q "git diff t/$a-parent-work...HEAD" "$FAKE/read.prompts"   # its review saw only its own diff
 }
 
-test_a_stacked_task_steps_over_what_the_tooling_left_behind() {
-  a=$(new "parent work")
-  b=$(new "child work" --on $a)
+test_a_stacked_task_takes_what_the_task_below_did_after_it_branched() {
+  a=$(new "parent work" -p feature)
+  b=$(new "child work" --on $a -p feature)
   t run $a
-  touch "$(t path $a)/.env.bak.20260912"                  # what a test run leaves in the worktree
   t run $b
-  eq "$(step $b)" done                                    # untracked files are not the parent's work
-  echo dirt >> "$(t path $a)/impl.txt"                    # a tracked change is
-  c=$(new "more child work" --on $b)
-  t run $c
-  eq "$(step $c)" 10-implement
-  grep -q 'commit or drop them, then: t resume' "$(dir $c)/log/10-implement.log"
-  grep -q ' M impl.txt' "$(dir $c)/log/10-implement.log"
+  eq "$(step $b)" done
+  echo "later fix" >> "$(t path $a)/impl.txt"             # the task below keeps working after that
+  git -C "$(t path $a)" commit -qam "later fix"
+  t say $b "and this too" implement
+  t run $b
+  eq "$(step $b)" done
+  grep -q 'later fix' "$(t path $b)/impl.txt"             # sync merged it in before the PR
+  grep -q '35-sync ok → 20-test' "$(dir $b)/history"      # and sent it through test and review again
 }
 
 test_a_stacked_task_sits_under_its_parent_until_that_is_done() {
@@ -259,16 +259,15 @@ test_t_stack_starts_a_task_on_another() {
   eq "$(step $b)" done
 }
 
-test_a_stack_never_runs_two_steps_in_one_worktree() {
+test_a_stack_runs_on_a_lock_and_a_worktree_of_its_own() {
   a=$(new "parent work")
   b=$(new "child work" --on $a)
   t run $a
-  exec 9> "$(dir $a)/lock"; flock 9
-  t run $b
-  eq "$(step $b)" 10-implement                            # its parent's lock is its lock
-  exec 9>&-
+  exec 9> "$(dir $a)/lock"; flock 9                       # the task below is busy: say it, run it again
   t run $b
   eq "$(step $b)" done
+  [ "$(readlink -f "$(dir $b)/lock")" != "$(readlink -f "$(dir $a)/lock")" ]
+  exec 9>&-
 }
 
 test_full_agent_slots_mean_try_again_later() {
@@ -364,17 +363,17 @@ test_a_pipelines_optional_step_is_left_out_unless_the_task_asks() {
   id=$(new "add the widget" -p feature)                   # feature plans and waits for CI only when asked
   eq "$(step $id)" 10-implement
   [ ! -e "$(dir $id)/opt" ]
-  t ls | grep -qE '^ +1 .* 0/4 +next tick$'               # four steps, not six
+  t ls | grep -qE '^ +1 .* 0/5 +next tick$'               # five steps, not seven
   not grep -qx plan <(t complete steps widget)
   with=$(new "add the gadget" -p feature +plan +ci)
   eq "$(step $with)" 05-plan
   eq "$(cat "$(dir $with)/opt")" "$(printf 'plan\nci')"
-  t ls | grep -qE '^ +2 .* 0/6 +next tick$'
+  t ls | grep -qE '^ +2 .* 0/7 +next tick$'
   t complete steps gadget | grep -qx plan
   t new --dry -p feature +plan "add the gizmo" > "$tmp/out"
-  grep -q '^steps *plan → implement → test → review → pr$' "$tmp/out"
+  grep -q '^steps *plan → implement → test → review → sync → pr$' "$tmp/out"
   grep -q '^t feature +plan \\$' "$tmp/out"             # the command, to type next time
-  t new --dry -p feature +ci "add the gizmo" | grep -q '^steps *implement → test → review → pr → ci$'
+  t new --dry -p feature +ci "add the gizmo" | grep -q '^steps *implement → test → review → sync → pr → ci$'
   not new "fix the thing" -p feature +nosuch
   not new "fix the thing" -p local +plan                  # local has no optional steps at all
 }
@@ -686,7 +685,7 @@ test_new_dry_shows_the_task_it_would_make() {
   new "child work" --on 0001 > /dev/null
   t new --dry --on 1 "more child work" > "$tmp/out"            # compose's preview for a stack
   grep -q '^starts *when task 1 is done' "$tmp/out"
-  grep -q "^shares *task 1's worktree and lock" "$tmp/out"
+  grep -q "^branches *from task 1's branch, into a worktree of its own" "$tmp/out"
   grep -q 'task 2 is already stacked here' "$tmp/out"
 }
 
