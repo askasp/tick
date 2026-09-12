@@ -40,17 +40,23 @@ opening() {
 take()  { api reactions.add channel="$1" timestamp="$2" name=eyes > /dev/null || true; }
 reply() { api chat.postMessage channel="$1" thread_ts="$2" text="$3" > /dev/null || true; }
 
-# "t log", "t stack also drop the old column" — one verb tick has, run on this task, its output back
+# one verb tick has, run, and what it printed posted back: "t show 9" in the channel, and in a task's
+# thread "t log" or "t stack also drop the old column", where the task is the one you are under
 runs=(log diff show hold resume stack rm name)
 command_on() {
-  local n=$1 ch=$2 ts=$3 verb rest out
+  local ch=$1 ts=$2 n=$3 verb rest out
   read -r _ verb rest <<< "$4"
   if [[ " ${runs[*]} " != *" $verb "* ]]; then
-    reply "$ch" "$ts" "task $n has no '$verb' here; there is ${runs[*]}"
+    reply "$ch" "$ts" "no '$verb' here; there is ${runs[*]}"
     return
   fi
-  out=$(cd / && t "$verb" "$n" ${rest:+"$rest"} < /dev/null 2>&1) || true
-  reply "$ch" "$ts" "\`\`\`${out: -2800}\`\`\`"
+  if [ -z "$n" ] && [[ $rest == [0-9]* ]]; then      # in the channel the task is the next word
+    n=${rest%% *}
+    rest=${rest#"$n"}
+    rest=${rest# }
+  fi
+  out=$(cd / && t "$verb" ${n:+"$n"} ${rest:+"$rest"} < /dev/null 2>&1 | tail -c 2800) || true
+  reply "$ch" "$ts" "\`\`\`${out:-ok}\`\`\`"
 }
 
 for pair in ${SLACK_CHANNELS:-}; do
@@ -68,10 +74,16 @@ for pair in ${SLACK_CHANNELS:-}; do
       : > "$SLACK_STATE/board.$ch.move"
       continue
     fi
+    if [[ $text == t\ * ]]; then                 # nor a task: one command, on the task it names
+      command_on "$ch" "$ts" "" "$text"
+      continue
+    fi
     title=${text%%$'\n'*} rest=${text#"$title"}
     opening
     if id=$(printf '%s' "${rest#$'\n'}" | t new "${flags[@]}" "$title" ${rest:+-} 2> "$SLACK_STATE/err"); then
-      put "$(tdir "$((10#$id))")/slack_src" "$ts"
+      made=$(tdir "$((10#$id))")
+      put "$made/slack_src" "$ts"
+      put "$made/slack_channel" "$ch"            # a question has no repo, so this is its only channel
     else
       reply "$ch" "$ts" "$(tail -3 "$SLACK_STATE/err")"
     fi
@@ -89,7 +101,7 @@ for task in "$T_TASKS"/*/; do
     mts=$(jq -r .ts <<< "$msg") text=$(jq -r .text <<< "$msg")
     [ "$mts" != "$ts" ] || continue
     if [[ $text == t\ * ]]; then
-      command_on "$n" "$ch" "$mts" "$text"
+      command_on "$ch" "$mts" "$n" "$text"
       take "$ch" "$mts"
     elif t say "$n" "$text" < /dev/null > /dev/null 2>&1; then
       take "$ch" "$mts"                         # a running task takes it on a later tick; no 👀 says so

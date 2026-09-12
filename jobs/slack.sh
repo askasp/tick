@@ -35,9 +35,11 @@ api() {
   printf '%s' "$out"
 }
 
-# the channel bound to a task's repo; a task whose repo has none stays out of Slack
+# a task's channel: the one it was started in, else the one bound to its repo. A question has no repo
+# (research says REPO=none), so without the first it would be answered nowhere.
 channel_of() {
   local repo pair
+  if [ -s "$1/slack_channel" ]; then cat "$1/slack_channel"; return; fi
   repo=$(profile_of "$(cat "$1/repo" 2> /dev/null)")
   [ -n "$repo" ] || return 1
   for pair in ${SLACK_CHANNELS:-}; do

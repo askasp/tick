@@ -100,8 +100,9 @@ for task in "$T_TASKS"/*/; do
   text=$(task_text "$task")
 
   if [ -z "$ts" ]; then
-    # a task that was already done when you bound the channel is history, not news
-    if [ "$(cat "$task/step")" = done ]; then continue; fi
+    # a task that was already done when you bound the channel is history, not news; one you started
+    # here is news however fast it got there
+    if [ "$(cat "$task/step")" = done ] && [ ! -f "$task/slack_src" ]; then continue; fi
     posted=$(api chat.postMessage channel="$ch" text="$text") || continue
     ts=$(jq -r .ts <<< "$posted")
     put "$task/slack_channel" "$ch"

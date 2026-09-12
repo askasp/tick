@@ -403,7 +403,9 @@ there. They are the only part of tick that talks to anything outside your
 machine, and nothing else in tick reads a line they write: `rm jobs/slack*`,
 drop the two crontab lines, and tick is exactly as it was.
 
-A channel is bound to a repo. Write `~/.config/slack/env` (`chmod 600` it):
+A channel is bound to a repo — and a task you start in a channel stays in it
+whether or not it has one, so a question (`research …`, which sets `REPO=none`)
+is answered where you asked it. Write `~/.config/slack/env` (`chmod 600` it):
 
 ```sh
 SLACK_TOKEN=xoxb-…               # chat:write, reactions:write, and channels:history
@@ -447,8 +449,9 @@ proportional font would only pretend ragged lines lined up:
 | type in the channel | `t new -r REPO` there, first line the title and the rest details |
 | open with a pipeline's name | that pipeline (`ask where is the total rounded?`), and `+plan` after it |
 | say `status` | moves the board down to the bottom of the channel |
+| start with `t ` | that one command on the task it names (`t show 9`, `t rm 12`) |
 | reply in a task's thread | `t say` to that task |
-| reply starting with `t ` | that one command (`t log`, `t diff`, `t stack …`) on that task |
+| reply starting with `t ` | the same command, on the task you are under (`t log`, `t stack …`) |
 
 Your own message wears the answer: **👀** means tick has it, **✅** means the
 task it started is done. No 👀 yet means the task was busy — `t say` waits for
