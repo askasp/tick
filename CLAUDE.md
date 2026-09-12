@@ -52,6 +52,7 @@ how to change it.
 | a step | an executable in `steps/` that follows the contract below | no |
 | a step you don't always want | `OPTIONAL=plan` in the pipeline's env: it is left out unless `t new` asks for it with `+plan`, which the task keeps in its `opt` file | no |
 | an agent | `agents/NAME.md`: a prompt, with `mode: read`, `web` or `edit` in its frontmatter | no |
+| a review mindset | `mindsets/NAME.md`: what one review pass looks for. Name it in a pipeline's `MINDSETS=` | no |
 | who solves a step | `CLI_<step>=claude` or `opencode`, and optionally `MODEL_<step>=` and `EFFORT_<step>=` (claude's thinking; `T_EFFORT` elsewhere), in the pipeline's env; `t new --cli` overrides it for one task | no |
 | a kind of question | a pipeline whose one step is `steps/answer`; its env sets `MODE_answer=` (read or web), `CLI_answer=`, and `ANSWERER=NAME` only for a prompt of its own | no |
 | an AI CLI | `drivers/NAME`, same contract as `drivers/claude` | no |

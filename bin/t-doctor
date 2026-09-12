@@ -61,6 +61,9 @@ for d in "$T_ROOT"/pipelines/*/; do
   for s in $(steps "$name"); do
     if [ ! -x "$d$s" ]; then fix "$name/$s isn't an executable step" "ls -l $d$s"; fi
   done
+  for m in $(env_get "$d/env" MINDSETS); do
+    if [ ! -f "$T_ROOT/mindsets/$m.md" ]; then fix "pipeline $name asks for the mindset '$m'" "write $T_ROOT/mindsets/$m.md, or drop it from MINDSETS= in $d/env"; fi
+  done
   if no_repo "$name"; then echo "               needs no repo"; fi
   if [ -e "$T_ROOT/bin/t-$name" ]; then
     fix "pipeline $name has the name of a command, so t $name runs the command" "mv ${d%/} $T_ROOT/pipelines/OTHER-NAME"

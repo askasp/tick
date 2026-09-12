@@ -40,23 +40,31 @@ prompt() {
   patches
 }
 
-# REVIEWS= in the pipeline's env is a |-separated list of what to look at, one pass each: a fast
-# local model reads the same diff several times, each time for one thing. Unset, it reads once for
-# everything. The task moves on only when every pass approves; the ones that don't become feedback.
-IFS='|' read -ra passes <<< "${REVIEWS:-}"
-[ "${#passes[@]}" -gt 0 ] || passes=("")
+# MINDSETS= in the pipeline's env names files in mindsets/, one pass each: the same reviewer reads
+# the same diff several times, each time for one thing only. Unset, it reads once for everything.
+# The task moves on when every pass approves; the ones that don't become feedback.
+mindsets=(${MINDSETS:-})
+[ "${#mindsets[@]}" -gt 0 ] || mindsets=("")
+for look_at in "${mindsets[@]}"; do                      # every name before the first agent runs
+  if [ -n "$look_at" ] && [ ! -f "$T_ROOT/mindsets/$look_at.md" ]; then
+    echo "no mindset '$look_at'; there are: $(ls "$T_ROOT/mindsets" | sed 's/\.md$//' | xargs)" >&2
+    exit 1
+  fi
+done
 
 : > review.tmp
 : > changes.tmp
-for look_at in "${passes[@]}"; do
-  { prompt; if [ -n "$look_at" ]; then printf '\n## This review\n\nLook only at: %s\n' "$look_at"; fi; } |
+for look_at in "${mindsets[@]}"; do
+  { prompt
+    if [ -n "$look_at" ]; then printf '\n## This review\n\n'; cat "$T_ROOT/mindsets/$look_at.md"; fi
+  } |
     (cd -P work && agent reviewer) > pass.tmp
   case $(grep -oE '^VERDICT: *(approve|changes)' pass.tmp | tail -1) in
     *approve) ;;
     *changes) { printf '## %s\n\n' "${look_at:-review}"; cat pass.tmp; echo; } >> changes.tmp ;;
-    *)        echo "the review has no VERDICT line" >&2; exit 1 ;;
+    *)        echo "the ${look_at:-} review has no VERDICT line" >&2; exit 1 ;;
   esac
-  { if [ -n "$look_at" ]; then printf '## %s\n\n' "$look_at"; fi; cat pass.tmp; echo; } >> review.tmp
+  { printf '## %s\n\n' "${look_at:-review}"; cat pass.tmp; echo; } >> review.tmp
 done
 rm -f pass.tmp
 mv review.tmp review.md

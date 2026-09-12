@@ -140,18 +140,30 @@ test_generated_files_reach_no_agent() {
   not grep -q '^+change$' "$FAKE/read.prompts"            # and the review diff leaves them out
 }
 
-test_a_pipeline_can_read_the_same_diff_once_per_thing() {
-  echo 'REVIEWS="what the task asked|tests"' >> "$tmp/tick/pipelines/local/env"
+test_a_review_reads_the_diff_once_per_mindset() {
+  echo 'MINDSETS="intent tests"' >> "$tmp/tick/pipelines/local/env"
   printf 'approve\nchanges\napprove\napprove\n' > "$FAKE/verdicts"
   id=$(new "add the widget")
   t run $id
   eq "$(step $id)" done
-  eq "$(grep -c 'Look only at: tests' "$FAKE/read.prompts")" 2   # both rounds asked about both
-  eq "$(cat "$(dir $id)/runs/10-implement")" 2                   # the pass that said changes sent it back
+  eq "$(grep -c 'Look only at whether this change is tested' "$FAKE/read.prompts")" 2   # both rounds, both mindsets
+  eq "$(cat "$(dir $id)/runs/10-implement")" 2                   # the mindset that said changes sent it back
   grep -q '^## tests$' "$(dir $id)"/log/feedback.*.md            # with only that pass in the feedback
-  not grep -q 'what the task asked' "$(dir $id)"/log/feedback.*.md
-  grep -q '^## what the task asked$' "$(dir $id)/review.md"      # the PR body keeps every pass
+  not grep -q '^## intent$' "$(dir $id)"/log/feedback.*.md
+  grep -q '^## intent$' "$(dir $id)/review.md"                   # the PR body keeps every pass
   grep -q '^## tests$' "$(dir $id)/review.md"
+}
+
+test_an_unknown_mindset_names_the_ones_there_are() {
+  echo 'MINDSETS="tests nosuch"' >> "$tmp/tick/pipelines/local/env"
+  id=$(new "add the widget")
+  t run $id
+  eq "$(step $id)" 30-review                                     # it never asked a model anything
+  eq "$(grep -c . "$FAKE/read.prompts" 2> /dev/null || echo 0)" 0
+  grep -q "no mindset 'nosuch'" "$(dir $id)/log/30-review.log"
+  grep -q 'craft' "$(dir $id)/log/30-review.log"
+  t doctor > "$tmp/out" 2>&1 || true                             # and doctor says so before you run it
+  grep -q "asks for the mindset 'nosuch'" "$tmp/out"
 }
 
 test_failing_tests_go_back_to_the_implementer() {
@@ -411,17 +423,17 @@ test_each_step_runs_on_the_cli_its_pipeline_names() {
   id=$(new "add the widget" -p feature +plan)             # feature: plan on claude, the rest on opencode
   t run $id
   eq "$(step $id)" done
-  eq "$(grep -c . "$FAKE/opencode.calls")" 5              # implement, and a review pass per REVIEWS line
+  eq "$(grep -c . "$FAKE/opencode.calls")" 6              # implement, and a review pass per mindset
   grep -q -- '-m vllm/test-model' "$FAKE/opencode.calls"  # the step's model went with it
   eq "$(grep -c . "$FAKE/claude.calls")" 1                # the planner
   grep -q -- '--model opus --effort max' "$FAKE/claude.calls"
   t show $id | grep -q '^pipeline  feature · claude, opencode$'
   id=$(new "add the gadget" -p feature +plan --cli claude)   # --cli beats the pipeline
   t run $id
-  eq "$(grep -c . "$FAKE/claude.calls")" 7
+  eq "$(grep -c . "$FAKE/claude.calls")" 8
   not grep -q -- 'test-model' "$FAKE/claude.calls"        # opencode's model isn't claude's
   eq "$(grep -c -- '--effort max' "$FAKE/claude.calls")" 2     # both planners, as feature asks
-  eq "$(grep -c -- '--effort high' "$FAKE/claude.calls")" 5    # implement and the reviews: T_EFFORT
+  eq "$(grep -c -- '--effort high' "$FAKE/claude.calls")" 6    # implement and the five reviews: T_EFFORT
 }
 
 test_a_worktree_has_a_name_of_its_own_and_teardown_follows_tests() {

@@ -232,16 +232,32 @@ PR's checks (`exit 75` while they are pending), and a failing one becomes
 `feedback.md` and sends the task back to implement, which pushes again. Without
 it the pull request is yours to watch.
 
-### Reviewing more than once
+### Mindsets: reviewing once per thing
 
-`REVIEWS=` in a pipeline's `env` is a `|`-separated list of what to look at. The
-review step reads the same diff once per line, each time for that one thing,
-and the task moves on only when every pass approves; the passes that ask for
-changes are what `feedback.md` holds. `feature` asks for four — the task, bugs,
-tests, security — because a small local model answers four narrow questions
-better than one wide one, and because GitHub's own review bot doesn't look at a
-pull request whose base isn't the default branch. Unset, the step reads once,
-for everything.
+A mindset is a file in `mindsets/` — eight to fifteen lines saying what one
+review pass looks for, what it leaves to another pass, and what counts as
+evidence. It is not an agent: `agents/reviewer.md` stays the reviewer and keeps
+the one `VERDICT: approve | changes` contract. Same reviewer, different mindset.
+
+`MINDSETS=` in a pipeline's `env` names them, and the review step reads the same
+diff once per name. The task moves on only when every pass approves; the passes
+that ask for changes are what `feedback.md` holds, so the implementer is not
+handed four approvals to read. Unset, the step reads once, for everything.
+
+| mindset | what it asks |
+| --- | --- |
+| `intent` | does this do what the task asked, all of it, and only it? |
+| `defects` | what input breaks the new code? |
+| `blast-radius` | what outside this diff does it break? |
+| `tests` | would the test fail if the code were wrong? |
+| `craft` | is it the simplest thing that works, and does it look like this repo? |
+| `data` | what happens at a thousand times the data? |
+| `trust` | who could see or do what they shouldn't? |
+
+`feature` names the first five. A small local model answers five narrow
+questions better than one wide one, and a stacked pull request gets no review
+from GitHub's bot at all, so this is the only review it will get. `data` and
+`trust` are left to `jobs/idle-review`, which has all the time in the world.
 
 `main` works in a worktree of its own, like `local`, but branches from tick's
 local `main` (`TRUNK=main` in its env) and ends with `merge`. That step merges
