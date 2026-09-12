@@ -11,10 +11,10 @@ trunk() {
   return 1
 }
 
-# "-add-the-widget", for the branch
+# "-add-the-widget", for the branch: the title's first sentence, so the rest can spell the task out
 slug() {
-  local s
-  s=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-40 | sed 's/^-*//; s/-*$//')
+  local s=${1%%. *}
+  s=$(printf '%s' "${s%.}" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-40 | sed 's/^-*//; s/-*$//')
   echo "${s:+-$s}"
 }
 
@@ -58,10 +58,10 @@ row() { printf '%s%-10s%s%s\n' "$C_DIM" "$1" "$C_OFF" "$2"; }
 
 # t new --dry: the task it would make, while you can still change it (t compose's preview)
 preview() {
-  local n first who source profile def cmd="t new" flags= short sibling
+  local n first who source profile def cmd="t new" flags= short sibling want
   terminal_colors
   n=$(( $(last_task_num) + 1 ))
-  first=$(steps "$pipeline" | head -1)
+  first=$(steps "$pipeline" "$opt" | head -1)
   first=${first#*-}
   who=${cli:-$(solver "$pipeline" "$first")}
 
@@ -75,6 +75,7 @@ preview() {
     row pipeline "$pipeline"
     row repo "${C_DIM}none needed$C_OFF"
   fi
+  if [ -n "$(optional "$pipeline")" ]; then row steps "$(flow "$pipeline" "$opt" | sed 's/ ([^)]*)//g')"; fi
   if [ -n "$cli" ]; then source=--cli; else source=CLI_$first; fi
   if [ -n "$who" ]; then row cli "$who$C_DIM  ($source)$C_OFF"; fi
   if [ -n "$now" ]; then row starts "${C_BRIGHT}now, here$C_OFF"
@@ -98,6 +99,7 @@ preview() {
   elif [ "$pipeline" != "${def:-$T_PIPELINE}" ]; then
     if [ -e "$T_ROOT/bin/t-$pipeline" ]; then flags+=" -p $pipeline"; else cmd="t $pipeline"; fi
   fi
+  for want in $opt; do flags+=" +$want"; done
   if [ -n "$repo_arg" ]; then flags+=" -r $repo_arg"; fi
   if [ -n "$cli" ]; then flags+=" --cli $cli"; fi
   if [ -n "$now" ]; then flags+=" --now"; fi

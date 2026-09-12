@@ -7,6 +7,7 @@
 # for one of its steps with MODE_<step>=. Which CLI and model run it is the pipeline's choice,
 # per step: CLI_review=opencode, MODEL_review=... in its env.
 # AGENT_CLI and AGENT_MODEL override that (t new --cli sets AGENT_CLI for one task).
+# claude thinks at EFFORT_<step>=, else $T_EFFORT.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 file=$T_ROOT/agents/${1:?usage: agent NAME < prompt}.md
@@ -22,7 +23,7 @@ mode=$(sed -n 's/^mode: *//p' <<< "$frontmatter")
 
 step=${T_STEP:-}
 step=${step//[^a-zA-Z0-9_]/_}
-cli_var=CLI_$step model_var=MODEL_$step mode_var=MODE_$step
+cli_var=CLI_$step model_var=MODEL_$step mode_var=MODE_$step effort_var=EFFORT_$step
 mode=${!mode_var:-$mode}
 planned=${!cli_var:-$T_CLI}
 cli=${AGENT_CLI:-$planned}
@@ -30,7 +31,7 @@ model=${AGENT_MODEL:-}
 # a model named for the step belongs to the step's own CLI: claude's "opus" means nothing to opencode
 if [ -z "$model" ] && [ "$cli" = "$planned" ]; then model=${!model_var:-}; fi
 [ -x "$T_ROOT/drivers/$cli" ] || die "no driver '$cli'; there are: $(ls "$T_ROOT/drivers" | xargs)"
-export AGENT_MODE=$mode AGENT_MODEL=$model
+export AGENT_MODE=$mode AGENT_MODEL=$model AGENT_EFFORT=${AGENT_EFFORT:-${!effort_var:-$T_EFFORT}}
 
 # At most SLOTS_<cli> of these at once. A slot is a lock file; the kernel frees it
 # when its holder dies. None free → 75, and the step runs again next tick.

@@ -243,7 +243,7 @@ test_a_killed_run_is_picked_up_again() {
 
 test_feature_pipeline_opens_a_pr_and_waits_for_ci() {
   printf 'pending\nfail\npass\n' > "$FAKE/checks"
-  id=$(new "add the widget" -p feature)
+  id=$(new "add the widget" -p feature +ci)
   t run $id
   eq "$(step $id)" 50-ci                                  # checks pending: waiting
   eq "$(cat "$(dir $id)/runs/50-ci")" 0
@@ -258,7 +258,7 @@ test_feature_pipeline_opens_a_pr_and_waits_for_ci() {
 
 test_a_feature_is_one_pull_request_unless_its_plan_splits_it() {
   echo "Looks small to me." > "$FAKE/plan"
-  id=$(new "add the widget" -p feature)
+  id=$(new "add the widget" -p feature +plan)
   t run $id
   eq "$(step $id)" 05-plan                                # a plan without a PART line is no plan
   grep -q 'no PART line' "$(dir $id)/log/05-plan.log"
@@ -272,7 +272,7 @@ test_a_feature_is_one_pull_request_unless_its_plan_splits_it() {
 
 test_a_plan_in_parts_becomes_a_stack_of_pull_requests() {
   printf 'Three seams.\n\nPART: Add the widget table\nThe table only.\n\nPART: Show widgets\nA page.\n\nPART: Let users edit widgets\nA form.\n' > "$FAKE/plan"
-  a=$(new "build the whole widget feature" -p feature)
+  a=$(new "build the whole widget feature" -p feature +plan)
   t run $a
   eq "$(step $a)" done
   eq "$(head -1 "$(dir $a)/task.md")" "# Add the widget table"   # it became part 1...
@@ -291,6 +291,25 @@ test_a_plan_in_parts_becomes_a_stack_of_pull_requests() {
   eq "$(git -C "$(t path 3)" rev-list --count main..t/0003-let-users-edit-widgets)" 3   # one commit per part
 }
 
+test_a_pipelines_optional_step_is_left_out_unless_the_task_asks() {
+  id=$(new "add the widget" -p feature)                   # feature plans and waits for CI only when asked
+  eq "$(step $id)" 10-implement
+  [ ! -e "$(dir $id)/opt" ]
+  t ls | grep -qE '^ +1 .* 0/4 +next tick$'               # four steps, not six
+  not grep -qx plan <(t complete steps widget)
+  with=$(new "add the gadget" -p feature +plan +ci)
+  eq "$(step $with)" 05-plan
+  eq "$(cat "$(dir $with)/opt")" "$(printf 'plan\nci')"
+  t ls | grep -qE '^ +2 .* 0/6 +next tick$'
+  t complete steps gadget | grep -qx plan
+  t new --dry -p feature +plan "add the gizmo" > "$tmp/out"
+  grep -q '^steps *plan → implement → test → review → pr$' "$tmp/out"
+  grep -q '^t feature +plan \\$' "$tmp/out"             # the command, to type next time
+  t new --dry -p feature +ci "add the gizmo" | grep -q '^steps *implement → test → review → pr → ci$'
+  not new "fix the thing" -p feature +nosuch
+  not new "fix the thing" -p local +plan                  # local has no optional steps at all
+}
+
 test_opencode_codes_by_default_and_claude_on_request() {
   id=$(new "add the widget")
   t run $id
@@ -307,17 +326,20 @@ test_opencode_codes_by_default_and_claude_on_request() {
 
 test_each_step_runs_on_the_cli_its_pipeline_names() {
   echo MODEL_implement=vllm/test-model >> "$tmp/tick/pipelines/feature/env"
-  id=$(new "add the widget" -p feature)                   # feature: plan, implement and review on opencode
+  id=$(new "add the widget" -p feature +plan)             # feature: plan on claude, the rest on opencode
   t run $id
   eq "$(step $id)" done
-  eq "$(grep -c . "$FAKE/opencode.calls")" 3
+  eq "$(grep -c . "$FAKE/opencode.calls")" 2              # implement and review
   grep -q -- '-m vllm/test-model' "$FAKE/opencode.calls"  # the step's model went with it
-  [ ! -e "$FAKE/claude.calls" ]
-  t show $id | grep -q '^pipeline  feature · opencode$'
-  id=$(new "add the gadget" -p feature --cli claude)      # --cli beats the pipeline
+  eq "$(grep -c . "$FAKE/claude.calls")" 1                # the planner
+  grep -q -- '--model opus --effort max' "$FAKE/claude.calls"
+  t show $id | grep -q '^pipeline  feature · claude, opencode$'
+  id=$(new "add the gadget" -p feature +plan --cli claude)   # --cli beats the pipeline
   t run $id
-  eq "$(grep -c . "$FAKE/claude.calls")" 3
+  eq "$(grep -c . "$FAKE/claude.calls")" 4
   not grep -q -- 'test-model' "$FAKE/claude.calls"        # opencode's model isn't claude's
+  eq "$(grep -c -- '--effort max' "$FAKE/claude.calls")" 2     # both planners, as feature asks
+  eq "$(grep -c -- '--effort high' "$FAKE/claude.calls")" 2    # implement and review: T_EFFORT
 }
 
 test_a_worktree_has_a_name_of_its_own_and_teardown_follows_tests() {
@@ -496,12 +518,12 @@ test_completion_offers_what_you_can_type() {
   profile
   export T_REPOS=$tmp
   t complete commands | grep -q '^new:create a task'
-  t complete pipelines | grep -q '^feature:plan (opencode) → implement (opencode) → test'
+  t complete pipelines | grep -q '^feature:+plan (claude) → implement (opencode) → test .* → pr → +ci$'
   t complete repos | grep -q '^toy:.*(pipeline feature)'
   t complete repos | grep -q "^repo:$tmp/repo"
   t complete clis | grep -qx opencode
   id=$(new "add the widget")
-  t complete tasks | grep -q '^1:add the widget  (05-plan, ready)'
+  t complete tasks | grep -q '^1:add the widget  (10-implement, ready)'
   t complete steps widget | grep -qx review
   zsh -n "$tmp/tick/completions/t.zsh"
 }
@@ -576,6 +598,8 @@ test_new_dry_shows_the_task_it_would_make() {
   grep -q '^repo *repo   (this directory)$' <<< "$out"
   grep -q '^pipeline *local$' <<< "$out"
   grep -q '^branch *t/0001-add-the-widget$' <<< "$out"
+  t new --dry "Add proration. It must handle upgrades too." |
+    grep -q '^branch *t/0001-add-proration$'              # the branch stops at the first sentence
   grep -q '^base *origin/main$' <<< "$out"
   grep -q '^cli *opencode  (CLI_implement)$' <<< "$out"
   grep -q '^starts *only when you run it' <<< "$out"      # no cron tick here

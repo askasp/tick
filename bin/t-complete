@@ -27,6 +27,6 @@ case ${1:-} in
       [ -f "$t/step" ] || continue
       echo "$(task_num "$t"):$(name "$t")  ($(cat "$t/step"), $(state "$t"))"
     done ;;
-  steps)     t=$(task_dir "${2:?usage: t complete steps TASK}") && steps "$(cat "$t/pipeline")" | sed 's/^[0-9]*-//' ;;
+  steps)     t=$(task_dir "${2:?usage: t complete steps TASK}") && steps "$(cat "$t/pipeline")" "$t" | sed 's/^[0-9]*-//' ;;
   *)         die "usage: t complete commands|pipelines|repos|clis|tasks|steps TASK" ;;
 esac

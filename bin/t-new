@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t new ["what to do" [-]] [-p PIPELINE] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO] [--now] [--edit] [--dry] — create a task
+# t new ["what to do" [-]] [-p PIPELINE] [+STEP] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO] [--now] [--edit] [--dry] — create a task
 #
 # No title: in a terminal with fzf, t compose opens; else $EDITOR, where line 1 is the title and the rest
 # details for the agent (--edit opens it with a title too). A "-" reads the details from stdin instead:
@@ -8,13 +8,14 @@
 # else $T_REPO. A pipeline with REPO=none (research) needs none; one with REPO=NAME (main: tick) runs
 # only there. --now runs the task here, at once. --dry prints the task it would make, and makes nothing.
 # The pipeline is -p (or t PIPELINE "..."), else the repo's own (PIPELINE= in repos/NAME/env), else $T_PIPELINE.
+# +STEP adds one of its optional steps (OPTIONAL= in its env), which it otherwise leaves out: t feature +plan "...".
 # --on TASK stacks it: that task's worktree, repo and pipeline, and it waits until that task is done.
 # A title longer than 40 characters gets a short name for the board from an agent (see t name).
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 . "$T_ROOT/lib/new.sh"
 set -euo pipefail
 
-args=("$@") pipeline= on= cli= test= repo= base= title= details= stdin= now= edit= dry=
+args=("$@") pipeline= on= cli= test= repo= base= title= details= stdin= now= edit= dry= opt=
 while [ $# -gt 0 ]; do
   case $1 in
     -p)     pipeline=$2; shift ;;
@@ -27,6 +28,7 @@ while [ $# -gt 0 ]; do
     --now)  now=1 ;;
     --edit) edit=1 ;;
     --dry)  dry=1 ;;
+    +*)     opt+=" ${1#+}" ;;
     -*)     die "unknown flag $1" ;;
     *)      title=$1 ;;
   esac
@@ -52,6 +54,11 @@ elif needs_repo; then
   find_repo
 fi
 pipeline=${pipeline:-$T_PIPELINE}
+have=$(optional "$pipeline")               # what +plan may ask for: the steps the pipeline leaves out
+for want in $opt; do
+  case " $have " in *" $want "*) continue ;; esac
+  die "pipeline $pipeline has no optional step +$want${have:+; it has: ${have// /, }}"
+done
 
 if [ -n "$dry" ]; then preview; exit 0; fi
 
@@ -92,7 +99,8 @@ if [ -n "$repo" ]; then
   echo "t/$id$(slug "$title")" > branch
 fi
 echo "$pipeline" > pipeline
-steps "$pipeline" | head -1 > step
+if [ -n "$opt" ]; then printf '%s\n' $opt > opt; fi     # the optional steps it asked for
+steps "$pipeline" "$opt" | head -1 > step
 mkdir log
 
 if [ -n "$on" ]; then

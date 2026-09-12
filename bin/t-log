@@ -16,7 +16,7 @@ cd "$task" || exit 1
 terminal_colors
 
 files=()                              # a step that hasn't run has no log yet; tail -F waits for it
-for s in $(steps "$(cat pipeline)"); do files+=("log/$s.log"); done
+for s in $(steps "$(cat pipeline)" "$PWD"); do files+=("log/$s.log"); done
 files+=(history)
 
 # Each step logs its runs ("=== DATE TIME step, run N") apart, and times are to the second, so

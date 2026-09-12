@@ -8,11 +8,11 @@
 set -euo pipefail
 at=
 if [ $# -eq 1 ]; then msg=$1 task=$(task_dir ""); else task=$(task_dir "${1:-}") msg=${2:-} at=${3:-}; fi
-n=$(task_num "$task") first=$(steps "$(cat "$task/pipeline")" | head -1)
+n=$(task_num "$task") first=$(steps "$(cat "$task/pipeline")" "$task" | head -1)
 flock -n "$task/lock" true || die "task $n is running; say it when it stops, or: t hold $n"
 
 if [ -z "$msg" ] && [ -t 0 ] && command -v fzf > /dev/null && [ "${T_PICKER:-fzf}" = fzf ]; then
-  rows=$(steps "$(cat "$task/pipeline")" | while read -r s; do
+  rows=$(steps "$(cat "$task/pipeline")" "$task" | while read -r s; do
     note="restarts here"
     if [ "$s" = "$first" ]; then note="starts over"; fi
     printf '%-10s %s%s%s\n' "${s#*-}" "$C_DIM" "$note" "$C_OFF"

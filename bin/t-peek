@@ -49,9 +49,9 @@ header() {
 # Steps behind it in the text's grey, the one it is on bright (red when held there), the ones to come faint.
 step_rows() {
   local pipeline each color=$C_TEXT runs end file shared width links
-  pipeline=$(cat "$task/pipeline") width=$(steps "$pipeline" | wc -L)
+  pipeline=$(cat "$task/pipeline") width=$(steps "$pipeline" "$task" | wc -L)
   links=$(for file in "$T_ROOT"/pipelines/*/[0-9]*; do readlink -f "$file"; done)
-  for each in $(steps "$pipeline"); do
+  for each in $(steps "$pipeline" "$task"); do
     read -r runs end < <(runs_of "$each")
     if [ "$each" = "$step" ]; then
       case $st in

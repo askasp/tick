@@ -10,6 +10,7 @@ Start a task, from any directory (TAB completes -r, -p, --on and tasks):
   t new "..."                                  in the repo you're standing in
   t new                                        the same, writing the title and details in $EDITOR
   t local -r amino "..."                       another pipeline for once: here, no PR
+  t feature +plan "..."                        with an optional step: plan it into one PR or a stack
   t new --on 3 "..."                           stack it on task 3: same worktree, starts when 3 is done
   t new --cli claude "..."                     solve every step with claude instead
   t ask --now -r amino "How does X work?"      a question about a repo, answered right here

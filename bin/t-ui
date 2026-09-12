@@ -89,7 +89,7 @@ if [ "${1:-}" = --pane ]; then
       echo
       CLICOLOR_FORCE=1 exec t-compose --dry "$pick" "$q" ;;
     say)
-      echo "$(strip "$pick" $(steps "$(cat "$task/pipeline")" | sed 's/^[0-9]*-//'))  ${C_FAINT}tab:restart step$C_OFF"
+      echo "$(strip "$pick" $(steps "$(cat "$task/pipeline")" "$task" | sed 's/^[0-9]*-//'))  ${C_FAINT}tab:restart step$C_OFF"
       echo
       echo "${C_DIM}task $target$C_OFF  $(name "$task")"
       status "$task"
@@ -196,7 +196,7 @@ if [ "${1:-}" = --key ]; then
   say_form() {
     local task first
     task=$(tdir "$1")
-    first=$(steps "$(cat "$task/pipeline")" | head -1)
+    first=$(steps "$(cat "$task/pipeline")" "$task" | head -1)
     if ! flock -n "$task/lock" true; then
       echo "change-footer~${C_RED}task $1 is running; say it when it stops, or cancel it: $(key keys) cancel$C_OFF~"
       return
@@ -315,7 +315,7 @@ if [ "${1:-}" = --key ]; then
   if [[ ${target:-} == [0-9]* ]]; then task=$(tdir "$target"); fi
   case $key in                          # the board's own keys wait until you're back
     tab)    case $mode in
-              say)         choices=$(steps "$(cat "$task/pipeline")" | sed 's/^[0-9]*-//') ;;
+              say)         choices=$(steps "$(cat "$task/pipeline")" "$task" | sed 's/^[0-9]*-//') ;;
               new | stack) choices=$(pipelines "$(cat "$T_UI/def")") ;;
               *)           exit 0 ;;
             esac

@@ -42,24 +42,41 @@ stop() {
   flock -w 5 "$1/lock" true || die "task $(task_num "$1") still runs; see what holds it: fuser -v $1/lock"
 }
 
-# the steps of a pipeline, in order; its env file is not a step
-steps() { LC_ALL=C ls "$T_ROOT/pipelines/$1" | grep '^[0-9]'; }
+# the steps a pipeline leaves out unless a task asks for them: OPTIONAL= in its env
+optional() { env_get "$T_ROOT/pipelines/$1/env" OPTIONAL; }
 
-# the step after $2 in pipeline $1, or "done"
+# the steps of a pipeline, in order; its env file is not a step. A second argument leaves out the
+# optional steps a task didn't ask for; it is the task's directory (it has a step file), or, before
+# there is one, the step names it asked for with +plan.
+steps() {
+  local want=${2:-} off=
+  if [ $# -gt 1 ]; then
+    off=$(optional "$1")
+    if [ -f "$want/step" ]; then                       # a task: the optional steps it asked for
+      if [ -f "$want/opt" ]; then want=$(tr '\n' ' ' < "$want/opt"); else want=; fi
+    fi
+  fi
+  LC_ALL=C ls "$T_ROOT/pipelines/$1" | grep '^[0-9]' | awk -v off=" $off " -v want=" $want " '
+    { name = $0; sub(/^[0-9]+-/, "", name) }
+    index(off, " " name " ") && !index(want, " " name " ") { next }
+    { print }'
+}
+
+# the step after $2 in pipeline $1 for task $3, or "done"
 next_step() {
   local s prev=
-  for s in $(steps "$1"); do
+  for s in $(steps "$1" "$3"); do
     if [ "$prev" = "$2" ]; then echo "$s"; return; fi
     prev=$s
   done
   echo done
 }
 
-# a step by name, with or without its number: "review" → "30-review". "done" always exists.
+# a step of task $3 by name, with or without its number: "review" → "30-review". "done" always exists.
 find_step() {
   local s
   if [ "$2" = done ]; then echo done; return; fi
-  for s in $(steps "$1"); do
+  for s in $(steps "$1" "$3"); do
     if [ "$s" = "$2" ] || [ "${s#*-}" = "$2" ]; then echo "$s"; return; fi
   done
 }
@@ -143,12 +160,15 @@ solver() {
   )
 }
 
-# a pipeline's steps with their solvers: implement (opencode) → test → review (opencode)
+# a pipeline's steps with their solvers: implement (opencode) → test → review (opencode).
+# An optional step is marked +plan, unless $2 says which of them a task asked for.
 flow() {
-  local s who out=
-  for s in $(steps "$1"); do
-    who=$(solver "$1" "${s#*-}")
-    out+=" → ${s#*-}${who:+ ($who)}"
+  local s name who out= mark=
+  if [ $# -le 1 ]; then mark=" $(optional "$1") "; fi
+  for s in $(steps "$1" ${2+"$2"}); do
+    name=${s#*-} who=$(solver "$1" "$name")
+    if [[ $mark == *" $name "* ]]; then name=+$name; fi
+    out+=" → $name${who:+ ($who)}"
   done
   echo "${out# → }"
 }

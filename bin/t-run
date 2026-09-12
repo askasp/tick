@@ -54,9 +54,9 @@ while :; do
   code=${PIPESTATUS[0]}
 
   case $code in
-    0)  next=$(next_step "$pipeline" "$step")
+    0)  next=$(next_step "$pipeline" "$step" "$task")
         if [ -f goto ]; then
-          next=$(find_step "$pipeline" "$(cat goto)")
+          next=$(find_step "$pipeline" "$(cat goto)" "$task")
           if [ -z "$next" ]; then
             echo "$step asked to go to '$(cat goto)', which $pipeline doesn't have" > hold; exit 0
           fi

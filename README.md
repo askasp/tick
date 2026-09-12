@@ -194,7 +194,7 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 | pipeline | steps |
 | --- | --- |
 | `local` (the default) | implement (opencode) → test → review (opencode) |
-| `feature` | plan (opencode) → implement (opencode) → test → review (opencode) → pr → ci |
+| `feature` | +plan (claude) → implement (opencode) → test → review (opencode) → pr → +ci |
 | `main` | local's steps, then merge (opencode): tick only, from any directory; lands on its `main` |
 | `ask` | answer (opencode): reads the repo you're in and changes nothing |
 | `research` | answer (claude): searches the web; needs no repo |
@@ -202,14 +202,26 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 You pick one per task with `t new -p feature "…"`, and a repo can name its own
 default (see Repos).
 
-`feature` starts with **plan**: `agents/planner.md` reads the task and the repo
-and decides how many pull requests it needs. One is the default, and the
-answer nearly always. Only a change too big to review well, with seams that let
+A step written `+plan` is optional: the pipeline lists it in `OPTIONAL=` in its
+`env` and leaves it out unless the task asks for it with `t feature +plan "…"`
+(the same `+plan` works on the board, typed after the title, and `+plan +ci`
+asks for both). The task keeps what it asked for in its `opt` file, and every
+screen counts only its own steps, so a plain feature is 0/4 and one with both
+is 0/6.
+
+`feature` has two: **plan** and **ci**. With **plan**, `agents/planner.md` reads
+the task and the repo and decides how many pull requests it needs. One is the
+default, and the answer nearly always. Only a change too big to review well, with seams that let
 each part merge on its own, becomes a stack of up to four: the task becomes
 part 1, and each later part is a task stacked on the one before it (`t new
 --on`), so its PR's base is the branch below. The parts run one after another,
-each once the one below has passed CI, and none of them is planned again.
+each once the one below is done, and none of them is planned again.
 `plan.md` keeps what the planner said.
+
+With **ci**, the task doesn't end at the open pull request: it waits for the
+PR's checks (`exit 75` while they are pending), and a failing one becomes
+`feedback.md` and sends the task back to implement, which pushes again. Without
+it the pull request is yours to watch.
 
 `main` works in a worktree of its own, like `local`, but branches from tick's
 local `main` (`TRUNK=main` in its env) and ends with `merge`. That step merges
@@ -224,7 +236,9 @@ Each agent step's solver is set in its pipeline's `env`, by the step's name:
 
 ```sh
 # pipelines/feature/env
-CLI_plan=opencode
+CLI_plan=claude
+MODEL_plan=opus                          # the latest Opus: planning is worth it
+EFFORT_plan=max                          # and let it think as hard as it can
 CLI_implement=opencode
 CLI_review=opencode
 # MODEL_implement=vllm/qwen3-coder-next  # optional: pin a model for that step
@@ -233,6 +247,10 @@ CLI_review=opencode
 Without `MODEL_<step>`, the CLI's own default model runs: for opencode that's
 `vllm/laguna-s-2.1` from `~/.config/opencode/opencode.jsonc`, and for claude
 whatever `claude` defaults to.
+
+`EFFORT_<step>` is how hard claude thinks (`low`, `medium`, `high`, `xhigh`,
+`max`); a step that names none gets `T_EFFORT` from `etc/tick.conf`, which is
+`high`. opencode has no such dial and ignores it.
 
 The first one set wins:
 
@@ -309,7 +327,8 @@ echo implement > "$t/goto"
 ```
 
 Add a step with `chmod +x steps/lint`, then
-`ln -s ../../steps/lint pipelines/shop/25-lint`.
+`ln -s ../../steps/lint pipelines/shop/25-lint`. Add `OPTIONAL=lint` to
+`pipelines/shop/env` and it runs only for a task started with `+lint`.
 
 ## Jobs: cron without a task
 
@@ -356,7 +375,7 @@ morning:
   know CLI flags. `SLOTS_claude` and `SLOTS_opencode` in `etc/tick.conf` cap
   how many agents run at once.
 
-A task directory holds `task.md`, `name`, `pipeline`, `step`, `repo`, `base`,
+A task directory holds `task.md`, `name`, `pipeline`, `step`, `opt`, `repo`, `base`,
 `branch`, `env`, `work/`, `plan.md`, `feedback.md`, `review.md`, `hold`, `after`,
 `runs/`, `history` and `log/`. `grep . ~/.tick/tasks/0007/*` shows all of it.
 

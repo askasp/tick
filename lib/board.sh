@@ -30,7 +30,7 @@ started() { [ -e "$1/log/$(cat "$1/step").log" ] || [ -e "$1/hold" ]; }
 # the steps behind it (0/4 before the first; 4/4 done)
 fraction() {
   local step all at=0 s
-  step=$(cat "$1/step") all=$(steps "$(cat "$1/pipeline")")
+  step=$(cat "$1/step") all=$(steps "$(cat "$1/pipeline")" "$1")
   for s in $all; do
     at=$((at + 1))
     [ "$s" = "$step" ] || continue
@@ -189,7 +189,7 @@ next_choice() {
 # the CLI after $1 when ^s cycles it: the pipeline's own (empty), then each driver
 next_cli() { next_choice "$1" "" $(ls "$T_ROOT/drivers"); }
 
-# what you typed at t ui's new> or t compose's prompt: t new's flags into $flags, the rest into $title
+# what you typed at t ui's new> or t compose's prompt: t new's flags (+plan too) into $flags, the rest into $title
 words() {
   local w=() i
   read -ra w <<< "$1"
@@ -198,6 +198,7 @@ words() {
     case ${w[i]} in
       -r | -p | --cli | --on | --base | --test) flags+=("${w[i]}" "${w[i + 1]:-}"); i=$((i + 1)) ;;
       --now) flags+=(--now) ;;
+      +*)    flags+=("${w[i]}") ;;                  # +plan: one of the pipeline's optional steps
       *)     title+=${title:+ }${w[i]} ;;
     esac
   done

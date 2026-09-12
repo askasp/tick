@@ -2,7 +2,7 @@
 # drivers/claude — one Claude Code turn without a terminal.
 #   prompt on stdin → answer on stdout; progress and "session: claude ID DIR" on stderr
 #   AGENT_MODE=edit may change files, web may also search the web, anything else only reads.
-#   AGENT_MODEL picks the model.
+#   AGENT_MODEL picks the model, AGENT_EFFORT how hard it thinks.
 #   drivers/claude --resume ID    opens that conversation interactively (t attach)
 set -euo pipefail
 if [ "${1:-}" = --resume ]; then exec claude --resume "$2"; fi
@@ -16,6 +16,7 @@ case ${AGENT_MODE:-read} in
   *)    args+=(--tools Read,Grep,Glob) ;;
 esac
 if [ -n "${AGENT_MODEL:-}" ]; then args+=(--model "$AGENT_MODEL"); fi
+if [ -n "${AGENT_EFFORT:-}" ]; then args+=(--effort "$AGENT_EFFORT"); fi
 
 echo "session: claude $sid $PWD" >&2
 raw=$(mktemp)

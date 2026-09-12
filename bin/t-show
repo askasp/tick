@@ -36,7 +36,7 @@ about() {
 # who solves its steps, each named once: claude, or opencode, claude
 solvers() {
   local s
-  for s in $(steps "$pipeline"); do solver "$pipeline" "${s#*-}" "$task"; done |
+  for s in $(steps "$pipeline" "$task"); do solver "$pipeline" "${s#*-}" "$task"; done |
     awk '!seen[$0]++ { out = out (out ? ", " : "") $0 } END { print out }'
 }
 
@@ -44,7 +44,7 @@ solvers() {
 # grey, where it is bright (red when held there), still to come faint.
 numbered() {
   local s i=0 color=$C_TEXT out=
-  for s in $(steps "$pipeline"); do
+  for s in $(steps "$pipeline" "$task"); do
     i=$((i + 1))
     if [ "$s" != "$step" ]; then out+="$color$i ${s#*-}$C_OFF  "; continue; fi
     if [ "$st" = HOLD ]; then out+=$C_RED; else out+=$C_BRIGHT; fi

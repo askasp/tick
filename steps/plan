@@ -26,7 +26,6 @@ part() {   # part $1's details, then where it fits in the whole task
 on=${t##*/} ids=
 for i in $(seq 2 "$n"); do
   on=$(part "$i" | t new --on "$on" "$(head -1 "$d/$i")" -)
-  cp plan.tmp "$T_TASKS/$on/plan.md"
   ids+=" $((10#$on))"
 done
 { echo "# $(head -1 "$d/1")"; echo; part 1; } > task.tmp && mv task.tmp task.md

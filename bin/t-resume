@@ -8,8 +8,8 @@ cd "$task"
 flock -n lock true || die "task $n is running"
 
 if [ -n "${2:-}" ]; then
-  s=$(find_step "$(cat pipeline)" "$2")
-  [ -n "$s" ] || die "no step '$2'; $(cat pipeline) has: $(steps "$(cat pipeline)" | xargs)"
+  s=$(find_step "$(cat pipeline)" "$2" "$task")
+  [ -n "$s" ] || die "no step '$2'; $(cat pipeline) has: $(steps "$(cat pipeline)" "$task" | xargs)"
   echo "$s" > step.tmp && mv step.tmp step
 fi
 rm -rf hold runs
