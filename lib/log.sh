@@ -111,7 +111,7 @@ render() {
     function vlen(s) { gsub(/[\001\002\003]/, "", s); return length(s) }
     function paint(s) { gsub(/\001/, bright, s); gsub(/\003/, red, s); gsub(/\002/, text, s); return s }
     function edge(left, right,   room) {   # right at the right edge of the pane, or just along
-      room = (cols > 40 ? cols : 60) - 7 - length(left) - length(right)
+      room = (cols > 40 ? cols : 60) - 8 - length(left) - length(right)
       return sprintf("%*s", room > 2 ? room : 2, "")
     }
     function fold(s, ind,   i, n, w, line, words) {

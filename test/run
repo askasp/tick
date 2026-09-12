@@ -944,6 +944,21 @@ test_the_log_folds_a_run_of_one_tool_and_raw_shows_it_all() {
   kill $!
 }
 
+test_an_agents_markdown_reads_as_text_folded_to_the_pane() {
+  id=$(new "add the widget")
+  mkdir -p "$(dir $id)/log"
+  cp "$tmp/tick/test/fixtures/opencode-review.log" "$(dir $id)/log/30-review.log"
+  FZF_PREVIEW_COLUMNS=60 t log $id > "$tmp/out"
+  [ "$(LC_ALL=C.UTF-8 wc -L < "$tmp/out")" -lt 60 ]       # folded to the pane, so fzf wraps nothing
+  grep -qE '^13:11  review +run 1$' "$tmp/out"            # the banner: its time, step, and run at the edge
+  not grep -qE '\*\*|`|^ *#' "$tmp/out"                   # the markdown is rendered, not printed
+  grep -qxF '       Analysis' "$tmp/out"
+  grep -qxF '       · suppresses CONNECTION_ENDED only in that window' "$tmp/out"
+  tr -s ' \n' '  ' < "$tmp/out" | grep -qF 'causing the postgres library to reject it with CONNECTION_ENDED.'   # no word broken
+  red=$(. "$tmp/tick/lib/tick.sh"; echo "$C_RED")
+  FZF_PREVIEW_COLUMNS=60 CLICOLOR_FORCE=1 t log $id | grep -qF "${red}closeDb()"   # code stands out in red
+}
+
 test_the_pane_shows_details_log_or_diff() {
   id=$(new "add the widget")
   t run $id

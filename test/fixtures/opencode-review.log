@@ -1,0 +1,17 @@
+=== 2026-09-12 13:11:46 30-review, run 1
+session: opencode ses_f6aaf07a2ffe9qKYm3bAUmrO1B /work
+  · read backend/src/worker-thread.ts
+I'll review the diff and understand the context before giving my verdict. Let me read the relevant file.
+  · read backend/src/lib/logger.ts
+## Analysis
+
+### Diff review (backend/src/worker-thread.ts)
+
+The change addresses a real race during worker shutdown: `workerPlugin.stop()` may fire-and-forget a logger `writeDb()` whose `globalDb.execute(...)` query hasn't settled when `closeDb()` calls `client.end(...)`, causing the postgres library to reject it with `CONNECTION_ENDED`.
+
+**Two things I'd change:**
+
+1. **The 50ms `setTimeout` is a timing-based workaround.** The logger's `writeDb` (logger.ts:219) is called fire-and-forget from `log` (logger.ts:336) with no handle returned.
+- suppresses CONNECTION_ENDED only in that window
+
+VERDICT: approve
