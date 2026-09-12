@@ -84,12 +84,14 @@ pane has said what that removes and you press Enter again. `^x` on a running
 task stops its agent first. `^w` widens the pane. Without fzf, `t`
 prints `t ls`.
 
-`t log` tells a task's story: every run of every step in the order it ran,
-each followed by how it ended. Three or more calls of one tool in a row fold
-into one line (`· Read ×8  src/lib/health-*, src/app.ts`); while the task
-runs, its last three calls stay lines of their own. `--raw` shows every call,
-and the session line `t attach` resumes. `-f` keeps following it into the
-steps still to come. The drivers log paths relative to where the agent works,
+`t log` tells a task's story in one text column, with the time in the gutter:
+each run opens with a banner saying which step it came from and its number
+(`test → review  …  run 1`), the agent's markdown is rendered rather than
+printed, and long lines fold on words. Three or more calls of one tool in a
+row fold into one line (`read   ×8  src/lib/health-*, src/app.ts`); while the
+task runs, its last three calls stay lines of their own. `--raw` is the file
+itself, every byte, and the session line `t attach` resumes. `-f` follows it
+into the steps still to come. The drivers log paths relative to where the agent works,
 so the log says `src/app.ts`. The board's status column keeps a column's worth
 of that line: a path by its basename (`notify.ts`), and so a command by its
 verb and the file it names, never the shell around it — `bash cd "$(git
@@ -504,7 +506,7 @@ t compose [t new's flags]  the screen plain t new opens: title, pipeline, and th
 t PIPELINE ...             t new ... -p PIPELINE:  t ask --now "How do the tests run?"
 t ls [-a]                  the board as text; -a adds done tasks
 t show [TASK]              where it is, and what you can do next
-t log [TASK] [-f] [--raw]  every run in order, each followed by how it ended; -f follows it, --raw unfolds it
+t log [TASK] [-f] [--raw]  every run in order, rendered in one column; -f follows it, --raw is the file itself
 t diff [TASK]              the change so far
 t say [TASK] "notes"       back to implement, with your notes
 t attach [TASK]            resume the agent's conversation yourself

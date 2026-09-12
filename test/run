@@ -489,7 +489,7 @@ test_hold_f_cancels_the_running_agent_and_holds_the_task() {
   not wait $pid                                            # killed, not finished
   flock -n "$(dir $id)/lock" true                          # nothing of the run is left, the agent included
   t ls | grep -q 'held  cancelled$'
-  t log $id | grep -q '10-implement cancelled'
+  t log $id | grep -q 'implement cancelled'
   t resume $id 2> /dev/null
   t run $id
   eq "$(step $id)" done
@@ -852,19 +852,19 @@ test_log_shows_every_run_in_order_each_followed_by_how_it_ended() {
   printf 'BROKEN\nfixed\n' > "$FAKE/impl"                 # the tests fail once: back to implement, in one second
   id=$(new "add the widget")
   t run $id
-  eq "$(t log $id | grep -oE '^=== .* run [0-9]+|ok → [0-9a-z-]+' | sed 's/^=== [^ ]* [^ ]* //' | paste -sd ' ')" \
-    "10-implement, run 1 ok → 20-test 20-test, run 1 ok → 10-implement 10-implement, run 2 ok → 20-test 20-test, run 2 ok → 30-review 30-review, run 1 ok → done"
+  eq "$(t log $id | grep -oE '[a-z]+( → [a-z]+)? +run [0-9]+|[a-z]+ → done' | tr -s ' ' | paste -sd,)" \
+    "implement run 1,implement → test run 1,test → implement run 2,implement → test run 2,test → review run 1,review → done"
 }
 
 test_log_f_follows_the_task_into_the_steps_still_to_come() {
   id=$(new "add the widget")
   timeout 20 t log $id -f > "$tmp/out" 2>&1 &
   t run $id
-  for i in $(seq 50); do grep -q '30-review ok → done' "$tmp/out" && break; sleep 0.1; done
+  for i in $(seq 50); do grep -q 'review → done' "$tmp/out" && break; sleep 0.1; done
   kill $!
   grep -q '(no step has run yet)' "$tmp/out"
-  grep -q '20-test, run 1' "$tmp/out"
-  grep -q '30-review ok → done' "$tmp/out"
+  grep -qE 'implement → test +run 1' "$tmp/out"
+  grep -q 'review → done' "$tmp/out"
 }
 
 test_ui_on_a_task_offers_what_to_do_with_it() {
@@ -929,9 +929,9 @@ test_the_log_folds_a_run_of_one_tool_and_raw_shows_it_all() {
     for i in 1 2 3 4 5 6 7; do echo "  · Grep p$i"; done
   } > "$(dir $id)/log/10-implement.log"
   t log $id > "$tmp/out"
-  grep -qxF '· Read  ×4  lib/health-*, hooks/useHealth.ts' "$tmp/out"
-  grep -qxF '▌ Read them.' "$tmp/out"                    # the agent's own words
-  grep -qxF '· Grep  ×7  p1, p2, p3, p4, p5, p6, …' "$tmp/out"
+  grep -qxF '       read   ×4  lib/health-*, hooks/useHealth.ts' "$tmp/out"
+  grep -qxF '       Read them.' "$tmp/out"               # the agent's own words, in the text column
+  grep -qxF '       grep   ×7  p1, p2, p3, p4, p5, p6, …' "$tmp/out"
   not grep -q 'session:' "$tmp/out"
   t log $id --raw > "$tmp/raw"
   eq "$(grep -c '· Read' "$tmp/raw")" 4
@@ -939,8 +939,8 @@ test_the_log_folds_a_run_of_one_tool_and_raw_shows_it_all() {
   ( exec 9> "$(dir $id)/lock"; flock 9; sleep 30 ) &     # while it runs, its last three calls stay lines
   sleep 0.3
   t log $id | tail -4 > "$tmp/live"
-  eq "$(head -1 "$tmp/live")" '· Grep  ×4  p1, p2, p3, p4'
-  eq "$(tail -1 "$tmp/live")" '· Grep  p7'
+  eq "$(head -1 "$tmp/live")" '       grep   ×4  p1, p2, p3, p4'
+  eq "$(tail -1 "$tmp/live")" '       grep   p7'
   kill $!
 }
 
@@ -949,7 +949,7 @@ test_the_pane_shows_details_log_or_diff() {
   t run $id
   t peek $id | grep -q '^          1 implement  2 test  3 review$'   # done: its details,
   not grep -q 't diff 1' <(t peek $id)                    # without what to do next: the board's keys say
-  timeout 0.5 t peek $id log | grep -q '30-review ok → done'
+  timeout 0.5 t peek $id log | grep -q 'review → done'
   t peek $id diff | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^+change'   # in color
   t peek $id steps | grep -qE '^30-review +1 run'
   timeout 0.5 t peek $id raw | grep -q '^session: opencode'
