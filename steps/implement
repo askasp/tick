@@ -31,8 +31,13 @@ fi
 cd -P work
 if [ "$(git branch --show-current)" != "$branch" ]; then
   # stacked: the worktree belongs to the task below; put our own branch on top of its branch
-  if [ -n "$(git status --porcelain)" ]; then
-    echo "the worktree has uncommitted changes; not switching to $branch" >&2
+  # Only tracked changes are the task below's unfinished work. Untracked files are the repo's
+  # own tooling (amino's dev-env.sh leaves an .env.bak), and git switch itself refuses if one
+  # of them is in the way.
+  dirty=$(git status --porcelain --untracked-files=no)
+  if [ -n "$dirty" ]; then
+    echo "$dirty" >&2
+    echo "the worktree has changes nobody committed; commit or drop them, then: t resume $((10#$TASK_ID))" >&2
     exit 1
   fi
   git switch -q "$branch" 2> /dev/null || git switch -q -c "$branch" "$base"

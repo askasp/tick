@@ -222,6 +222,21 @@ test_a_stacked_task_waits_then_builds_on_its_parent() {
   grep -q "git diff t/$a-parent-work...HEAD" "$FAKE/read.prompts"   # its review saw only its own diff
 }
 
+test_a_stacked_task_steps_over_what_the_tooling_left_behind() {
+  a=$(new "parent work")
+  b=$(new "child work" --on $a)
+  t run $a
+  touch "$(t path $a)/.env.bak.20260912"                  # what a test run leaves in the worktree
+  t run $b
+  eq "$(step $b)" done                                    # untracked files are not the parent's work
+  echo dirt >> "$(t path $a)/impl.txt"                    # a tracked change is
+  c=$(new "more child work" --on $b)
+  t run $c
+  eq "$(step $c)" 10-implement
+  grep -q 'commit or drop them, then: t resume' "$(dir $c)/log/10-implement.log"
+  grep -q ' M impl.txt' "$(dir $c)/log/10-implement.log"
+}
+
 test_a_stacked_task_sits_under_its_parent_until_that_is_done() {
   a=$(new "parent work")
   b=$(new "child work" --on $a)
