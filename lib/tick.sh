@@ -3,7 +3,7 @@
 
 T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T_PATH_BEFORE=$PATH
-. "$T_ROOT/etc/tick.conf"
+set -a; . "$T_ROOT/etc/tick.conf"; set +a    # every setting, to steps and drivers too
 T_TASKS=$T_VAR/tasks
 PATH=$T_ROOT/bin:$PATH
 export T_ROOT T_VAR T_TASKS PATH

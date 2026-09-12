@@ -248,6 +248,15 @@ Without `MODEL_<step>`, the CLI's own default model runs: for opencode that's
 `vllm/laguna-s-2.1` from `~/.config/opencode/opencode.jsonc`, and for claude
 whatever `claude` defaults to.
 
+Two things keep a big change inside a local model's context. A repo's
+`GENERATED=` globs — openapi specs, `.gen.ts` clients, drizzle's `meta/` — never
+reach an agent at all: they leave the review's diff, and every prompt says which
+files those are and that nobody edits them by hand (drizzle's `*.sql` migrations
+are the schema change itself, so they stay in). What is left goes whole file by
+whole file, smallest first, until `DIFF_MAX` bytes (200 kB in `etc/tick.conf`)
+are spent; the files that don't fit are named, and the reviewer reads those in
+the worktree itself.
+
 `EFFORT_<step>` is how hard claude thinks (`low`, `medium`, `high`, `xhigh`,
 `max`); a step that names none gets `T_EFFORT` from `etc/tick.conf`, which is
 `high`. opencode has no such dial and ignores it.
@@ -273,6 +282,7 @@ A repo gets a short name, a default pipeline and settings of its own in
 REPO=~/git/amino-monorepo                  # where it is
 PIPELINE=feature                           # its default pipeline
 TEST_CMD="$T_ROOT/repos/amino/run-tests"   # what test steps run; without it, `make test` or nothing
+GENERATED="*openapi*.json *.gen.ts …"      # what tooling writes: no agent reads or reviews it
 TEARDOWN="$T_ROOT/repos/amino/teardown"    # after every test run, and before `t rm` deletes the worktree
 ```
 
@@ -373,7 +383,9 @@ morning:
 - **Agents.** `agents/*.md` are prompts with a `mode` (read, web or edit).
   Which CLI and model solve a step is the pipeline's choice (`CLI_<step>=`). `drivers/claude` and `drivers/opencode` are the only files that
   know CLI flags. `SLOTS_claude` and `SLOTS_opencode` in `etc/tick.conf` cap
-  how many agents run at once.
+  how many agents run at once. When a CLI fails — a local model out of
+  context, a server that went away — the same prompt goes to claude once, so
+  a task never stops on one model's bad day.
 
 A task directory holds `task.md`, `name`, `pipeline`, `step`, `opt`, `repo`, `base`,
 `branch`, `env`, `work/`, `plan.md`, `feedback.md`, `review.md`, `hold`, `after`,

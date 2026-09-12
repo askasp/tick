@@ -2,13 +2,42 @@
 # review — the reviewer agent reads the task and the diff. On "changes", its review becomes
 # feedback.md and the task goes back to implement.
 set -euo pipefail
-base=$(cat base)
+range=$(cat base)...HEAD
+
+# GENERATED= in the repo's env is what tooling writes (amino: the openapi specs and API clients).
+# It is no one's work to review, and it is huge, so it never reaches the reviewer.
+skip=(.)
+for glob in ${GENERATED:-}; do skip+=(":(exclude)$glob"); done
+reviewed() { git -C work diff "$range" "$@" -- "${skip[@]}"; }
+
+# A whole diff can still be bigger than the model's context. Whole file patches go in, smallest
+# first, until DIFF_MAX bytes are spent; the files left out are named, and the reviewer reads those.
+patch_sizes() {
+  local file
+  reviewed --name-only | while IFS= read -r file; do
+    echo "$(git -C work diff "$range" -- "$file" | wc -c) $file"
+  done | sort -n
+}
+
+patches() {
+  local left=$DIFF_MAX size file left_out=()
+  while read -r size file; do
+    if [ "$size" -gt "$left" ]; then left_out+=("$file"); continue; fi
+    left=$((left - size))
+    printf '```diff\n'; git -C work diff "$range" -- "$file"; printf '```\n\n'
+  done < <(patch_sizes)
+  if [ "${#left_out[@]}" -gt 0 ]; then
+    printf 'Too large for this prompt; read these files in the worktree yourself:\n'
+    printf -- '- %s\n' "${left_out[@]}"
+  fi
+}
 
 {
   cat task.md
-  printf '\n## The change (git diff %s...HEAD)\n\n```diff\n' "$base"
-  git -C work diff "$base...HEAD"
-  printf '```\n'
+  printf '\n## The change (git diff %s)\n\n```\n' "$range"
+  reviewed --stat
+  printf '```\n\n'
+  patches
 } | (cd -P work && agent reviewer) > review.md
 
 verdict=$(grep -oE '^VERDICT: *(approve|changes)' review.md | tail -1 || true)

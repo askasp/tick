@@ -47,7 +47,7 @@ how to change it.
 | to add | do this | touch the runner? |
 | --- | --- | --- |
 | a pipeline | `mkdir pipelines/NAME`, then `ln -s ../../steps/X NN-X` for each step | no |
-| a repo | `repos/NAME/env`: `REPO=` where it is, `PIPELINE=` its default pipeline, and settings its steps read (`TEST_CMD=`, `TEARDOWN=`) | no |
+| a repo | `repos/NAME/env`: `REPO=` where it is, `PIPELINE=` its default pipeline, and settings its steps read (`TEST_CMD=`, `TEARDOWN=`, `GENERATED=`) | no |
 | a pipeline's settings | `pipelines/NAME/env`; a step sees the pipeline's env, then its repo's, then its task's own. `REPO=none` for a pipeline that needs no repo | no |
 | a step | an executable in `steps/` that follows the contract below | no |
 | a step you don't always want | `OPTIONAL=plan` in the pipeline's env: it is left out unless `t new` asks for it with `+plan`, which the task keeps in its `opt` file | no |

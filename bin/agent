@@ -7,7 +7,10 @@
 # for one of its steps with MODE_<step>=. Which CLI and model run it is the pipeline's choice,
 # per step: CLI_review=opencode, MODEL_review=... in its env.
 # AGENT_CLI and AGENT_MODEL override that (t new --cli sets AGENT_CLI for one task).
+# When the CLI fails — a local model out of context, a server that went away — claude gets the
+# same prompt once, so the task keeps going.
 # claude thinks at EFFORT_<step>=, else $T_EFFORT.
+# A repo's GENERATED= (in repos/NAME/env) is named in every prompt: those files are tooling's.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 file=$T_ROOT/agents/${1:?usage: agent NAME < prompt}.md
@@ -35,13 +38,37 @@ export AGENT_MODE=$mode AGENT_MODEL=$model AGENT_EFFORT=${AGENT_EFFORT:-${!effor
 
 # At most SLOTS_<cli> of these at once. A slot is a lock file; the kernel frees it
 # when its holder dies. None free → 75, and the step runs again next tick.
-slots_var=SLOTS_$cli
-slots=${!slots_var:-2}
-mkdir -p "$T_VAR/run"
-for i in $(seq "$slots"); do
-  exec 8> "$T_VAR/run/$cli.$i"
-  if flock -n 8; then break; fi
-  if [ "$i" -eq "$slots" ]; then echo "agent: all $slots $cli slots busy; trying again later" >&2; exit 75; fi
-done
+take_slot() {
+  local slots_var=SLOTS_$1 slots i
+  slots=${!slots_var:-2}
+  mkdir -p "$T_VAR/run"
+  for i in $(seq "$slots"); do
+    exec 8> "$T_VAR/run/$1.$i"      # the slot we held, if any, is dropped here
+    if flock -n 8; then return; fi
+  done
+  echo "agent: all $slots $1 slots busy; trying again later" >&2
+  exit 75
+}
 
-{ echo "$prompt"; echo; cat; } | "$T_ROOT/drivers/$cli"
+take_slot "$cli"
+turn=$(mktemp) answer=$(mktemp)
+trap 'rm -f "$turn" "$answer"' EXIT
+{
+  echo "$prompt"
+  # what tooling writes in this repo (GENERATED= in its env): never worth an agent's context
+  if [ -n "${GENERATED:-}" ]; then
+    echo; echo "Generated in this repo, and left out of any diff below: $GENERATED"
+    echo "Never read, edit or review those; change what generates them instead."
+  fi
+  echo; cat
+} > "$turn"
+# the answer is held back until the turn worked: half an answer is not one
+if "$T_ROOT/drivers/$cli" < "$turn" > "$answer"; then cat "$answer"; exit 0; fi
+
+# A model that can't answer must not stop the task: claude gets the same prompt once.
+# Its model is the step's own CLI's (vllm/laguna-s-2.1 means nothing to claude), so drop it.
+[ "$cli" != claude ] || exit 1
+echo "agent: $cli failed; the same prompt goes to claude" >&2
+take_slot claude
+AGENT_MODEL=
+"$T_ROOT/drivers/claude" < "$turn"

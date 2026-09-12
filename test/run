@@ -6,7 +6,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 path=$PATH
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 SHELL=/bin/bash
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
-unset T_VAR T_PIPELINE T_REPO T_REPOS MAX_RUNS SLOTS_claude SLOTS_opencode AGENT_CLI AGENT_MODEL T_PICKER
+unset T_VAR T_PIPELINE T_REPO T_REPOS MAX_RUNS DIFF_MAX SLOTS_claude SLOTS_opencode T_EFFORT CLAUDE_EDIT_MODE AGENT_CLI AGENT_MODEL T_PICKER
 # run by a tick task's test step, the task's settings are exported (TEST_CMD=test/run would be the toy's too),
 # and so is t ui's state when the board started the task: its T_UI is gone by now, and t new writes there
 unset TASK_ID T_STEP T_UI T_NEW T_UI_CHANGED TEST_CMD TEARDOWN $(cat "$root"/pipelines/*/env "$root"/repos/*/env 2> /dev/null | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | sort -u)
@@ -97,6 +97,35 @@ test_review_feedback_reaches_the_implementer() {
   grep -q 'VERDICT: changes' "$FAKE/edit.prompts"
   ls "$(dir $id)"/log/feedback.*.md > /dev/null          # archived once it was addressed
   [ ! -e "$(dir $id)/feedback.md" ]
+}
+
+test_a_diff_too_big_for_the_model_is_named_instead_of_sent() {
+  export DIFF_MAX=200
+  printf 'x%.0s' {1..400} > "$FAKE/impl"                  # one line, a patch over the budget
+  id=$(new "add the widget")
+  t run $id
+  eq "$(step $id)" done
+  grep -q 'impl.txt | 1 +' "$FAKE/read.prompts"           # the stat always goes
+  grep -q '^- impl.txt$' "$FAKE/read.prompts"             # the patch itself didn't
+  not grep -q xxxxxxxx "$FAKE/read.prompts"
+}
+
+test_a_diff_the_model_can_read_goes_whole() {
+  id=$(new "add the widget")
+  t run $id
+  eq "$(step $id)" done
+  grep -q '^+change$' "$FAKE/read.prompts"
+  not grep -q 'read these files in the worktree' "$FAKE/read.prompts"
+}
+
+test_generated_files_reach_no_agent() {
+  echo 'GENERATED="*.txt"' >> "$tmp/tick/pipelines/local/env"
+  id=$(new "add the widget")
+  t run $id
+  eq "$(step $id)" done
+  grep -q 'Generated in this repo' "$FAKE/edit.prompts"   # the implementer hears it too
+  grep -q 'Generated in this repo' "$FAKE/read.prompts"
+  not grep -q '^+change$' "$FAKE/read.prompts"            # and the review diff leaves them out
 }
 
 test_failing_tests_go_back_to_the_implementer() {
@@ -226,6 +255,18 @@ test_full_agent_slots_mean_try_again_later() {
   exec 8>&-
   t run $id
   eq "$(step $id)" done
+}
+
+test_a_cli_that_fails_hands_the_same_prompt_to_claude() {
+  printf 'context length exceeded\n' > "$FAKE/fails"      # opencode can't answer the implementer
+  id=$(new "add the widget")
+  t run $id
+  eq "$(step $id)" done
+  grep -q 'context length exceeded' "$(dir $id)/log/10-implement.log"
+  grep -q 'goes to claude' "$(dir $id)/log/10-implement.log"
+  eq "$(grep -c . "$FAKE/claude.calls")" 1                # only the step opencode dropped
+  eq "$(grep -c . "$FAKE/opencode.calls")" 2              # implement, then the review it did answer
+  eq "$(grep -c 'add the widget' "$FAKE/edit.prompts")" 2 # claude got the prompt opencode had
 }
 
 test_a_killed_run_is_picked_up_again() {
