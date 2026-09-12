@@ -514,6 +514,34 @@ t doctor                   what's missing, and the pipelines
 t tick                     what cron runs
 ```
 
+## Idle time: reading finished work again
+
+The models that review a task are local and free, and the GPU is idle most of
+the day. `jobs/idle-review` spends that: while nothing else is running, it reads
+one finished task's diff once more, with a mindset that task's pipeline never
+runs — `data` and `trust`, before anything is read twice.
+
+```sh
+(crontab -l; echo '*/10 * * * * $HOME/git/tick/jobs/idle-review >> $HOME/.tick/idle.log 2>&1') | crontab -
+```
+
+One pass per run, so the interval is the whole budget. A pass that says
+`VERDICT: changes` is said to the task (`t say`, restarting at implement) with a
+`## idle review: <mindset>` header, and the ordinary pipeline fixes it, tests
+it, reviews it with the standing five and pushes to the pull request. A task is
+asked for at most `IDLE_FIXES` findings, ever.
+
+A mindset reads one commit `IDLE_PASSES` times, and a fix moves the commit,
+which opens every mindset again — so the loop goes quiet exactly when every
+mindset has approved the code as it stands. It leaves alone anything it cannot
+help: work that already landed, a task another is stacked on, a held task, a
+question with no worktree, and a pull request that is closed.
+
+Its whole memory is `idle/<mindset>` in each task directory, holding the commit
+it read and how often. `rm ~/.tick/tasks/*/idle/craft` makes every task get
+another reading from that mindset — which is what to do after editing one. Drop
+the crontab line and `rm -r ~/.tick/tasks/*/idle`, and tick is exactly as it was.
+
 ## Not covered yet
 
 - The `pr` and `ci` steps are tested only against a fake `gh`.

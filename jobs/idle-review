@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# jobs/idle-review — while nothing else runs, read a finished task's diff once more, with a mindset
+# its pipeline never uses. One pass per run. A pass that asks for changes is said to the task, and
+# the ordinary pipeline fixes, tests and pushes it. A mindset reads a commit IDLE_PASSES times; a
+# fix moves the commit and opens them all again, so the job goes quiet exactly when every mindset
+# approves the code as it stands. From cron:
+#   */10 * * * * $HOME/git/tick/jobs/idle-review >> $HOME/.tick/idle.log 2>&1
+# Nothing else in tick reads what it writes: drop that line and `rm -r ~/.tick/tasks/*/idle`.
+. "$(dirname "$(readlink -f "$0")")/../lib/review.sh"
+set -euo pipefail
+
+exec 9> "$T_VAR/idle.lock"
+flock -n 9 || exit 0                              # a pass takes minutes; cron comes round faster
+
+for t in "$T_TASKS"/*/; do                        # real work owns the GPU. This is a courtesy, not a
+  [ -f "$t/step" ] || continue                    # mutex: the agent slots are the mutex
+  [ "$(state "${t%/}")" != running ] || exit 0
+done
+
+put() { printf '%s\n' "$2" > "$1.tmp" && mv "$1.tmp" "$1"; }
+
+# every (task, mindset) that may still read the commit a finished task is on: least read first, then
+# the mindsets the task's own pipeline never runs, then the newest work.
+pairs() {
+  local task head inline mindset seen count rank
+  for task in "$T_TASKS"/*/; do
+    task=${task%/}
+    [ "$(cat "$task/step" 2> /dev/null)" = done ] || continue
+    [ ! -e "$task/hold" ] || continue
+    [ -d "$task/work" ] || continue                                    # torn down, or never had one
+    [ "$(cat "$task/idle/fixes" 2> /dev/null || echo 0)" -lt "$IDLE_FIXES" ] || continue
+    if grep -qsx "${task##*/}" "$T_TASKS"/*/after; then continue; fi   # another task branched from it
+    head=$(git -C "$task/work" rev-parse HEAD 2> /dev/null) || continue
+    if git -C "$task/work" diff --quiet "$(cat "$task/base")...$head"; then continue; fi   # landed
+    inline=" $(set -a; load_env "$task" > /dev/null 2>&1; set +a; echo "${MINDSETS:-}") "
+    for mindset in "$T_ROOT"/mindsets/*.md; do
+      mindset=${mindset##*/} mindset=${mindset%.md}
+      read -r seen count < <(cat "$task/idle/$mindset" 2> /dev/null || echo "none 0")
+      if [ "$seen" != "$head" ]; then count=0; fi                      # a new commit is unread
+      if [ "$count" -ge "$IDLE_PASSES" ]; then continue; fi
+      rank=0; if [[ $inline == *" $mindset "* ]]; then rank=1; fi      # what the pipeline reads: later
+      echo "$count $rank $(git -C "$task/work" log -1 --format=%ct) $task $mindset $head $count"
+    done
+  done | sort -k1,1n -k2,2n -k3,3rn
+}
+
+read -r _ _ _ task mindset head count < <(pairs) || exit 0
+[ -n "${task:-}" ] || exit 0
+n=$(task_num "$task")
+if [ -s "$task/pr" ] && ! (cd -P "$task/work" && gh pr view --json state --jq .state 2> /dev/null | grep -qx OPEN); then
+  echo "task $n: its pull request is closed; leaving it alone" >&2
+  count=$IDLE_PASSES                              # marked read, so the task falls out of the sweep
+  review=
+else
+  echo "$(date '+%F %T') task $n: $mindset, at $(cut -c1-8 <<< "$head")" >&2
+  code=0
+  review=$(set -a; load_env "$task" > /dev/null 2>&1; set +a; export T_STEP=review
+           review_pass "$task" "$mindset") || code=$?
+  [ "$code" != 75 ] || exit 0                     # every slot busy: this is not the time
+fi
+
+# the pass took minutes, and anything may have happened meanwhile: say nothing unless it stood still
+[ "$(cat "$task/step" 2> /dev/null)" = done ] || exit 0
+[ "$(git -C "$task/work" rev-parse HEAD)" = "$head" ] || exit 0
+[ ! -e "$task/hold" ] || exit 0
+
+mkdir -p "$task/idle"
+if [ "$(verdict_of "$review")" = "VERDICT: changes" ]; then
+  t say "$n" "$(printf '## idle review: %s\n\n%s' "$mindset" "$review")" implement < /dev/null || exit 0
+  put "$task/idle/fixes" "$(( $(cat "$task/idle/fixes" 2> /dev/null || echo 0) + 1 ))"
+fi
+put "$task/idle/$mindset" "$head $((count + 1))"  # a read that found nothing is still a read

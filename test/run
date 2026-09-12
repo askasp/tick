@@ -6,7 +6,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 path=$PATH
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 SHELL=/bin/bash
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
-unset T_VAR T_PIPELINE T_REPO T_REPOS MAX_RUNS DIFF_MAX SLOTS_claude SLOTS_opencode T_EFFORT CLAUDE_EDIT_MODE AGENT_CLI AGENT_MODEL T_PICKER
+unset T_VAR T_PIPELINE T_REPO T_REPOS MAX_RUNS DIFF_MAX IDLE_PASSES IDLE_FIXES SLOTS_claude SLOTS_opencode T_EFFORT CLAUDE_EDIT_MODE AGENT_CLI AGENT_MODEL T_PICKER
 # run by a tick task's test step, the task's settings are exported (TEST_CMD=test/run would be the toy's too),
 # and so is t ui's state when the board started the task: its T_UI is gone by now, and t new writes there
 unset TASK_ID T_STEP T_UI T_NEW T_UI_CHANGED TEST_CMD TEARDOWN $(cat "$root"/pipelines/*/env "$root"/repos/*/env 2> /dev/null | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | sort -u)
@@ -1060,6 +1060,109 @@ test_the_front_digest_puts_comments_that_mention_you_first() {
   [ "$(grep -n 'Launch plan' "$p" | cut -d: -f1)" -lt "$(grep -n 'Invoice question' "$p" | cut -d: -f1)" ]
   grep -q 'email from bob@shop.example' "$p"
   not grep -q 'old news' "$p"
+}
+
+idle() { "$tmp/tick/jobs/idle-review" 2> /dev/null; }   # one pass of jobs/idle-review, quietly   # one pass of jobs/idle-review, quietly
+reads() { grep -c '^=====$' "$FAKE/read.prompts" 2> /dev/null || echo 0; }   # prompts a reviewer got
+
+test_idle_review_reads_finished_work_with_a_mindset_its_pipeline_skipped() {
+  echo 'MINDSETS="intent"' >> "$tmp/tick/pipelines/local/env"
+  id=$(new "add the widget")
+  t run $id
+  eq "$(reads)" 1                                         # the pipeline read it once, as intent
+  idle
+  eq "$(reads)" 2
+  [ ! -e "$(dir $id)/idle/intent" ]                       # the one its pipeline runs waits its turn
+  m=$(ls "$(dir $id)/idle")                               # whichever it took, that mindset was read
+  grep -qF "$(head -1 "$tmp/tick/mindsets/$m.md")" "$FAKE/read.prompts"
+  eq "$(cut -d' ' -f1 "$(dir $id)/idle/$m")" "$(git -C "$(t path $id)" rev-parse HEAD)"
+}
+
+test_idle_review_goes_quiet_when_every_mindset_has_read_the_commit() {
+  export IDLE_PASSES=1
+  id=$(new "add the widget")
+  t run $id
+  for _ in $(ls "$tmp/tick/mindsets"); do idle; done
+  before=$(reads)
+  idle
+  eq "$(reads)" "$before"                                 # nothing new to look at, and it says nothing
+  eq "$(ls "$(dir $id)/idle" | wc -l)" "$(ls "$tmp/tick/mindsets" | wc -l)"
+}
+
+test_what_an_idle_review_finds_goes_back_to_the_task_once() {
+  printf 'approve\nchanges\n' > "$FAKE/verdicts"         # the pipeline approves; the idle pass doesn't
+  id=$(new "add the widget")
+  t run $id
+  idle
+  eq "$(step $id)" 10-implement                           # said to the task, which starts over
+  grep -q '^## idle review: ' "$(dir $id)/feedback.md"    # and the note says which mindset found it
+  eq "$(cat "$(dir $id)/idle/fixes")" 1
+  idle
+  eq "$(cat "$(dir $id)/idle/fixes")" 1                   # it is running now: one finding at a time
+}
+
+test_idle_review_leaves_a_busy_machine_alone() {
+  id=$(new "add the widget")
+  t run $id
+  exec 9> "$(dir $id)/lock"; flock 9
+  echo 10-implement > "$(dir $id)/step"                   # something is running
+  before=$(reads)
+  idle
+  eq "$(reads)" "$before"
+  exec 9>&-
+}
+
+test_two_idle_reviews_never_overlap() {
+  id=$(new "add the widget")
+  t run $id
+  mkdir -p "$T_VAR"; exec 8> "$T_VAR/idle.lock"; flock 8
+  before=$(reads)
+  idle
+  eq "$(reads)" "$before"
+  exec 8>&-
+}
+
+test_idle_review_passes_over_work_it_cannot_help() {
+  a=$(new "landed work" -p main)                          # main lands its branch on the trunk
+  t run $a
+  b=$(new "parent work"); c=$(new "child work" --on $b)
+  t run $b
+  d=$(new "held work"); t run $d; t hold $d "not now" > /dev/null 2>&1
+  e=$(new "a question" -p ask); t run $e                  # no worktree at all
+  before=$(reads)
+  idle
+  eq "$(reads)" "$before"                                 # landed, stacked on, held, no worktree
+  eq "$(step $c)" 10-implement
+}
+
+test_idle_review_asks_one_task_for_no_more_fixes_than_it_may() {
+  export IDLE_FIXES=1
+  printf 'approve\nchanges\napprove\n' > "$FAKE/verdicts"
+  id=$(new "add the widget")
+  t run $id
+  idle
+  eq "$(cat "$(dir $id)/idle/fixes")" 1
+  t run $id                                               # it fixes what the idle review found
+  eq "$(step $id)" done
+  before=$(reads)
+  idle
+  eq "$(reads)" "$before"                                 # and is left alone from now on
+}
+
+test_idle_review_leaves_a_closed_pull_request_alone() {
+  profile
+  echo MERGED > "$FAKE/pr_state"
+  id=$(new "add the widget" -r toy -p feature)
+  t run $id
+  eq "$(step $id)" done
+  before=$(reads)
+  idle
+  eq "$(reads)" "$before"
+  [ -n "$(ls "$(dir $id)/idle")" ]                        # marked read, so it stops being a candidate
+}
+
+test_idle_review_is_a_job_the_rest_of_tick_knows_nothing_about() {
+  not grep -rq 'idle/' "$root/bin" "$root/lib" "$root/steps" "$root/drivers" "$root/pipelines" "$root/etc"
 }
 
 test_the_front_digest_calls_no_agent_when_nothing_is_new() {

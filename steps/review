@@ -1,72 +1,27 @@
 #!/usr/bin/env bash
-# review — the reviewer agent reads the task and the diff. On "changes", its review becomes
-# feedback.md and the task goes back to implement.
+# review — the reviewer agent reads the task and the diff, once per mindset the pipeline names
+# (MINDSETS= in its env; unset, once for everything). The task moves on when every pass approves;
+# the passes that ask for changes become feedback.md, and the task goes back to implement.
 set -euo pipefail
-range=$(cat base)...HEAD
+. "$T_ROOT/lib/review.sh"
 
-# GENERATED= in the repo's env is what tooling writes (amino: the openapi specs and API clients).
-# It is no one's work to review, and it is huge, so it never reaches the reviewer.
-skip=(.)
-for glob in ${GENERATED:-}; do skip+=(":(exclude)$glob"); done
-reviewed() { git -C work diff "$range" "$@" -- "${skip[@]}"; }
-
-# A whole diff can still be bigger than the model's context. Whole file patches go in, smallest
-# first, until DIFF_MAX bytes are spent; the files left out are named, and the reviewer reads those.
-patch_sizes() {
-  local file
-  reviewed --name-only | while IFS= read -r file; do
-    echo "$(git -C work diff "$range" -- "$file" | wc -c) $file"
-  done | sort -n
-}
-
-patches() {
-  local left=$DIFF_MAX size file left_out=()
-  while read -r size file; do
-    if [ "$size" -gt "$left" ]; then left_out+=("$file"); continue; fi
-    left=$((left - size))
-    printf '```diff\n'; git -C work diff "$range" -- "$file"; printf '```\n\n'
-  done < <(patch_sizes)
-  if [ "${#left_out[@]}" -gt 0 ]; then
-    printf 'Too large for this prompt; read these files in the worktree yourself:\n'
-    printf -- '- %s\n' "${left_out[@]}"
-  fi
-}
-
-prompt() {
-  cat task.md
-  printf '\n## The change (git diff %s)\n\n```\n' "$range"
-  reviewed --stat
-  printf '```\n\n'
-  patches
-}
-
-# MINDSETS= in the pipeline's env names files in mindsets/, one pass each: the same reviewer reads
-# the same diff several times, each time for one thing only. Unset, it reads once for everything.
-# The task moves on when every pass approves; the ones that don't become feedback.
 mindsets=(${MINDSETS:-})
 [ "${#mindsets[@]}" -gt 0 ] || mindsets=("")
 for look_at in "${mindsets[@]}"; do                      # every name before the first agent runs
-  if [ -n "$look_at" ] && [ ! -f "$T_ROOT/mindsets/$look_at.md" ]; then
-    echo "no mindset '$look_at'; there are: $(ls "$T_ROOT/mindsets" | sed 's/\.md$//' | xargs)" >&2
-    exit 1
-  fi
+  if [ -n "$look_at" ]; then mindset_file "$look_at" > /dev/null; fi
 done
 
 : > review.tmp
 : > changes.tmp
 for look_at in "${mindsets[@]}"; do
-  { prompt
-    if [ -n "$look_at" ]; then printf '\n## This review\n\n'; cat "$T_ROOT/mindsets/$look_at.md"; fi
-  } |
-    (cd -P work && agent reviewer) > pass.tmp
-  case $(grep -oE '^VERDICT: *(approve|changes)' pass.tmp | tail -1) in
+  pass=$(review_pass "$PWD" "$look_at")
+  case $(verdict_of "$pass") in
     *approve) ;;
-    *changes) { printf '## %s\n\n' "${look_at:-review}"; cat pass.tmp; echo; } >> changes.tmp ;;
+    *changes) printf '## %s\n\n%s\n\n' "${look_at:-review}" "$pass" >> changes.tmp ;;
     *)        echo "the ${look_at:-} review has no VERDICT line" >&2; exit 1 ;;
   esac
-  { printf '## %s\n\n' "${look_at:-review}"; cat pass.tmp; echo; } >> review.tmp
+  printf '## %s\n\n%s\n\n' "${look_at:-review}" "$pass" >> review.tmp
 done
-rm -f pass.tmp
 mv review.tmp review.md
 
 if [ -s changes.tmp ]; then

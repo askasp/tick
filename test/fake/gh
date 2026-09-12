@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # A stand-in for gh. `pr checks` answers with the next line of $FAKE/checks:
 # pass | pending | fail (default pass), with gh's exit codes (0, 8, 1).
+# `pr view` answers with the next line of $FAKE/pr_state (default OPEN).
 set -eu
 pop() {
   local line=
@@ -18,6 +19,7 @@ case "$1 $2" in
       pending) printf 'build\tpending\t0\t%s\n' $link; exit 8 ;;
       fail)    printf 'build\tfail\t1m2s\t%s\n' $link; exit 1 ;;
     esac ;;
+  "pr view")   pop pr_state OPEN ;;
   "run view")  echo "FAIL test_widget: expected 2, got 3" ;;
   "auth status") ;;
   *)           echo "fake gh: unhandled: $*" >&2; exit 1 ;;
