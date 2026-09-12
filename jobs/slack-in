@@ -20,6 +20,23 @@ untaken() {
     | sort_by(.ts)[]'
 }
 
+# the words a message opens with that aren't the task: a pipeline of its own, the way `t ask "…"`
+# does in a terminal, and any optional step of it (+plan). Leaves the rest of $title to be the title.
+opening() {
+  local word pipeline=
+  flags=()
+  while [ "${title%% *}" != "$title" ]; do
+    word=${title%% *}
+    if [ -z "$pipeline" ] && [ -d "$T_ROOT/pipelines/$word" ]; then flags+=(-p "$word") pipeline=$word
+    elif [[ $word == +* ]]; then flags+=("$word")
+    else break
+    fi
+    title=${title#"$word" }
+  done
+  # a pipeline with a repo of its own (main) or none at all (research) must not be given the channel's
+  if [ -z "$(env_get "$T_ROOT/pipelines/${pipeline:-.}/env" REPO)" ]; then flags+=(-r "$repo"); fi
+}
+
 take()  { api reactions.add channel="$1" timestamp="$2" name=eyes > /dev/null || true; }
 reply() { api chat.postMessage channel="$1" thread_ts="$2" text="$3" > /dev/null || true; }
 
@@ -47,8 +64,13 @@ for pair in ${SLACK_CHANNELS:-}; do
   while read -r msg; do
     ts=$(jq -r .ts <<< "$msg") text=$(jq -r .text <<< "$msg")
     take "$ch" "$ts"                            # taken before it runs, so a crash never starts it twice
+    if [ "${text,,}" = status ]; then            # not a task: the board, moved down to where you are
+      : > "$SLACK_STATE/board.$ch.move"
+      continue
+    fi
     title=${text%%$'\n'*} rest=${text#"$title"}
-    if id=$(printf '%s' "${rest#$'\n'}" | t new -r "$repo" "$title" ${rest:+-} 2> "$SLACK_STATE/err"); then
+    opening
+    if id=$(printf '%s' "${rest#$'\n'}" | t new "${flags[@]}" "$title" ${rest:+-} 2> "$SLACK_STATE/err"); then
       put "$(tdir "$((10#$id))")/slack_src" "$ts"
     else
       reply "$ch" "$ts" "$(tail -3 "$SLACK_STATE/err")"

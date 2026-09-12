@@ -10,7 +10,7 @@
 task_text() { printf '*task %s*  %s\n%s' "$(task_num "$1")" "$(name "$1")" "$(where "$1")"; }
 
 # the board: every open task, two ragged lines each. Not columns, because Slack's proportional font
-# would only pretend they lined up, and real markdown, because a canvas is a document, not a message.
+# would only pretend they lined up.
 board_text() {
   local ch=$1 repo=$2 t rows= open=0 held=0 done_n=0 mark
   for t in "$T_TASKS"/*/; do
@@ -20,9 +20,9 @@ board_text() {
     if [ "$(cat "$t/step")" = done ]; then done_n=$((done_n + 1)); continue; fi
     open=$((open + 1)) mark=
     if [ -e "$t/hold" ]; then held=$((held + 1)) mark='🔴 '; fi
-    rows+="$mark**$(task_num "$t")**  $(name "$t")"$'\n'"$(where "$t")"$'\n\n'
+    rows+="$mark\`$(task_num "$t")\` *$(name "$t")*"$'\n'"$(where "$t")"$'\n'
   done
-  printf '# %s\n\n%s active%s\n\n%s\n%s done' "$repo" "$open" \
+  printf '*%s*  ·  %s active%s\n\n%s\n%s done' "$repo" "$open" \
     "$(if [ "$held" -gt 0 ]; then echo ", $held needs you"; fi)" \
     "${rows:-nothing running}" "$done_n"
 }
@@ -35,20 +35,22 @@ moves() {
     print when "  " $0 }' "$2"
 }
 
-# the board is the channel's canvas, not a message in it: a message would sink under the very tasks
-# it counts, and the canvas is one tap from anywhere in the channel, wherever you have scrolled to.
+# There is one board message in a channel, ever, and it lives where you last asked for it: saying
+# `status` there moves it to the bottom, which on a phone is the only place that is easy to find.
+# Between asks it is edited where it stands, so it is current wherever you left it.
 for pair in ${SLACK_CHANNELS:-}; do
   ch=${pair%%=*}
   text=$(board_text "$ch" "${pair#*=}")
-  [ "$text" != "$(get "$SLACK_STATE/board.$ch.sent")" ] || continue
-  canvas=$(get "$SLACK_STATE/canvas.$ch")
-  if [ -z "$canvas" ]; then
-    made=$(api conversations.canvases.create channel_id="$ch" \
-      document_content="$(jq -nc --arg m "$text" '{type: "markdown", markdown: $m}')") || continue
-    put "$SLACK_STATE/canvas.$ch" "$(jq -r .canvas_id <<< "$made")"
-  else                                         # no section_id: the whole document, which is the board
-    api canvases.edit canvas_id="$canvas" changes="$(jq -nc --arg m "$text" \
-      '[{operation: "replace", document_content: {type: "markdown", markdown: $m}}]')" > /dev/null || continue
+  ts=$(get "$SLACK_STATE/board.$ch.ts")
+  move=$SLACK_STATE/board.$ch.move
+  if [ ! -e "$move" ] && [ -n "$ts" ] && [ "$text" = "$(get "$SLACK_STATE/board.$ch.sent")" ]; then continue; fi
+  if [ -e "$move" ] || [ -z "$ts" ]; then
+    if [ -n "$ts" ]; then api chat.delete channel="$ch" ts="$ts" > /dev/null || true; fi
+    posted=$(api chat.postMessage channel="$ch" text="$text") || continue
+    put "$SLACK_STATE/board.$ch.ts" "$(jq -r .ts <<< "$posted")"
+    rm -f "$move"
+  else
+    api chat.update channel="$ch" ts="$ts" text="$text" > /dev/null || true
   fi
   put "$SLACK_STATE/board.$ch.sent" "$text"
 done
@@ -82,6 +84,17 @@ for task in "$T_TASKS"/*/; do
       api chat.postMessage channel="$ch" thread_ts="$ts" text="$lines" > /dev/null || true
       put "$task/slack_seen" "$(wc -l < "$task/history")"
     fi
+  fi
+
+  # an answer is the whole point of the question, so it goes to the thread as itself, and mentions
+  # you the way a hold does: both are tick waiting on you
+  if [ "$(cat "$task/step")" != done ]; then rm -f "$task/slack_answer"; fi   # a follow-up answers again
+  if [ -s "$task/answer.md" ] && [ ! -f "$task/slack_answer" ] && [ "$(cat "$task/step")" = done ]; then
+    answer=$(head -c 3000 "$task/answer.md")
+    if [ "$(wc -c < "$task/answer.md")" -gt 3000 ]; then answer+=$'\n\n…  all of it: '"t show $(task_num "$task")"; fi
+    api chat.postMessage channel="$ch" thread_ts="$ts" \
+      text="$answer${SLACK_ME:+$'\n\n'<@$SLACK_ME>}" > /dev/null || true
+    touch "$task/slack_answer"
   fi
 
   # the message you typed to start it wears the answer: 👀 tick has it, ✅ it is done

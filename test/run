@@ -1054,23 +1054,47 @@ test_slack_posts_a_task_once_and_edits_that_message_after_that() {
   slack
   id=$(new -r toy "add the widget")
   "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 1                 # the task; the board is the canvas, not a message
-  eq "$(calls conversations.canvases.create)" 1
+  eq "$(calls chat.postMessage)" 2                 # the board, and the task
   "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 1                 # nothing changed: nothing said
+  eq "$(calls chat.postMessage)" 2                 # nothing changed: nothing said
   eq "$(calls chat.update)" 0
-  eq "$(calls canvases.edit)" 0
   t hold $id "waiting for you"
   "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 1
-  eq "$(calls chat.update)" 1                      # the same message, edited where it is
-  eq "$(calls conversations.canvases.create)" 1    # the same canvas, edited where it is
-  eq "$(calls canvases.edit)" 1
-  grep -A1 '^canvases.edit' "$FAKE/slack.calls" | grep -q 'canvas_id=F0CANVAS'
+  eq "$(calls chat.postMessage)" 2
+  eq "$(calls chat.update)" 2                      # the same two messages, edited where they are
   grep -A2 '^chat.update' "$FAKE/slack.calls" | grep -q "ts=$(cat "$(dir $id)/slack_ts")"
   grep -q 'held  waiting for you' "$FAKE/slack.calls"
   grep -q '1 needs you' "$FAKE/slack.calls"
   not grep -q "$(cat "$(dir $id)/branch")" "$FAKE/slack.calls"   # a branch is a terminal's business
+}
+
+test_slack_gets_the_answer_to_a_question_and_not_only_that_there_is_one() {
+  slack
+  id=$(new -r toy -p ask "where is the cart total rounded?")
+  "$tmp/tick/jobs/slack-out"
+  t run $id
+  eq "$(step $id)" done
+  "$tmp/tick/jobs/slack-out"
+  grep -q "$(head -c 30 "$(dir $id)/answer.md")" "$FAKE/slack.calls"
+  grep -q '<@U0AKSEL>' "$FAKE/slack.calls"          # you asked, so you are told
+  answers=$(calls chat.postMessage)
+  "$tmp/tick/jobs/slack-out"
+  eq "$(calls chat.postMessage)" "$answers"         # said once, not on every tick
+}
+
+test_saying_status_moves_the_board_down_to_where_you_are() {
+  slack
+  new -r toy "add the widget" > /dev/null
+  "$tmp/tick/jobs/slack-out"
+  board=$(cat "$T_VAR/slack/board.C0TOY.ts")
+  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "status"}]' history
+  "$tmp/tick/jobs/slack-in"
+  eq "$(ls "$T_VAR/tasks" | wc -l)" 1              # the word is the board, not a task about the board
+  "$tmp/tick/jobs/slack-out"
+  grep -A2 '^chat.delete' "$FAKE/slack.calls" | grep -q "ts=$board"
+  not eq "$(cat "$T_VAR/slack/board.C0TOY.ts")" "$board"     # one board, posted afresh at the bottom
+  "$tmp/tick/jobs/slack-out"
+  eq "$(calls chat.delete)" 1                      # and it stays there until you ask again
 }
 
 test_slack_takes_the_card_of_a_task_you_removed() {
@@ -1099,6 +1123,23 @@ test_a_message_in_the_slack_channel_starts_a_task_and_gets_an_eye() {
           "reactions": [{"name": "eyes", "users": ["U0BOT"]}]}]' history
   "$tmp/tick/jobs/slack-in"
   not test -d "$(dir 0002)"                        # 👀 is the whole memory: it never starts twice
+}
+
+test_a_slack_message_that_opens_with_a_pipeline_starts_that_kind_of_task() {
+  slack
+  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "ask where is the cart total rounded?"}]' history
+  "$tmp/tick/jobs/slack-in"
+  eq "$(cat "$(dir 0001)/pipeline")" ask
+  eq "$(head -1 "$(dir 0001)/task.md")" "# where is the cart total rounded?"
+  eq "$(cat "$(dir 0001)/repo")" "$tmp/repo"       # ask reads the channel's repo
+  said '[{"ts": "11.0", "user": "U0AKSEL", "text": "research which bun test runner is fastest?"}]' history
+  "$tmp/tick/jobs/slack-in"
+  eq "$(cat "$(dir 0002)/pipeline")" research
+  [ ! -e "$(dir 0002)/repo" ]                      # research says REPO=none, so it gets none
+  said '[{"ts": "12.0", "user": "U0AKSEL", "text": "feature +plan add a discount code field"}]' history
+  "$tmp/tick/jobs/slack-in"
+  eq "$(cat "$(dir 0003)/opt")" plan
+  eq "$(head -1 "$(dir 0003)/task.md")" "# add a discount code field"
 }
 
 test_a_reply_in_a_task_thread_says_it_to_that_task() {

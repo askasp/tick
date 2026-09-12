@@ -376,7 +376,8 @@ drop the two crontab lines, and tick is exactly as it was.
 A channel is bound to a repo. Write `~/.config/slack/env` (`chmod 600` it):
 
 ```sh
-SLACK_TOKEN=xoxb-…               # chat:write, channels:history, reactions:write, canvases:write
+SLACK_TOKEN=xoxb-…               # chat:write, reactions:write, and channels:history
+                                 # — groups:history for a private channel
 SLACK_CHANNELS="C0AMINO=amino"   # CHANNEL=repo, one pair per repo you want on Slack
 SLACK_ME=U0AKSEL                 # who a held task mentions
 ```
@@ -387,16 +388,21 @@ SLACK_ME=U0AKSEL                 # who a held task mentions
 
 From then on the channel holds one message per task, posted once and edited in
 place — an edit is silent, so four agents work without touching your phone.
-What a task did goes into its own thread, and only a hold mentions you. `t rm`
-takes the message with the task, so the channel holds what the board holds.
+What a task did goes into its own thread, and only a hold or an answer mentions
+you — both are tick waiting on you. A question's answer lands in that thread as
+itself, not as the news that there is one. `t rm` takes the message with the
+task, so the channel holds what the board holds.
 
-The board itself is the channel's **canvas**, not a message in it: a message
-would sink under the very tasks it counts, and the canvas tab is one tap from
-anywhere in the channel.
+There is one board message in the channel, ever, and it lives where you last
+asked for it: say `status` and it moves to the bottom, where you are already
+looking. Between asks it is edited where it stands, so it is current wherever
+you left it.
 
 | you do | it runs |
 | --- | --- |
 | type in the channel | `t new -r REPO` there, first line the title and the rest details |
+| open with a pipeline's name | that pipeline (`ask where is the total rounded?`), and `+plan` after it |
+| say `status` | moves the board down to the bottom of the channel |
 | reply in a task's thread | `t say` to that task |
 | reply starting with `t ` | that one command (`t log`, `t diff`, `t stack …`) on that task |
 
