@@ -1300,6 +1300,29 @@ test_a_slack_message_that_opens_with_a_pipeline_starts_that_kind_of_task() {
   eq "$(head -1 "$(dir 0003)/task.md")" "# add a discount code field"
 }
 
+test_a_question_asked_in_a_channel_is_answered_there_though_it_has_no_repo() {
+  slack
+  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "research which bun test runner is fastest?"}]' history
+  "$tmp/tick/jobs/slack-in"
+  [ ! -e "$(dir 0001)/repo" ]                      # research says REPO=none, so its channel is the one you asked in
+  t run 0001
+  "$tmp/tick/jobs/slack-out"
+  grep -q "$(head -c 30 "$(dir 0001)/answer.md")" "$FAKE/slack.calls"
+  grep -q '<@U0AKSEL>' "$FAKE/slack.calls"
+}
+
+test_a_command_typed_in_the_channel_runs_on_the_task_it_names() {
+  slack
+  id=$(new -r toy "add the widget")
+  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "t hold '"$((10#$id))"' sleep on it"}]' history
+  "$tmp/tick/jobs/slack-in"
+  eq "$(cat "$(dir $id)/hold")" "sleep on it"
+  eq "$(ls "$T_VAR/tasks" | wc -l)" 1              # a command is not a task about the command
+  said '[{"ts": "11.0", "user": "U0AKSEL", "text": "t show '"$((10#$id))"'"}]' history
+  "$tmp/tick/jobs/slack-in"
+  grep -q "add the widget" "$FAKE/slack.calls"
+}
+
 test_a_reply_in_a_task_thread_says_it_to_that_task() {
   slack
   id=$(new -r toy "add the widget")
@@ -1321,6 +1344,10 @@ test_a_reply_that_is_a_command_runs_it_and_posts_what_it_printed() {
   "$tmp/tick/jobs/slack-in"
   eq "$(cat "$(dir $id)/hold")" "sleep on it"
   [ ! -f "$(dir $id)/feedback.md" ]
+  said '[{"ts": "1701.000000", "bot_id": "B0", "text": "task 1"},
+         {"ts": "22.0", "user": "U0AKSEL", "text": "t show"}]' replies
+  "$tmp/tick/jobs/slack-in"
+  grep -q 'sleep on it' "$FAKE/slack.calls"        # what it printed, not an empty block
   said '[{"ts": "1701.000000", "bot_id": "B0", "text": "task 1"},
          {"ts": "21.0", "user": "U0AKSEL", "text": "t frobnicate"}]' replies
   "$tmp/tick/jobs/slack-in"
