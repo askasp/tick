@@ -27,4 +27,17 @@ opencode "${args[@]}" | tee "$raw" | jq --unbuffered -nrR --arg dir "$PWD" --arg
           else empty end))' >&2
 
 jq -nrR '[inputs | fromjson? | select(.type == "text") | .part.text] | last // empty' "$raw"
+# write token usage and rate to stderr for the board
+jq -nrR '
+  [inputs | fromjson? | select(.type == "step_start" or .type == "step_finish")] as $e |
+  ($e | map(select(.type == "step_start")) | first | .timestamp // 0) as $start |
+  ($e | map(select(.type == "step_finish")) | last) as $end |
+  if $end and ($end | has("part")) and ($end.part | has("tokens")) then
+    ($end.part.tokens) as $t |
+    ($end.timestamp // $start) - $start as $ms |
+    ($t.total // 0) as $total |
+    if $ms > 0 then "tokens/s: \($total * 1000 / $ms | round)" else "tokens: \($total)" end
+  else empty end
+' "$raw" >&2 || true
+# no result line, or an error result → fail
 ! grep -q '"type":"error"' "$raw"

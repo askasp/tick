@@ -9,3 +9,15 @@ if [ -z "$rows" ]; then
   exit 0
 fi
 echo "$rows" | if [ -t 1 ]; then fit; else cat; fi
+
+# footer: GPU stats and token rate from running tasks, if available
+footer=
+stats=$(gpu_stats)
+[ -n "$stats" ] && footer="$stats"
+for t in "$T_TASKS"/*/; do
+  [ -f "$t/step" ] || continue
+  [ "$(state "$t")" = running ] || continue
+  rate=$(token_rate "$t")
+  [ -n "$rate" ] && footer="${footer:+$footer  }$rate"
+done
+[ -n "$footer" ] && echo "$footer"

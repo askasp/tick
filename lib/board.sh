@@ -45,7 +45,8 @@ last_words() {
   tail -n 40 "$1" 2> /dev/null | sed 's/\x1b\[[0-9;]*m//g' | awk '
     /^=== /                      { last = ""; next }
     /^session: |^```/ || NF == 0 { next }
-                                 { sub(/^ *(· |! )/, ""); last = $0 }
+    /^tokens/                    { next }
+                                  { sub(/^ *(· |! )/, ""); last = $0 }
     END                          { print last }'
 }
 
@@ -61,6 +62,24 @@ doing() {
   done
   if [ "${#out}" -gt 32 ]; then out=${out:0:31}…; fi
   echo "$out"
+}
+
+# GPU stats if nvidia-smi is available: "GPU 45% 8.1/16.0GiB"
+gpu_stats() {
+  command -v nvidia-smi > /dev/null 2>&1 || return 0
+  nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total \
+    --format=csv,noheader,nounits 2>/dev/null | \
+    awk -F', ' '{ printf "GPU %d%% %.1f/%.1fGiB", $1, $2/1024, $3/1024 }'
+}
+
+# the latest token info from a task's step log, for the board footer: "tokens/s: 1234" or "tokens: 9214"
+token_rate() {
+  local t=$1 step log
+  step=$(cat "$t/step" 2>/dev/null)
+  [ -n "$step" ] || return 0
+  log="$t/log/$step.log"
+  [ -f "$log" ] || return 0
+  grep -E 'tokens(/s)?:' "$log" 2>/dev/null | tail -1
 }
 
 # where a task stands, in a word or two: held and why, after 7, answered, done, else the step it is on.

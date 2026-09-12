@@ -892,7 +892,7 @@ test_the_board_counts_steps_and_leaves_what_is_absent_blank() {
   grep -qE '^ +1 +repo +add the widget +0/3 +next tick$' "$tmp/out"   # not begun: no age
   grep -qE '^ +2 +repo +how do the tests run\? +1/1 +answered$' "$tmp/out"
   not grep -q — "$tmp/out"                                # what is absent is blank
-  eq "$(awk '{ print index($0, "/") }' "$tmp/out" | sort -u | wc -l)" 1   # the step column lines up
+  eq "$(grep -v -E '^(GPU|tokens)' "$tmp/out" | awk '{ print index($0, "/") }' | sort -u | wc -l)" 1   # the step column lines up
   (. "$tmp/tick/lib/tick.sh"; T_COLS=80 board -a) > "$tmp/narrow"         # under 100 columns: no repo
   not grep -q repo "$tmp/narrow"
   grep -q ' 0/3 *next tick$' "$tmp/narrow"
@@ -1472,7 +1472,42 @@ test_drivers_read_real_cli_output() {
   printf '%s\n' '{"type":"tool_use","sessionID":"ses_x","part":{"tool":"glob","state":{"input":{"pattern":"**/*.sh"},"title":""}}}' > "$tmp/untitled.jsonl"
   echo hi | FAKE_REPLAY=$tmp/untitled.jsonl "$root/drivers/opencode" > /dev/null 2> "$tmp/err"
   grep -q '· glob \*\*/\*.sh' "$tmp/err"                  # no title: what it looked for
-  not bash -c "echo hi | FAKE_REPLAY=$fx/opencode-error.jsonl '$root/drivers/opencode' > /dev/null 2>&1"
+   not bash -c "echo hi | FAKE_REPLAY=$fx/opencode-error.jsonl '$root/drivers/opencode' > /dev/null 2>&1"
+}
+
+test_gpu_stats_show_on_the_board() {
+  printf '#!/usr/bin/env bash\necho "45, 8192, 16384"\n' > "$tmp/tick/test/fake/nvidia-smi"
+  chmod +x "$tmp/tick/test/fake/nvidia-smi"
+  new "add the widget" > /dev/null
+  t ls | grep -q 'GPU 45% 8.0/16.0GiB'
+}
+
+test_opencode_driver_writes_token_rate() {
+  {
+    jq -nc '{type: "step_start", timestamp: 1000, sessionID: "ses_1", part: {type: "step-start"}}'
+    jq -nc '{type: "step_finish", timestamp: 2000, sessionID: "ses_1", part: {type: "step-finish", tokens: {total: 100, input: 90, output: 10, reasoning: 0, cache: {write: 0, read: 0}}}}'
+  } > "$tmp/replay.jsonl"
+  echo hi | FAKE_REPLAY=$tmp/replay.jsonl "$root/drivers/opencode" > /dev/null 2> "$tmp/err"
+  grep -q 'tokens/s: 100' "$tmp/err"
+}
+
+test_claude_driver_writes_token_count() {
+  jq -nc '{type: "result", subtype: "success", is_error: false, result: "done", session_id: "ses_1", permission_denials: [], usage: {input_tokens: 100, output_tokens: 50}}' > "$tmp/replay.jsonl"
+  echo hi | FAKE_REPLAY=$tmp/replay.jsonl "$root/drivers/claude" > /dev/null 2> "$tmp/err" || true
+  grep -q 'tokens: 150' "$tmp/err"
+}
+
+test_board_shows_token_rate_in_footer_not_in_row() {
+  id=$(new "add the widget")
+  (exec 9> "$(dir $id)/lock"; flock 9; sleep 30) &
+  pid=$!
+  sleep 0.5
+  mkdir -p "$(dir $id)/log"
+  printf '=== %s 10-implement, run 1\n  · Read foo.ts\ntokens/s: 100\n' "$(date '+%F %T')" > "$(dir $id)/log/10-implement.log"
+  t ls > "$tmp/out"
+  grep -qE '^ *1 .* implement .* Read foo\.ts' "$tmp/out"
+  grep -q 'tokens/s: 100' "$tmp/out"
+  kill $pid 2>/dev/null || true
 }
 
 names=$(declare -F | awk '{ print $3 }' | grep '^test_' | grep -- "${1:-.}")

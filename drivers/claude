@@ -34,5 +34,8 @@ claude "${args[@]}" | tee "$raw" | jq --unbuffered -rR --arg dir "$PWD/" --arg h
 jq -rR 'fromjson? | select(.type == "result") | .permission_denials[]? |
   "  ! denied: \(.tool_name) \(.tool_input.file_path // .tool_input.command // "")"' "$raw" >&2
 jq -rR 'fromjson? | select(.type == "result") | .result // empty' "$raw"
+# write token usage to stderr for the board
+jq -nrR '[inputs | fromjson? | select(.type == "result")] | last | .usage // empty |
+  if . then "tokens: \((.input_tokens // 0) + (.output_tokens // 0))" else empty end' "$raw" >&2 || true
 # no result line, or an error result → fail
 jq -eR 'fromjson? | select(.type == "result") | .is_error | not' "$raw" > /dev/null
