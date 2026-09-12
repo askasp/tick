@@ -9,9 +9,9 @@
 # a terminal's business (t show), and the thread under it is the rest.
 task_text() { printf '*task %s*  %s\n%s' "$(task_num "$1")" "$(name "$1")" "$(where "$1")"; }
 
-# the board: the channel's open tasks in the board's own columns, in a code block, because Slack's
-# proportional font would only pretend ragged lines lined up. Columns align, so an id needs no badge
-# and a title no bold — position carries the hierarchy instead.
+# the board: the channel's tasks in the board's own columns, done ones too (`t ls -a`, since a phone
+# is where you read how it went), in a code block, because Slack's proportional font would only
+# pretend ragged lines lined up. Columns align, so an id needs no badge and a title no bold.
 board_text() {
   local ch=$1 repo=$2 t ids= open=0 held=0 done_n=0 table
   for t in "$T_TASKS"/*/; do
@@ -23,10 +23,10 @@ board_text() {
     open=$((open + 1))
     if [ -e "$t/hold" ]; then held=$((held + 1)); fi
   done
-  table=$(T_SNAPSHOT=1 T_COLS=68 board | awk -v ids=" $ids" 'index(ids, " " $1 " ")')
+  table=$(T_SNAPSHOT=1 T_COLS=68 board -a | awk -v ids=" $ids" 'index(ids, " " $1 " ")')
   printf '*%s* — %s active%s, %s done\n```\n%s\n```' "$repo" "$open" \
     "$(if [ "$held" -gt 0 ]; then echo ", $held needs you"; fi)" "$done_n" \
-    "${table:-nothing running}"
+    "${table:-nothing yet}"
 }
 
 # a task's history as one message: the time, the steps it went through, and a loop it went round more

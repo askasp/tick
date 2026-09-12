@@ -1211,6 +1211,7 @@ test_slack_gets_the_answer_to_a_question_and_not_only_that_there_is_one() {
   "$tmp/tick/jobs/slack-out"
   grep -q "$(head -c 30 "$(dir $id)/answer.md")" "$FAKE/slack.calls"
   grep -q '<@U0AKSEL>' "$FAKE/slack.calls"          # you asked, so you are told
+  grep -q ' answered$' "$FAKE/slack.calls"          # and the board keeps the row: a phone is where you read how it went
   answers=$(calls chat.postMessage)
   "$tmp/tick/jobs/slack-out"
   eq "$(calls chat.postMessage)" "$answers"         # said once, not on every tick
