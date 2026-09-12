@@ -525,6 +525,13 @@ runs — `data` and `trust`, before anything is read twice.
 (crontab -l; echo '*/10 * * * * $HOME/git/tick/jobs/idle-review >> $HOME/.tick/idle.log 2>&1') | crontab -
 ```
 
+It also stays away while the GPU is yours: `GPU_BUSY` in `etc/tick.conf` is a
+command, and while it succeeds the job reads nothing. It defaults to `pgrep -x
+reaper`, the process Steam launches every game through — a process name, not a
+pattern, because `pgrep -f` would match the shell doing the asking. Anything
+that exits 0 works: add `|| pgrep -x wineserver`, or ask `nvidia-smi` how busy
+the card is.
+
 One pass per run, so the interval is the whole budget. A pass that says
 `VERDICT: changes` is said to the task (`t say`, restarting at implement) with a
 `## idle review: <mindset>` header, and the ordinary pipeline fixes it, tests
