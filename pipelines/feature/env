@@ -13,3 +13,5 @@ CLI_review=opencode
 # file in mindsets/, and a small local model is better at five narrow questions than one wide one.
 # data and trust are left to jobs/idle-review, which has all the time in the world.
 MINDSETS="intent defects blast-radius tests craft"
+# From the third round on, only these may still send the task back: tests and craft always find more.
+LATE_MINDSETS="intent defects"

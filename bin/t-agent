@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# t agent [TASK] [claude|opencode] — who solves every step of a task from its next run on; left out, the next one, then its pipeline's again
+#
+# t new --cli does this for a new task. It lives in the task's env as AGENT_CLI.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+task=$(task_dir "${1:-}")
+n=$(task_num "$task") cli=${2-$(next_cli "$(env_get "$task/env" AGENT_CLI)")}
+if [ -n "$cli" ] && [ ! -x "$T_ROOT/drivers/$cli" ]; then
+  die "no driver '$cli'; there are: $(ls "$T_ROOT/drivers" | xargs)"
+fi
+{
+  grep -v '^AGENT_CLI=' "$task/env" 2> /dev/null || true
+  if [ -n "$cli" ]; then echo "AGENT_CLI=$cli"; fi
+} > "$task/env.tmp" && mv "$task/env.tmp" "$task/env"
+if [ -n "$cli" ]; then echo "task $n: $cli solves every step from its next run"
+else echo "task $n: its pipeline's agents solve it again"; fi

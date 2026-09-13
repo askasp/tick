@@ -261,14 +261,14 @@ hold    ctrl-r  pause it after this step, or unpause it when it is held
 cancel  -       stop its agent now, and hold it
 name    -       change what the board calls it
 rm      ctrl-x  delete it and its worktree
-path    -       print its worktree'
+path    -       print its worktree
+agent   ctrl-s  who solves every step from its next run: another agent, or the pipeline again'
 
 # the board's keys besides the actions', and a form's (new, stack and say on the board, and t compose).
 # Every key is here once: t ui binds it from here, and what the screens say about it comes from here.
 BOARD_KEYS='new      ctrl-n  a new task
 keys     ?       every action, in the pane'
-FORM_KEYS='agent    ctrl-s  another agent than its pipeline names
-details  ctrl-o  the details, in $EDITOR
+FORM_KEYS='details  ctrl-o  the details, in $EDITOR
 repo     ctrl-r  another repo'
 
 # the key for $1 as fzf binds it (key_of agent → ctrl-s), and as the screens write it (key agent → ^s)

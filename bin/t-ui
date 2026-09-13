@@ -201,7 +201,7 @@ if [ "${1:-}" = --key ]; then
       echo "change-footer~${C_RED}task $1 is running; say it when it stops, or cancel it: $(key keys) cancel$C_OFF~"
       return
     fi
-    : > "$T_UI/cli"
+    env_get "$task/env" AGENT_CLI > "$T_UI/cli"
     form say "$1" "say to $1> " "${first#*-}" "follow,~6" "$(keys say)"
   }
   act_on() {   # action $1 on task $id, as $key asked
@@ -237,6 +237,7 @@ if [ "${1:-}" = --key ]; then
       stack)  stack_form "$id" ;;
       attach) echo "execute(t-attach $id)+reload-sync~t-ui --rows~" ;;      # the agent's own screen: the one that leaves
       path)   echo "change-footer~$(t-path "$id" 2>&1 | sed 's/^t: //')~" ;;
+      agent)  echo "refresh-preview+change-footer~$(t-agent "$id" 2>&1 | sed 's/^t: //')   $(key agent):another~" ;;
     esac
   }
   submit() {   # what the prompt's words were for, sent with enter or (new, stack) with details
@@ -269,10 +270,7 @@ if [ "${1:-}" = --key ]; then
             if [ -n "$cursor" ]; then echo "$cursor" > "$T_UI/new"; fi
             back "$cursor" ;;
       say)  [ "$how" = enter ] && [ -n "$q" ] || exit 0
-            cli=$(cat "$T_UI/cli")                # the agent picked here solves it from now on: the task's own setting
-            if [ -n "$cli" ]; then
-              { grep -v '^AGENT_CLI=' "$task/env" 2> /dev/null; echo "AGENT_CLI=$cli"; } > "$task/env.tmp" && mv "$task/env.tmp" "$task/env"
-            fi
+            t-agent "$target" "$(cat "$T_UI/cli")" > /dev/null   # the agent picked here solves it from now on
             t-say "$target" "$q" "$pick" > /dev/null 2> "$T_UI/err" || failed
             back "$target" ;;
       new | stack)
@@ -324,7 +322,7 @@ if [ "${1:-}" = --key ]; then
     esc)    back ;;
     ctrl-u) echo unix-line-discard ;;   # in a prompt, ^u clears what you typed
     enter)  submit enter ;;
-    *)      case $(named "$FORM_KEYS" "$BOARD_KEYS") in
+    *)      case $(named "$FORM_KEYS" "$BOARD_KEYS" "$ACTIONS") in
               details) submit details ;;
               agent)   [[ $mode == new || $mode == stack || $mode == say ]] || exit 0   # the pipeline's, or another
                        next_cli "$(cat "$T_UI/cli")" > "$T_UI/c" && mv "$T_UI/c" "$T_UI/cli"
@@ -366,7 +364,7 @@ if [ $# -gt 0 ]; then
     *)      "t-$act" "$id" ;;
   esac
   result=$?
-  if [ "$result" = 0 ] && [ "$act" != run ] && [ "$act" != path ]; then exit; fi
+  if [ "$result" = 0 ] && [ "$act" != run ] && [ "$act" != path ] && [ "$act" != agent ]; then exit; fi
   ask "(Enter: back to the board)" > /dev/null          # to read what it printed, or why it failed
   exit
 fi

@@ -6,7 +6,8 @@
 #   0    done: go to the next step, or to the one the step wrote into ./goto
 #   75   not yet (CI running, no free agent slot): same step, next tick
 #   *    failed: same step, next tick
-# After MAX_RUNS runs of one step without moving on to a later one (a goto back counts), the task holds.
+# After MAX_RUNS runs of one step that didn't finish, the task holds; so it does when a step
+# has sent it back with goto MAX_ROUNDS times without moving on to a later one.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -uo pipefail
 task=$(task_dir "${1:-}") || exit 1
@@ -62,8 +63,18 @@ while :; do
           fi
         fi
         echo "$next" > step.tmp && mv step.tmp step
-        if [[ $next > $step ]]; then echo "$run" > "runs/$step.moved"; fi
-        note "$n $step ok → $next" ;;
+        echo "$run" > "runs/$step.moved"
+        note "$n $step ok → $next"
+        if [[ $next > $step ]]; then
+          rm -f "runs/$step.rounds"
+        else
+          rounds=$(( $(cat "runs/$step.rounds" 2> /dev/null || echo 0) + 1 ))
+          echo "$rounds" > "runs/$step.rounds"
+          if [ "$rounds" -ge "$MAX_ROUNDS" ]; then
+            echo "${step#*-} sent it back $rounds times" > hold
+            note "$n on hold: ${step#*-} sent it back $rounds times"
+          fi
+        fi ;;
     75) echo $((run - 1)) > "runs/$step"        # waiting isn't a run
         exit 0 ;;
     *)  note "$n $step failed (exit $code); it runs again on the next tick"
