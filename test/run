@@ -78,6 +78,14 @@ test_scripts_parse() {
   for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/jobs/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
 }
 
+test_run_runs_only_the_tests_its_pattern_names() {
+  out=$(bash "$tmp/tick/test/run" 'new_dry')
+  grep -q 'ok    test_new_dry_shows_the_task_it_would_make' <<< "$out"
+  grep -q '1 passed, 0 failed' <<< "$out"
+  not bash "$tmp/tick/test/run" 'no_such_test' 2> "$tmp/err"
+  grep -q 'no test matches no_such_test' "$tmp/err"
+}
+
 test_help_shows_how_to_start_a_task() {
   t help | grep -q 'Start a task'
   t help | grep -q 'feature .*implement (opencode)'
@@ -1592,7 +1600,8 @@ test_drivers_read_real_cli_output() {
   not bash -c "echo hi | FAKE_REPLAY=$fx/opencode-error.jsonl '$root/drivers/opencode' > /dev/null 2>&1"
 }
 
-names=$(declare -F | awk '{ print $3 }' | grep '^test_' | grep -E -- "${1:-.}")
+names=$(declare -F | awk '{ print $3 }' | grep '^test_' | grep -- "${1:-.}")
+[ -n "$names" ] || { echo "no test matches ${1:-.}; run test/run with no pattern for all of them" >&2; exit 1; }
 logs=$(mktemp -d)
 for name in $names; do
   while [ "$(jobs -rp | wc -l)" -ge "$(nproc)" ]; do wait -n; done
