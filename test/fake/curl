@@ -2,11 +2,17 @@
 # A stand-in for curl against the Front and Slack APIs. For Front, answers with the file in
 # $FAKE/front whose name (the URL's path, slashes as _) starts the requested path; longest name
 # wins. No file: an empty page. $FAKE/front/401 makes every request fail the way `curl -f` does.
+# A Front call that writes (-X POST, PATCH) goes to $FAKE/front.calls as "METHOD /path" and its body on
+# the next line, and answers with $FAKE/front/POST_path first, then as a GET would, else an id of its own.
 # For Slack, answers with $FAKE/slack/METHOD if there is one, else ok with a ts of its own, and
 # writes the method and its fields to $FAKE/slack.calls.
 set -eu
 url=${!#}
 echo "$url" >> "$FAKE/curl.calls"
+verb=GET
+for ((i = 1; i < $#; i++)); do
+  if [ "${!i}" = -X ]; then j=$((i + 1)); verb=${!j}; fi
+done
 
 if [[ $url == https://slack.com/api/* ]]; then
   method=${url##*/}
@@ -26,7 +32,17 @@ path=${url#https://api2.frontapp.com/}
 path=${path%%\?*}
 path=${path//\//_}
 if [ -e "$FAKE/front/401" ]; then echo "curl: (22) The requested URL returned error: 401" >&2; exit 22; fi
-for name in $(ls "$FAKE/front" 2> /dev/null | sort -r); do
-  if [[ $path == "$name"* ]]; then cat "$FAKE/front/$name"; exit 0; fi
-done
+if [ "$verb" != GET ]; then
+  route=${url#https://api2.frontapp.com}
+  printf '%s %s\n%s\n' "$verb" "${route%%\?*}" "$(cat)" >> "$FAKE/front.calls"
+fi
+answer() {   # the file whose name starts $1, if there is one
+  local name
+  for name in $(ls "$FAKE/front" 2> /dev/null | sort -r); do
+    if [[ $1 == "$name"* ]]; then cat "$FAKE/front/$name"; exit 0; fi
+  done
+}
+if [ "$verb" != GET ]; then answer "${verb}_$path"; fi   # POST_conversations_cnv_x_messages: what only a POST gets
+answer "$path"
+if [ "$verb" != GET ]; then echo '{"id": "msg_fake"}'; exit 0; fi
 echo '{"_results": [], "_pagination": {"next": null}}'

@@ -238,6 +238,8 @@ if [ "${1:-}" = --key ]; then
       attach) echo "execute(t-attach $id)+reload-sync~t-ui --rows~" ;;      # the agent's own screen: the one that leaves
       path)   echo "change-footer~$(t-path "$id" 2>&1 | sed 's/^t: //')~" ;;
       agent)  echo "refresh-preview+change-footer~$(t-agent "$id" 2>&1 | sed 's/^t: //')   $(key agent):another~" ;;
+      inbox)  echo "execute(t-inbox $id)+reload-sync~t-ui --rows~+refresh-preview" ;;   # its own screen, like diff
+      sign)   echo "execute~t-sign $id || read -rp 'Enter: back to the board ' _~+reload-sync~t-ui --rows~+refresh-preview" ;;
     esac
   }
   submit() {   # what the prompt's words were for, sent with enter or (new, stack) with details

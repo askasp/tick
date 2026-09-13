@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# sources/front VERB … — the one file that knows Front's API. Reads FRONT_TOKEN= and FRONT_EMAIL= from ~/.config/front/env.
+#   poll SINCE         conversations that involve you with activity since SINCE (epoch seconds), newest first, a JSON
+#                      line each: id, subject, from, updated_at, and why (mention assigned participant recipient)
+#   thread ID          the conversation as markdown: its subject, then messages and comments oldest first, without
+#                      quoted lines or drafts
+#   draft ID [DRAFT]   the reply on stdin as a private draft on conversation ID, or into draft DRAFT; prints its id
+#   send ID            the reply on stdin, sent as you on conversation ID, which is left where it is (not archived)
+#   archive ID         archives conversation ID
+#   sent SINCE         the mail you sent since SINCE, a JSON line each: id, to, subject, sent_at, text without quotes
+# A source is to mail what a driver is to an AI CLI: another one is an executable here with the same verbs.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+conf=${XDG_CONFIG_HOME:-$HOME/.config}/front/env
+[ -r "$conf" ] || die "no $conf; write FRONT_TOKEN=... and FRONT_EMAIL=... into it, then: chmod 600 $conf"
+. "$conf"
+
+# one call: METHOD PATH, with a JSON body on stdin for anything but GET. Only a GET is retried: a POST
+# that timed out may still have made its draft, or sent its mail.
+call() {
+  local how=(--retry 5)
+  if [ "$1" != GET ]; then how=(-X "$1" -H 'Content-Type: application/json' --data-binary @-); fi
+  curl -sfS "${how[@]}" -H "Authorization: Bearer $FRONT_TOKEN" "https://api2.frontapp.com$2" ||
+    die "Front refused $1 $2; check FRONT_TOKEN and FRONT_EMAIL in $conf"
+}
+
+# every result of a listing, one JSON per line, page after page
+results() {
+  local url=$1 page
+  while [ -n "$url" ]; do
+    page=$(call GET "$url")
+    jq -c '._results[]' <<< "$page"
+    url=$(jq -r '._pagination.next // empty | sub("^https://api2.frontapp.com"; "")' <<< "$page")
+  done
+}
+
+my_id() { call GET "/teammates/alt:email:$FRONT_EMAIL" | jq -r .id; }
+
+search() {   # SINCE QUERY WHY: the conversations a Front search finds, each marked with why
+  results "/conversations/search/$(jq -rn --arg q "$2 after:$1" '$q | @uri')?limit=100" | jq -c --arg why "$3" '. + {why: $why}'
+}
+
+unquoted='def unquoted: split("\n") | map(select(startswith(">") | not)) | join("\n");'
+
+poll() {
+  local since=${1:?usage: sources/front poll SINCE} me
+  me=$(my_id)
+  { search "$since" "mention:$me" mention
+    search "$since" "assignee:$me" assigned
+    search "$since" "participant:$me" participant
+    search "$since" "recipient:$FRONT_EMAIL" recipient; } |
+    jq -sc 'group_by(.id) | map(.[0] + {why: (map(.why) | join(" "))}) | sort_by(-.updated_at)[]
+      | {id, subject, from: (.recipient.handle // ""), updated_at, why}'
+}
+
+thread() {
+  local id=${1:?usage: sources/front thread ID}
+  call GET "/conversations/$id" | jq -r '"# \(.subject // "(no subject)")"'
+  { results "/conversations/$id/messages?limit=100"; results "/conversations/$id/comments"; } | jq -rs "$unquoted"'
+    def when: strflocaltime("%a %d %b %H:%M");
+    def sender: [.recipients[]? | select(.role == "from") | .name // .handle][0] // "?";
+    map(select(.draft_mode == null)
+      | if has("posted_at") then {t: .posted_at, s: "## comment by \(.author.first_name) \(.author.last_name), \(.posted_at | when)\n\n\(.body)"}
+        else {t: .created_at, s: "## \(.type) from \(sender), \(.created_at | when)\n\n\(.text // "" | unquoted)"} end)
+    | sort_by(.t)[] | "\n" + .s'
+}
+
+# the reply on stdin as Front takes it: HTML, by you, from the channel of the inbox the conversation is in
+reply_json() {
+  local id=$1 body inbox channel
+  body=$(jq -Rsc '{body: (sub("\n+$"; "") | split("\n") | map(@html) | join("<br>"))}')
+  [ "$body" != '{"body":""}' ] || die "the reply is empty; there is nothing to draft or send"
+  inbox=$(call GET "/conversations/$id/inboxes" | jq -r '._results[0].id // empty')
+  [ -n "$inbox" ] || die "conversation $id is in no inbox, so there is no channel to reply from"
+  channel=$(call GET "/inboxes/$inbox/channels" | jq -r '._results[0].id // empty')
+  jq -c --arg channel "$channel" --arg me "$(my_id)" '. + {channel_id: $channel, author_id: $me}' <<< "$body"
+}
+
+draft() {
+  local id=${1:?usage: sources/front draft ID [DRAFT] < reply} body
+  body=$(reply_json "$id")
+  if [ -n "${2:-}" ]; then
+    call PATCH "/drafts/$2/" <<< "$body"
+  else
+    jq -c '. + {mode: "private"}' <<< "$body" | call POST "/conversations/$id/drafts"
+  fi | jq -r .id
+}
+
+send() {
+  local id=${1:?usage: sources/front send ID < reply} body
+  body=$(reply_json "$id")
+  jq -c '. + {options: {archive: false}}' <<< "$body" | call POST "/conversations/$id/messages" | jq -r '.message_uid // empty'
+}
+
+archive() {
+  local id=${1:?usage: sources/front archive ID}
+  jq -nc '{status: "archived"}' | call PATCH "/conversations/$id" > /dev/null
+}
+
+sent() {
+  local since=${1:?usage: sources/front sent SINCE} me conv
+  me=$(my_id)
+  search "$since" "participant:$me" participant | jq -r .id | sort -u | while read -r conv; do
+    results "/conversations/$conv/messages?limit=100" | jq -c --arg me "$me" --argjson since "$since" "$unquoted"'
+      select(.is_inbound == false and .draft_mode == null and .author.id == $me and .created_at >= $since)
+      | {id, to: ([.recipients[]? | select(.role == "to") | .handle] | join(", ")), subject: (.subject // ""),
+         sent_at: .created_at, text: (.text // "" | unquoted)}'
+  done
+}
+
+case ${1:-} in
+  poll | thread | draft | send | archive | sent) verb=$1; shift; "$verb" "$@" ;;
+  *) die "usage: sources/front poll SINCE | thread ID | draft ID [DRAFT] < reply | send ID < reply | archive ID | sent SINCE" ;;
+esac

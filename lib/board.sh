@@ -243,7 +243,9 @@ cancel  -       stop its agent now, and hold it
 name    -       change what the board calls it
 rm      ctrl-x  delete it and its worktree
 path    -       print its worktree
-agent   ctrl-s  who solves every step from its next run: another agent, or the pipeline again'
+agent   ctrl-s  who solves every step from its next run: another agent, or the pipeline again
+sign    -       read the reply, change it, and sign it: then it leaves
+inbox   -       the mail it watches: read a conversation, reply to it, archive it'
 
 # the board's keys besides the actions', and a form's (new, stack and say on the board, and t compose).
 # Every key is here once: t ui binds it from here, and what the screens say about it comes from here.
@@ -251,9 +253,13 @@ BOARD_KEYS='new      ctrl-n  a new task
 keys     ?       every action, in the pane'
 FORM_KEYS='details  ctrl-o  the details, in $EDITOR
 repo     ctrl-r  another repo'
+# t inbox's keys, on a screen of its own
+INBOX_KEYS='draft    enter   an agent drafts a reply, for you to read and sign
+write    ctrl-o  a reply you write, in $EDITOR
+archive  ctrl-x  archive it, where the mail lives'
 
 # the key for $1 as fzf binds it (key_of agent → ctrl-s), and as the screens write it (key agent → ^s)
-key_of() { printf '%s\n' "$ACTIONS" "$BOARD_KEYS" "$FORM_KEYS" | awk -v n="$1" '$1 == n { print $2; exit }'; }
+key_of() { printf '%s\n' "$ACTIONS" "$BOARD_KEYS" "$FORM_KEYS" "$INBOX_KEYS" | awk -v n="$1" '$1 == n { print $2; exit }'; }
 key() { keyname "$(key_of "$1")"; }
 
 # how t ui writes a key: ctrl-l as ^l, and a key an action hasn't (-) as nothing
@@ -266,13 +272,16 @@ hint() {
   printf %s "${out%   }"
 }
 
-# the actions worth offering for a task now; Enter does the first
+# the actions worth offering for a task now; Enter does the first. A watch offers its mail, and a reply
+# held for your signature the signing.
 offers() {
   case $(state "$1") in
     running) echo log diff cancel hold rm ;;
-    ready)   if [ -s "$1/log/$(cat "$1/step").log" ]; then echo log run hold; else echo run hold rm; fi ;;
+    ready)   if [ -f "$1/inbox" ]; then echo inbox log
+             elif [ -s "$1/log/$(cat "$1/step").log" ]; then echo log run hold
+             else echo run hold rm; fi ;;
     after*)  echo log rm ;;
-    HOLD)    echo say log attach hold ;;
+    HOLD)    if [[ $(cat "$1/step") == *-sign ]]; then echo sign say rm; else echo say log attach hold; fi ;;
     *)       if [ -f "$1/answer.md" ]; then echo say rm; else echo diff stack say rm; fi ;;
   esac
 }

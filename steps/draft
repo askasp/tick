@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# draft — an agent writes the reply to thread.md into answer.md. task.md says what you want said; mail you wrote
+# before (jobs/mail-corpus), to the same person first, says how you write it; an earlier draft and your notes on it
+# (t say N "shorter" draft) go along too. Optional (+draft): without it, you write the reply.
+set -euo pipefail
+. "$T_ROOT/lib/corpus.sh"
+read -r source id <<< "$(sed -n 's/^conversation: //p' task.md | head -1)"
+to=$(jq -r '.from // empty' "$T_VAR/mail/$source/$id/conv.json" 2> /dev/null || true)   # the watch read who wrote
+past=$(corpus_examples "$source" "$to")
+
+{
+  cat task.md
+  printf '\n## The conversation\n\n'; cat thread.md
+  if [ -n "$past" ]; then printf '\n## Mail you wrote before%s\n%s\n' "${to:+, to $to first}" "$past"; fi
+  if [ -s answer.md ]; then printf '\n## Your earlier draft\n\n'; cat answer.md; fi
+  if [ -s feedback.md ]; then printf '\n## What to change in it\n\n'; cat feedback.md; fi
+} | (cd / && agent drafter) > answer.tmp
+
+[ -s answer.tmp ] || { echo "the agent wrote no draft" >&2; exit 1; }
+mv answer.tmp answer.md
+if [ -f feedback.md ]; then mv feedback.md "log/feedback.$(date +%s).md"; fi

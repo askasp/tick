@@ -75,7 +75,7 @@ said() {   # what conversations.history or replies ($2) answers: said '[{"ts": "
 calls() { grep -c "^$1\$" "$FAKE/slack.calls" 2> /dev/null || true; }
 
 test_scripts_parse() {
-  for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/jobs/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
+  for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/sources/* "$root"/jobs/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
 }
 
 test_run_runs_only_the_tests_its_pattern_names() {
@@ -1364,6 +1364,240 @@ test_the_front_digest_fails_with_the_fix_when_front_refuses() {
   grep -q 'check FRONT_TOKEN' "$tmp/err"
   [ ! -s "$tmp/out" ]
   [ ! -e "$FAKE/claude.calls" ]
+}
+
+front_source() { "$tmp/tick/sources/front" "$@"; }
+
+test_front_polls_each_conversation_that_involves_you_once_with_why() {
+  front
+  page '[{"id": "cnv_a", "subject": "A", "updated_at": 300}]' > "$FAKE/front/conversations_search_mention"
+  page '[{"id": "cnv_a", "subject": "A", "updated_at": 300}, {"id": "cnv_b", "subject": "B", "updated_at": 400}]' > "$FAKE/front/conversations_search_assignee"
+  page '[{"id": "cnv_c", "subject": "C", "updated_at": 200}]' > "$FAKE/front/conversations_search_participant"
+  out=$(front_source poll 100)
+  eq "$(wc -l <<< "$out")" 3
+  eq "$(head -1 <<< "$out" | jq -r .id)" cnv_b                      # newest first
+  eq "$(jq -r 'select(.id == "cnv_a") | .why' <<< "$out")" "mention assigned"
+  eq "$(jq -r 'select(.id == "cnv_c") | .why' <<< "$out")" participant   # one you only replied in
+  grep -q 'after%3A100' "$FAKE/curl.calls"
+}
+
+test_a_front_thread_reads_oldest_first_without_quotes_or_drafts() {
+  front
+  echo '{"id": "cnv_x", "subject": "Invoice question"}' > "$FAKE/front/conversations_cnv_x"
+  page '[{"type": "email", "created_at": 300, "draft_mode": "private", "text": "half a thought"},
+         {"type": "email", "created_at": 200, "draft_mode": null, "recipients": [{"role": "from", "handle": "me@example.com"}], "text": "We are on it.\n> Can you resend the invoice?"},
+         {"type": "email", "created_at": 100, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob", "handle": "bob@shop.example"}], "text": "Can you resend the invoice?"}]' \
+    > "$FAKE/front/conversations_cnv_x_messages"
+  page '[{"posted_at": 150, "author": {"first_name": "Kari", "last_name": "N"}, "body": "ask finance"}]' > "$FAKE/front/conversations_cnv_x_comments"
+  front_source thread cnv_x > "$tmp/thread.md"
+  eq "$(head -1 "$tmp/thread.md")" "# Invoice question"
+  eq "$(grep '^## ' "$tmp/thread.md" | cut -d, -f1)" "$(printf '## email from Bob\n## comment by Kari N\n## email from me@example.com')"
+  not grep -q '^> ' "$tmp/thread.md"
+  not grep -q 'half a thought' "$tmp/thread.md"                     # your unsent draft is not the thread
+}
+
+test_a_front_draft_is_private_and_a_second_one_edits_the_first() {
+  front
+  page '[{"id": "inb_1"}]' > "$FAKE/front/conversations_cnv_x_inboxes"
+  page '[{"id": "cha_1"}]' > "$FAKE/front/inboxes_inb_1_channels"
+  echo '{"id": "msg_d1"}' > "$FAKE/front/conversations_cnv_x_drafts"
+  eq "$(printf 'Hi Bob,\n\nsent again <today>.\n' | front_source draft cnv_x)" msg_d1
+  body=$(grep -A1 '^POST /conversations/cnv_x/drafts$' "$FAKE/front.calls" | tail -1)
+  eq "$(jq -r .mode <<< "$body")" private                           # nobody else sees it until you send it
+  eq "$(jq -r .channel_id <<< "$body")" cha_1
+  eq "$(jq -r .author_id <<< "$body")" tea_me
+  eq "$(jq -r .body <<< "$body")" 'Hi Bob,<br><br>sent again &lt;today&gt;.'
+  echo '{"id": "msg_d1"}' > "$FAKE/front/drafts_msg_d1"
+  printf 'shorter\n' | front_source draft cnv_x msg_d1 > /dev/null
+  grep -q '^PATCH /drafts/msg_d1/$' "$FAKE/front.calls"
+  eq "$(grep -c '^POST ' "$FAKE/front.calls")" 1                    # one draft, edited, not two
+  not front_source draft cnv_x < /dev/null 2> "$tmp/err"
+  grep -q 'the reply is empty' "$tmp/err"
+}
+
+conversation() {   # Front's conversation cnv_x, where Bob asks for his invoice, to reply to
+  front
+  echo '{"id": "cnv_x", "subject": "Invoice question"}' > "$FAKE/front/conversations_cnv_x"
+  asks '[{"type": "email", "created_at": 100, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob"}], "text": "Can you resend the invoice?"}]'
+  page '[]' > "$FAKE/front/conversations_cnv_x_comments"
+  page '[{"id": "inb_1"}]' > "$FAKE/front/conversations_cnv_x_inboxes"
+  page '[{"id": "cha_1"}]' > "$FAKE/front/inboxes_inb_1_channels"
+  echo '{"id": "msg_d1"}' > "$FAKE/front/conversations_cnv_x_drafts"
+}
+asks() { page "$1" > "$FAKE/front/conversations_cnv_x_messages"; }   # the messages in cnv_x from now on
+reply() { printf 'conversation: front cnv_x\n%s' "${2:-}" | t new -p reply $1 "Re: Invoice question" - 2> /dev/null; }
+sign() { t sign "$1" < /dev/null 2> /dev/null; }
+
+test_a_reply_you_write_holds_until_you_sign_it_then_lands_as_a_front_draft() {
+  conversation
+  id=$(reply)
+  t run $id
+  eq "$(step $id)" 30-sign
+  eq "$(cat "$(dir $id)/hold")" "write your reply"                  # held: it waits for you, in red
+  grep -q 'Can you resend the invoice?' "$(dir $id)/thread.md"
+  [ ! -e "$FAKE/front.calls" ]                                      # and nothing has left
+  not t sign $id < /dev/null 2> "$tmp/err"
+  grep -q 'no reply to sign' "$tmp/err"
+  printf 'Sent it again just now.\n' > "$(dir $id)/answer.md"
+  sign $id
+  t run $id
+  eq "$(step $id)" done
+  grep -q '^POST /conversations/cnv_x/drafts$' "$FAKE/front.calls"
+  eq "$(cat "$(dir $id)/draft_id")" msg_d1
+  not grep -q '/messages$' "$FAKE/front.calls"                      # a draft: you send it from Front
+}
+
+test_an_agent_drafts_a_reply_from_the_thread_and_redrafts_it_from_your_notes() {
+  conversation
+  id=$(reply +draft 'say it goes out today')
+  t run $id
+  eq "$(cat "$(dir $id)/hold")" "draft ready"
+  grep -q 'Can you resend the invoice?' "$FAKE/read.prompts"
+  grep -q 'say it goes out today' "$FAKE/read.prompts"
+  [ -s "$(dir $id)/answer.md" ]
+  sign $id
+  t run $id
+  eq "$(step $id)" done
+  t say $id "shorter" draft 2> /dev/null
+  t run $id
+  eq "$(step $id)" 30-sign                                          # a new draft waits to be read again
+  grep -q '^## Your earlier draft' "$FAKE/read.prompts"
+  grep -q '^shorter$' "$FAKE/read.prompts"
+  sign $id
+  t run $id
+  grep -q '^PATCH /drafts/msg_d1/$' "$FAKE/front.calls"             # into the draft it made before
+  eq "$(grep -c '^POST ' "$FAKE/front.calls")" 1
+}
+
+test_a_reply_is_sent_only_while_the_thread_is_the_one_you_read() {
+  conversation
+  echo 'DELIVER=send' >> "$tmp/tick/pipelines/reply/env"
+  echo '{"status": "accepted", "message_uid": "uid_1"}' > "$FAKE/front/POST_conversations_cnv_x_messages"
+  id=$(reply)
+  t run $id
+  printf 'Sent it again just now.\n' > "$(dir $id)/answer.md"
+  asks '[{"type": "email", "created_at": 200, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob"}], "text": "Never mind, found it."},
+         {"type": "email", "created_at": 100, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob"}], "text": "Can you resend the invoice?"}]'
+  sign $id
+  t run $id
+  eq "$(step $id)" 30-sign
+  grep -q 'the thread moved' "$(dir $id)/hold"
+  grep -q 'Never mind, found it.' "$(dir $id)/thread.md"
+  not grep -qs '^POST ' "$FAKE/front.calls"                         # Bob wrote since: nothing went
+  sign $id
+  t run $id
+  eq "$(step $id)" done
+  body=$(grep -A1 '^POST /conversations/cnv_x/messages$' "$FAKE/front.calls" | tail -1)
+  eq "$(jq .options.archive <<< "$body")" false
+  eq "$(cat "$(dir $id)/sent")" uid_1
+}
+
+test_show_puts_a_reply_above_the_thread_it_answers_and_says_how_to_sign_it() {
+  conversation
+  id=$(reply)
+  t run $id
+  t show $id > "$tmp/out"
+  grep -q "^  t sign $((10#$id)) " "$tmp/out"
+  not grep -q 't attach' "$tmp/out"                                 # no agent wrote it, so none to take over
+  printf 'Sent it again just now.\n' > "$(dir $id)/answer.md"
+  t show $id > "$tmp/out"
+  eq "$(grep '^reply$\|^thread$\|^Sent it again\|^Can you resend' "$tmp/out")" \
+     "$(printf 'reply\nSent it again just now.\nthread\nCan you resend the invoice?')"
+}
+
+test_the_front_watch_keeps_what_changed_and_says_how_much_on_its_one_row() {
+  conversation
+  page "[{\"id\": \"cnv_x\", \"subject\": \"Invoice question\", \"updated_at\": $(date +%s)}]" > "$FAKE/front/conversations_search_mention"
+  id=$(new -p front "front inbox")
+  t run $id
+  eq "$(step $id)" 10-watch                                         # a watch never ends
+  mail=$T_VAR/mail/front/cnv_x
+  grep -q 'Can you resend the invoice?' "$mail/thread.md"
+  grep -q 'Can you resend the invoice?' "$FAKE/read.prompts"        # the gist is an agent's, of the thread
+  [ -s "$mail/gist" ]
+  eq "$(cat "$(dir $id)/inbox")" front
+  t ls | grep "^ *$((10#$id)) " | grep -q '  1 today$'
+  asked=$(wc -l < "$FAKE/curl.calls")
+  t run $id
+  eq "$(wc -l < "$FAKE/curl.calls")" "$asked"                       # within POLL, Front isn't asked again
+  touch -d '1 hour ago' "$T_VAR/mail/front/polled"
+  touch "$FAKE/front/401"
+  t run $id
+  t ls | grep "^ *$((10#$id)) " > "$tmp/row"
+  not grep -q today "$tmp/row"                                      # a poll that failed says so, not the last count
+}
+
+watched() {   # a front watch that has read cnv_x once (after conversation); prints its task id
+  page "[{\"id\": \"cnv_x\", \"subject\": \"Invoice question\", \"updated_at\": $(date +%s)}]" > "$FAKE/front/conversations_search_mention"
+  new -p front "front inbox"
+  t run 1 > /dev/null 2>&1
+}
+inbox() { T_INBOX=front "$tmp/tick/bin/t-inbox" "$@"; }
+offered() { (. "$tmp/tick/lib/tick.sh"; offers "$(dir "$1")"); }
+
+test_the_inbox_lists_what_the_watch_keeps_and_enter_drafts_one_reply_to_a_conversation() {
+  conversation
+  watch=$(watched)
+  eq "$(offered $watch)" "inbox log"                               # enter on the watch's row opens its mail
+  inbox --rows | grep -q $'^cnv_x\t.*Invoice question'
+  inbox --pane cnv_x | grep -q 'Can you resend the invoice?'
+  inbox --key enter cnv_x > /dev/null
+  id=$(ls "$T_VAR/tasks" | tail -1)
+  eq "$(cat "$(dir $id)/pipeline")" reply
+  eq "$(cat "$(dir $id)/opt")" draft
+  grep -qx 'conversation: front cnv_x' "$(dir $id)/task.md"
+  inbox --rows | grep -q "task $((10#$id))"
+  inbox --key enter cnv_x | grep -q 'already replies'
+  eq "$(ls "$T_VAR/tasks" | wc -l)" 2                               # one reply to a conversation, not one a press
+  t run $id
+  eq "$(offered $id)" "sign say rm"                                 # and enter on the held reply signs it
+}
+
+test_archiving_in_the_inbox_archives_in_front_and_takes_the_row() {
+  conversation
+  watched > /dev/null
+  inbox --key "$(keyfor archive)" cnv_x > /dev/null
+  grep -A1 '^PATCH /conversations/cnv_x$' "$FAKE/front.calls" | tail -1 | grep -q '"status":"archived"'
+  eq "$(inbox --rows)" ""
+}
+
+searched_since() { grep -o 'participant%3Atea_me%20after%3A[0-9-]*' "$FAKE/curl.calls" | tail -1 | grep -o '[0-9-]*$'; }
+
+test_the_corpus_keeps_only_what_you_sent_and_goes_on_from_where_it_stopped() {
+  front
+  now=$(date +%s)
+  page '[{"id": "cnv_s", "subject": "Invoice question", "updated_at": 1}]' > "$FAKE/front/conversations_search_participant"
+  page "$(jq -nc --argjson t "$now" '[
+    {id: "msg_in", is_inbound: true, created_at: $t, draft_mode: null, author: null, recipients: [], text: "Can you resend it?"},
+    {id: "msg_out", is_inbound: false, created_at: $t, draft_mode: null, author: {id: "tea_me"},
+     recipients: [{role: "to", handle: "bob@shop.example"}], subject: "Re: Invoice question", text: "Sent it again.\n> Can you resend it?"},
+    {id: "msg_unsent", is_inbound: false, created_at: $t, draft_mode: "private", author: {id: "tea_me"}, recipients: [], text: "half a thought"},
+    {id: "msg_kari", is_inbound: false, created_at: $t, draft_mode: null, author: {id: "tea_kari"}, recipients: [], text: "Kari wrote this"}]')" \
+    > "$FAKE/front/conversations_cnv_s_messages"
+  "$tmp/tick/jobs/mail-corpus" 2> /dev/null
+  corpus=$T_VAR/corpus/front
+  eq "$(ls "$corpus")" msg_out.md                                   # not theirs, not a draft, not a teammate's
+  eq "$(head -2 "$corpus/msg_out.md")" "$(printf 'to: bob@shop.example\nsubject: Re: Invoice question')"
+  grep -qx 'Sent it again.' "$corpus/msg_out.md"
+  not grep -q '^> ' "$corpus/msg_out.md"
+  [ "$(searched_since)" -lt "$((now - 86400))" ]                    # the first run goes back CORPUS_SINCE
+  "$tmp/tick/jobs/mail-corpus" 2> /dev/null
+  [ "$(searched_since)" -ge "$now" ]                                # and the next one from where it stopped
+}
+
+test_a_draft_reads_what_you_wrote_to_the_same_person_before_anyone_else() {
+  conversation
+  mkdir -p "$T_VAR/corpus/front" "$T_VAR/mail/front/cnv_x"
+  echo '{"id": "cnv_x", "from": "bob@shop.example"}' > "$T_VAR/mail/front/cnv_x/conv.json"
+  printf 'to: bob@shop.example\nsubject: Old news\n\nHei Bob, as always.\n' > "$T_VAR/corpus/front/msg_bob.md"
+  touch -d '2 days ago' "$T_VAR/corpus/front/msg_bob.md"
+  printf 'to: ann@elsewhere.example\nsubject: Newer\n\nDear Ann, newer.\n' > "$T_VAR/corpus/front/msg_ann.md"
+  export CORPUS_MAX=100                                             # room for one of the two
+  id=$(reply +draft)
+  t run $id
+  grep -q '^## Mail you wrote before, to bob@shop.example first' "$FAKE/read.prompts"
+  grep -q 'Hei Bob, as always.' "$FAKE/read.prompts"
+  not grep -q 'Dear Ann, newer.' "$FAKE/read.prompts"               # the newest, but to someone else
 }
 
 test_slack_posts_a_task_once_and_edits_that_message_after_that() {

@@ -480,6 +480,57 @@ a step to end, so it lands on a later tick, and the missing reaction says so
 without a word. 👀 is also the only thing the job remembers, so nothing it has
 already taken can run twice.
 
+## Mail: an inbox on the board, and replies you sign
+
+Front comes into tick the way everything else does, as tasks and files. Mail
+arriving is not work: a thousand conversations cost the board one row, and only
+you add more. With `~/.config/front/env` written (the digest's), start the watch
+once:
+
+```sh
+t new -p front "front inbox"
+```
+
+It is a task that never ends. Its one step, `watch`, asks Front what changed
+every `POLL` seconds (300), keeps each conversation in `~/.tick/mail/front/`,
+has an agent write it a one-line gist, and puts how many had something today on
+its row. Between polls it exits 75, so a tick costs nothing, and a poll that
+fails holds it in red like any other step.
+
+Enter on its row is `t inbox`: the conversations, newest first, with the thread
+beside the one you are on.
+
+| key | does |
+| --- | --- |
+| enter | an agent drafts a reply: a task on pipeline `reply`, with `+draft` |
+| ^o | a reply you write: the thread is read, and `$EDITOR` opens on it |
+| ^x | archives the conversation in Front |
+
+A reply is `thread → +draft → sign → send`, and nothing leaves until you sign
+it. The task holds at `sign`, in red (`draft ready`, or `write your reply`), and
+Enter on it, or `t sign N`, opens the reply in `$EDITOR` with the thread under
+it. What you save is what leaves. `t say N "shorter" draft` has the agent write
+it again. `DELIVER=` in `pipelines/reply/env` says what leaving is:
+
+- `draft`, the default: a private draft on the conversation in Front, to read
+  once more and send from there. Signing again edits the same draft.
+- `send`: sent as you, and only while the thread is the one you read. If
+  someone wrote since, the reply holds again, with the thread as it is now.
+
+A draft writes the way you do because of `jobs/mail-corpus`, which keeps the
+mail you sent as files in `~/.tick/corpus/` (its first run goes back
+`CORPUS_SINCE`, 2 years). A draft gets what you wrote to the same person first,
+then to anyone at their domain, then your newest, up to `CORPUS_MAX` bytes:
+
+```sh
+(crontab -l; echo '0 3 * * * $HOME/git/tick/jobs/mail-corpus >> $HOME/.tick/corpus.log 2>&1') | crontab -
+```
+
+`sources/front` is the only file that knows Front's API. Another source, Gmail
+or Slack's DMs, is a file beside it with the same verbs (`poll`, `thread`,
+`draft`, `send`, `archive`, `sent`), a pipeline like `front` with its own
+`SOURCE=`, and a word in `CORPUS_SOURCES`.
+
 ## How it works
 
 | idea | here | Linux equivalent |
@@ -528,6 +579,8 @@ t show [TASK]              where it is, and what you can do next
 t log [TASK] [-f] [--raw]  every run in order, rendered in one column; -f follows it, --raw is the file itself
 t diff [TASK]              the files it changed, with the diff of each beside them
 t say [TASK] "notes"       back to implement, with your notes
+t sign [TASK]              read a reply in $EDITOR and sign it: then it leaves
+t inbox [TASK]             the mail a watch keeps: enter drafts a reply, ^o you write one, ^x archives
 t attach [TASK]            resume the agent's conversation yourself
 t run [TASK]               run it now, in this terminal
 t hold [-f] [TASK] [why]   pause it after the running step; -f cancels that step now, agent and all
@@ -583,7 +636,8 @@ the crontab line and `rm -r ~/.tick/tasks/*/idle`, and tick is exactly as it was
 ## Not covered yet
 
 - The `pr` and `ci` steps are tested only against a fake `gh`.
-- `jobs/front-digest` is tested only against a fake `curl`, whose answers
-  follow Front's API docs rather than recorded responses.
+- `jobs/front-digest` and `sources/front` are tested only against a fake
+  `curl`, whose answers follow Front's API docs rather than recorded
+  responses: drafting, sending and archiving have not met the real Front yet.
 - A stack merges, and doesn't rebase: the `sync` step brings the task below
   into the branch as a merge commit, so a stacked PR shows that merge.
