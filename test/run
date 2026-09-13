@@ -450,6 +450,15 @@ test_opencode_codes_by_default_and_claude_on_request() {
   grep -q -- '--tools Read,Grep,Glob' "$FAKE/claude.calls" # its reviewer only reads too
 }
 
+test_agents_may_read_the_task_directories_outside_their_worktree() {
+  id=$(new "add the widget")
+  t run $id
+  jq -e --arg tasks "$T_VAR/tasks/*" '.permission.external_directory[$tasks] == "allow"' "$FAKE/opencode.config" > /dev/null
+  id=$(new "add the gadget" --cli claude)
+  t run $id
+  grep -qF -- "--add-dir $T_VAR/tasks" "$FAKE/claude.calls"
+}
+
 test_each_step_runs_on_the_cli_its_pipeline_names() {
   echo MODEL_implement=vllm/test-model >> "$tmp/tick/pipelines/feature/env"
   id=$(new "add the widget" -p feature +plan)             # feature: plan on claude, the rest on opencode
