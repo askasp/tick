@@ -75,8 +75,9 @@ A step runs with the task directory as its cwd.
 - `exit 75` (EX_TEMPFAIL): not yet. The step runs again next tick, and the run doesn't count.
 - any other exit: failed. The step runs again next tick.
 
-A step that runs `MAX_RUNS` times without moving the task on to a later step holds it,
-whether it failed or sent the task back with `goto`. Moving on starts its count over.
+A step that runs `MAX_RUNS` times without finishing holds the task. A step that sends the
+task back with `goto` `MAX_ROUNDS` times holds it too, and moving on to a later step starts
+that count over.
 
 Before exiting, a step may write:
 

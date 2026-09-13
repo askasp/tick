@@ -146,12 +146,25 @@ test_a_review_reads_the_diff_once_per_mindset() {
   id=$(new "add the widget")
   t run $id
   eq "$(step $id)" done
-  eq "$(grep -c 'Look only at whether this change is tested' "$FAKE/read.prompts")" 2   # both rounds, both mindsets
+  eq "$(grep -c 'Look only at whether this change is tested' "$FAKE/read.prompts")" 2   # it asked, so it reads again
+  eq "$(grep -c 'does this change do' "$FAKE/read.prompts")" 1   # it approved, so it doesn't
+  eq "$(grep -c '^## What you asked for last round$' "$FAKE/read.prompts")" 1   # tests reads its own answer back
   eq "$(cat "$(dir $id)/runs/10-implement")" 2                   # the mindset that said changes sent it back
   grep -q '^## tests$' "$(dir $id)"/log/feedback.*.md            # with only that pass in the feedback
   not grep -q '^## intent$' "$(dir $id)"/log/feedback.*.md
   grep -q '^## intent$' "$(dir $id)/review.md"                   # the PR body keeps every pass
   grep -q '^## tests$' "$(dir $id)/review.md"
+  [ ! -e "$(dir $id)/passes" ]                                   # moving on forgets the rounds
+}
+
+test_from_the_third_round_only_late_mindsets_send_the_task_back() {
+  printf 'MINDSETS="intent tests"\nLATE_MINDSETS=intent\n' >> "$tmp/tick/pipelines/local/env"
+  printf 'changes\nchanges\nchanges\nchanges\napprove\n' > "$FAKE/verdicts"   # two rounds of both; then intent
+  id=$(new "add the widget")
+  t run $id
+  eq "$(step $id)" done
+  eq "$(grep -c 'does this change do' "$FAKE/read.prompts")" 3
+  eq "$(grep -c 'Look only at whether this change is tested' "$FAKE/read.prompts")" 2   # round 3 left tests out
 }
 
 test_the_board_says_which_mindset_a_running_review_is_on_of_how_many() {
@@ -186,17 +199,17 @@ test_failing_tests_go_back_to_the_implementer() {
   t show $id | grep -q '  test       →  implement   looped back$'
 }
 
-test_a_step_that_never_gets_past_holds_the_task() {
-  printf 'changes\nchanges\nchanges\nchanges\n' > "$FAKE/verdicts"
+test_a_review_that_keeps_sending_it_back_holds_the_task_after_MAX_ROUNDS() {
+  printf 'changes\nchanges\nchanges\nchanges\nchanges\n' > "$FAKE/verdicts"
   id=$(new "add the widget")
   t run $id
-  eq "$(step $id)" 30-review                              # implement moves on each time; review sends it back
-  grep -q 'ran 3 times' "$(dir $id)/hold"
-  t ls | grep -q 'held  review ran 3 times'
+  eq "$(step $id)" 10-implement                           # more rounds than MAX_RUNS: a send-back isn't a failed run
+  [ -s "$(dir $id)/feedback.md" ]                         # the last round's, waiting for implement
+  t ls | grep -q 'held  review sent it back 5 times'
   t run $id
-  eq "$(cat "$(dir $id)/runs/30-review")" 3               # held: nothing ran
+  eq "$(cat "$(dir $id)/runs/30-review")" 5               # held: nothing ran
   t resume $id 2> /dev/null
-  t run $id                                               # one more "changes", then approve
+  t run $id                                               # the next review approves
   eq "$(step $id)" done
 }
 
@@ -330,6 +343,13 @@ test_a_cli_that_fails_hands_the_same_prompt_to_claude() {
   eq "$(grep -c . "$FAKE/claude.calls")" 1                # only the step opencode dropped
   eq "$(grep -c . "$FAKE/opencode.calls")" 2              # implement, then the review it did answer
   eq "$(grep -c 'add the widget' "$FAKE/edit.prompts")" 2 # claude got the prompt opencode had
+}
+
+test_a_task_an_agent_starts_stays_off_the_board() {
+  id=$(new "add the widget")
+  FAKE_RUN='t new "a task of its own" < /dev/null && touch "$FAKE/started"' t run $id
+  [ -f "$FAKE/started" ]
+  eq "$(ls "$T_VAR/tasks" | grep -c '^[0-9]')" 1
 }
 
 test_a_killed_run_is_picked_up_again() {
@@ -1118,6 +1138,23 @@ test_the_live_board_draws_its_rows_and_the_keys_at_the_bottom() {
   grep -qE 'enter:run .*:keys' "$tmp/screen"
 }
 
+test_the_board_changes_who_solves_a_task_it_already_has() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  id=$(new "add the widget")
+  t ui --key "$(keyfor agent)" $((10#$id)) '' | grep -q 'task 1: claude solves every step'
+  t show $id | grep -q '^pipeline  local · claude$'
+  t run $id
+  grep -q '^session: claude ' "$(dir $id)/log/10-implement.log"
+  [ ! -e "$FAKE/opencode.calls" ]
+  t ui --key "$(keyfor agent)" $((10#$id)) '' > /dev/null  # opencode
+  t ui --key "$(keyfor agent)" $((10#$id)) '' | grep -q "its pipeline's agents"
+  not grep -q AGENT_CLI "$(dir $id)/env"
+  t agent $id claude > /dev/null
+  t ui --key "$(keyfor say)" $((10#$id)) '' > /dev/null     # the say form starts from the task's own agent
+  eq "$(cat "$T_UI/cli")" claude
+}
+
 test_doctor_says_what_to_fix() {
   not t doctor > "$tmp/out"
   if command -v fzf > /dev/null; then grep -q '✓ fzf (the live board)' "$tmp/out"; fi   # fzf knows the board's flags and colors
@@ -1295,7 +1332,7 @@ test_slack_posts_a_task_once_and_edits_that_message_after_that() {
   slack
   id=$(new -r toy "add the widget")
   "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 2                 # the board, and the task
+  eq "$(calls chat.postMessage)" 2                 # the task, and its details under it
   "$tmp/tick/jobs/slack-out"
   eq "$(calls chat.postMessage)" 2                 # nothing changed: nothing said
   eq "$(calls chat.update)" 0
@@ -1304,8 +1341,9 @@ test_slack_posts_a_task_once_and_edits_that_message_after_that() {
   eq "$(calls chat.postMessage)" 3                 # the two, and the mention no edit of them can be
   eq "$(calls chat.update)" 2                      # the same two messages, edited where they are
   grep -A2 '^chat.update' "$FAKE/slack.calls" | grep -q "ts=$(cat "$(dir $id)/slack_ts")"
-  grep -q 'held  waiting for you' "$FAKE/slack.calls"
-  grep -q '1 needs you' "$FAKE/slack.calls"
+  eq "$(wc -l < "$(dir $id)/slack_sent")" 1        # the card is one short line
+  grep -q ' held$' "$(dir $id)/slack_sent"
+  grep -q 'held  waiting for you' "$(dir $id)/slack_story"   # and why is in the thread
   not grep -q "$(cat "$(dir $id)/branch")" "$FAKE/slack.calls"   # a branch is a terminal's business
 }
 
@@ -1318,25 +1356,45 @@ test_slack_gets_the_answer_to_a_question_and_not_only_that_there_is_one() {
   "$tmp/tick/jobs/slack-out"
   grep -q "$(head -c 30 "$(dir $id)/answer.md")" "$FAKE/slack.calls"
   grep -q '<@U0AKSEL>' "$FAKE/slack.calls"          # you asked, so you are told
-  grep -q ' answered$' "$FAKE/slack.calls"          # and the board keeps the row: a phone is where you read how it went
+  grep -q ' answered$' "$(dir $id)/slack_sent"      # and the card stays: a phone is where you read how it went
   answers=$(calls chat.postMessage)
   "$tmp/tick/jobs/slack-out"
   eq "$(calls chat.postMessage)" "$answers"         # said once, not on every tick
 }
 
-test_saying_status_moves_the_board_down_to_where_you_are() {
+test_saying_status_posts_each_open_task_again_where_you_are() {
   slack
-  new -r toy "add the widget" > /dev/null
+  said '[{"ts": "9.0", "user": "U0AKSEL", "text": "status"}]' history
+  "$tmp/tick/jobs/slack-in"
+  grep -q 'nothing open here' "$FAKE/slack.calls"  # asked, so answered
+  id=$(new -r toy "add the widget")
   "$tmp/tick/jobs/slack-out"
-  board=$(cat "$T_VAR/slack/board.C0TOY.ts")
+  card=$(cat "$(dir $id)/slack_ts") details=$(cat "$(dir $id)/slack_thread")
   said '[{"ts": "10.0", "user": "U0AKSEL", "text": "status"}]' history
   "$tmp/tick/jobs/slack-in"
-  eq "$(ls "$T_VAR/tasks" | wc -l)" 1              # the word is the board, not a task about the board
+  eq "$(ls "$T_VAR/tasks" | wc -l)" 1              # the word is not a task about the tasks
   "$tmp/tick/jobs/slack-out"
-  grep -A2 '^chat.delete' "$FAKE/slack.calls" | grep -q "ts=$board"
-  not eq "$(cat "$T_VAR/slack/board.C0TOY.ts")" "$board"     # one board, posted afresh at the bottom
+  grep -A2 '^chat.delete' "$FAKE/slack.calls" | grep -q "ts=$card"
+  grep -A2 '^chat.delete' "$FAKE/slack.calls" | grep -q "ts=$details"
+  not eq "$(cat "$(dir $id)/slack_ts")" "$card"    # one card, posted afresh at the bottom
+  [ -s "$(dir $id)/slack_thread" ]                 # with its details under it
   "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.delete)" 1                      # and it stays there until you ask again
+  eq "$(calls chat.delete)" 2                      # and it stays there until you ask again
+}
+
+test_help_in_slack_says_what_you_can_type_there() {
+  slack
+  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "help"}]' history
+  "$tmp/tick/jobs/slack-in"
+  eq "$(ls "$T_VAR/tasks" | wc -l)" 0
+  grep -A3 '^chat.postMessage' "$FAKE/slack.calls" | grep -q 'thread_ts=10.0'
+  grep -q 't stack' "$FAKE/slack.calls"
+  id=$(new -r toy "add the widget")
+  "$tmp/tick/jobs/slack-out"
+  said '[{"ts": "20.0", "user": "U0AKSEL", "text": "help"}]' replies
+  "$tmp/tick/jobs/slack-in"
+  [ ! -f "$(dir $id)/feedback.md" ]                # help is not something to tell the task
+  grep -A3 '^chat.postMessage' "$FAKE/slack.calls" | grep -q 'thread_ts=20.0'
 }
 
 test_slack_takes_the_card_of_a_task_you_removed() {
@@ -1442,7 +1500,7 @@ test_what_a_task_did_is_one_thread_message_edited_with_its_loops_collapsed() {
   slack
   id=$(new -r toy "add the widget")
   "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 2                  # nothing happened yet, so the thread is empty
+  eq "$(calls chat.postMessage)" 2                  # the task, and details that say only where it is
   n=$((10#$id))
   cat >> "$(dir $id)/history" <<EOF
 2026-01-01 09:00:00 $n 10-implement ok → 20-test
@@ -1453,7 +1511,7 @@ test_what_a_task_did_is_one_thread_message_edited_with_its_loops_collapsed() {
 2026-01-01 09:12:00 $n 30-review ok → 10-implement
 EOF
   "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 3
+  eq "$(calls chat.postMessage)" 2                  # what it did is the same details message, edited
   grep -q 'implement → test → review  \*↺ ×2\*' "$FAKE/slack.calls"   # the churn, not a line each
   not grep -q '10-implement ok' "$FAKE/slack.calls"
   thread=$(cat "$(dir $id)/slack_thread")
@@ -1461,10 +1519,10 @@ EOF
     "$((10#$id))" >> "$(dir $id)/history"
   "$tmp/tick/jobs/slack-out"
   grep -q '09:20  implement failed (exit 127)$' "$FAKE/slack.calls"   # a failure names itself, once
-  eq "$(calls chat.postMessage)" 3                  # the same message, edited where it stands
+  eq "$(calls chat.postMessage)" 2                  # the same message, edited where it stands
   grep -A2 '^chat.update' "$FAKE/slack.calls" | grep -q "ts=$thread"
   "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.update)" 1                       # and left alone while nothing happens
+  eq "$(calls chat.update)" 2                       # and left alone while nothing happens
 }
 
 test_a_held_task_mentions_you_in_its_thread_and_nowhere_else() {

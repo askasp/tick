@@ -2,6 +2,7 @@
 # run-tests — amino's backend tests, run in the worktree: its own postgres container, bun test on the host
 set -euo pipefail
 ./dev-env.sh > /dev/null
+rm -f .env.bak.*    # dev-env.sh's backup of the last .env: implement would commit it, and review sends it back
 docker compose -f docker-compose.dev.yml up -d --wait postgres
 . ./.env
 

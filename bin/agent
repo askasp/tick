@@ -51,8 +51,11 @@ take_slot() {
 }
 
 take_slot "$cli"
-turn=$(mktemp) answer=$(mktemp)
-trap 'rm -f "$turn" "$answer"' EXIT
+turn=$(mktemp) answer=$(mktemp) board=$(mktemp -d)
+trap 'rm -rf "$turn" "$answer" "$board"' EXIT
+# An agent that runs t itself (a test it set up by hand, without its T_VAR) gets an empty board
+# of its own: through ours, its `t new` became a task that the tick then ran.
+driver() { T_VAR=$board "$T_ROOT/drivers/$1"; }
 {
   echo "$prompt"
   # what tooling writes in this repo (GENERATED= in its env): never worth an agent's context
@@ -63,7 +66,7 @@ trap 'rm -f "$turn" "$answer"' EXIT
   echo; cat
 } > "$turn"
 # the answer is held back until the turn worked: half an answer is not one
-if "$T_ROOT/drivers/$cli" < "$turn" > "$answer"; then cat "$answer"; exit 0; fi
+if driver "$cli" < "$turn" > "$answer"; then cat "$answer"; exit 0; fi
 
 # A model that can't answer must not stop the task: claude gets the same prompt once.
 # Its model is the step's own CLI's (vllm/laguna-s-2.1 means nothing to claude), so drop it.
@@ -71,4 +74,4 @@ if "$T_ROOT/drivers/$cli" < "$turn" > "$answer"; then cat "$answer"; exit 0; fi
 echo "agent: $cli failed; the same prompt goes to claude" >&2
 take_slot claude
 AGENT_MODEL=
-"$T_ROOT/drivers/claude" < "$turn"
+driver claude < "$turn"

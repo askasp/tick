@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # jobs/slack-in — what you type in Slack, as tick commands. A message in a bound channel starts a task
 # there; a reply in a task's thread is `t say`; a reply that begins with "t " runs that one command and
-# posts what it printed. 👀 on your message means tick has it, and is the only thing it remembers, so
+# posts what it printed; `status` posts the open tasks again, and `help` says all of this. 👀 on your message means tick has it, and is the only thing it remembers, so
 # nothing runs twice. No 👀 yet means the task was busy: it lands on a later tick. From cron:
 #   * * * * * $HOME/git/tick/jobs/slack-in
 . "$(dirname "$(readlink -f "$0")")/slack.sh"
@@ -59,6 +59,39 @@ command_on() {
   reply "$ch" "$ts" "\`\`\`${out:-ok}\`\`\`"
 }
 
+is_help() { [[ ${1,,} == help || ${1,,} == "t help" ]]; }
+
+help_text() {
+  cat << EOF
+*Type in the channel*
+\`add a discount code field\` — a task in this channel's repo; the lines under the first are its details
+\`ask where is the total rounded?\` — a pipeline's name first starts that kind: $(cd "$T_ROOT/pipelines" && echo */ | tr -d /)
+\`feature +plan add a discount code field\` — and +STEP adds a step the pipeline leaves out unless asked
+\`status\` — every open task again, down here: one line each, and the details in its thread
+\`t show 9\` — one command on task 9: ${runs[*]}
+
+*Reply in a task's thread*
+\`use a fixture, not the live API\` — the task goes back to its first step with your notes (t say)
+\`t log\` · \`t diff\` · \`t show\` — what it printed, what it changed, where it stands
+\`t hold why\` · \`t resume\` — pause it; go on from where it stopped
+\`t stack also drop the old column\` — a new task on this one's branch that starts when this one is done
+\`t name new name\` · \`t rm\` — call it something else; delete it and its worktree (the branch stays)
+
+👀 on your message: tick has it. No 👀 yet: the task is busy and takes it on a later tick. ✅: the task it started is done.
+EOF
+}
+
+# whether a channel has a task that isn't done, so `status` says so rather than nothing
+open_in() {
+  local task
+  for task in "$T_TASKS"/*/; do
+    task=${task%/}
+    [ -f "$task/step" ] && [ "$(cat "$task/step")" != done ] || continue
+    if [ "$(channel_of "$task" 2> /dev/null)" = "$1" ]; then return 0; fi
+  done
+  return 1
+}
+
 for pair in ${SLACK_CHANNELS:-}; do
   ch=${pair%%=*} repo=${pair#*=}
   seen=$SLACK_STATE/since.$ch
@@ -70,8 +103,14 @@ for pair in ${SLACK_CHANNELS:-}; do
   while read -r msg; do
     ts=$(jq -r .ts <<< "$msg") text=$(jq -r .text <<< "$msg")
     take "$ch" "$ts"                            # taken before it runs, so a crash never starts it twice
-    if [ "${text,,}" = status ]; then            # not a task: the board, moved down to where you are
-      : > "$SLACK_STATE/board.$ch.move"
+    if [ "${text,,}" = status ]; then            # not a task: the open ones, posted again down here
+      if open_in "$ch"; then : > "$SLACK_STATE/move.$ch"
+      else reply "$ch" "$ts" "nothing open here. Type what to do and it is a task; help says the rest"
+      fi
+      continue
+    fi
+    if is_help "$text"; then
+      reply "$ch" "$ts" "$(help_text)"
       continue
     fi
     if [[ $text == t\ * ]]; then                 # nor a task: one command, on the task it names
@@ -100,7 +139,10 @@ for task in "$T_TASKS"/*/; do
   while read -r msg; do
     mts=$(jq -r .ts <<< "$msg") text=$(jq -r .text <<< "$msg")
     [ "$mts" != "$ts" ] || continue
-    if [[ $text == t\ * ]]; then
+    if is_help "$text"; then
+      reply "$ch" "$mts" "$(help_text)"
+      take "$ch" "$mts"
+    elif [[ $text == t\ * ]]; then
       command_on "$ch" "$mts" "$n" "$text"
       take "$ch" "$mts"
     elif t say "$n" "$text" < /dev/null > /dev/null 2>&1; then

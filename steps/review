@@ -2,6 +2,9 @@
 # review — the reviewer agent reads the task and the diff, once per mindset the pipeline names
 # (MINDSETS= in its env; unset, once for everything). The task moves on when every pass approves;
 # the passes that ask for changes become feedback.md, and the task goes back to implement.
+# Until it moves on, passes/ keeps each pass's last answer: a pass that approved doesn't read
+# again, one that asked for changes reads its answer back, and from the third round on only
+# LATE_MINDSETS (unset: all of them) may still send the task back.
 set -euo pipefail
 . "$T_ROOT/lib/review.sh"
 
@@ -11,25 +14,43 @@ for look_at in "${mindsets[@]}"; do                      # every name before the
   if [ -n "$look_at" ]; then mindset_file "$look_at" > /dev/null; fi
 done
 
-: > review.tmp
+answer_of() { echo "$PWD/passes/${1:-review}.md"; }
+approved() { [ -f "$(answer_of "$1")" ] && [[ $(verdict_of "$(cat "$(answer_of "$1")")") == *approve ]]; }
+late() { [ -z "${LATE_MINDSETS:-}" ] || [[ " $LATE_MINDSETS " == *" $1 "* ]]; }
+
+mkdir -p passes
+round=$(( $(cat passes/rounds 2> /dev/null || echo 0) + 1 ))
+reading=()
+for look_at in "${mindsets[@]}"; do
+  if approved "$look_at"; then continue; fi
+  if [ "$round" -gt 2 ] && ! late "$look_at"; then continue; fi
+  reading+=("$look_at")
+done
+
 : > changes.tmp
 at=0
-for look_at in "${mindsets[@]}"; do
+for look_at in "${reading[@]}"; do
   at=$((at + 1))
-  if [ -n "$look_at" ]; then echo "mindset $at/${#mindsets[@]}: $look_at"; fi   # the board shows it
-  pass=$(review_pass "$PWD" "$look_at")
+  if [ -n "$look_at" ]; then echo "mindset $at/${#reading[@]}: $look_at"; fi   # the board shows it
+  pass=$(review_pass "$PWD" "$look_at" "$(answer_of "$look_at")")
   case $(verdict_of "$pass") in
     *approve) ;;
     *changes) printf '## %s\n\n%s\n\n' "${look_at:-review}" "$pass" >> changes.tmp ;;
     *)        echo "the ${look_at:-} review has no VERDICT line" >&2; exit 1 ;;
   esac
-  printf '## %s\n\n%s\n\n' "${look_at:-review}" "$pass" >> review.tmp
+  echo "$pass" > "$(answer_of "$look_at").new"   # a pass reads last round's answer until this round is done
 done
+for look_at in "${reading[@]}"; do mv "$(answer_of "$look_at").new" "$(answer_of "$look_at")"; done
+
+for look_at in "${mindsets[@]}"; do
+  printf '## %s\n\n%s\n\n' "${look_at:-review}" "$(cat "$(answer_of "$look_at")")"
+done > review.tmp
 mv review.tmp review.md
 
 if [ -s changes.tmp ]; then
   mv changes.tmp feedback.md
+  echo "$round" > passes/rounds
   echo implement > goto
 else
-  rm -f changes.tmp
+  rm -rf changes.tmp passes
 fi

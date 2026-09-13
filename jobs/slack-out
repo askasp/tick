@@ -1,32 +1,16 @@
 #!/usr/bin/env bash
-# jobs/slack-out — one message per task, posted once and edited from then on, and the board as the
-# channel's canvas. What the task did goes to one message in its thread, edited too; only a hold or an
-# answer mentions you, because an edit is silent and a mention is not. From cron, right after the tick:
+# jobs/slack-out — one short message per task, posted once and edited from then on, with the details
+# in one reply under it, edited too. `status` posts the open ones again at the bottom. Only a hold or
+# an answer mentions you, because an edit is silent and a mention is not. From cron, after the tick:
 #   * * * * * $HOME/git/tick/jobs/slack-out
 . "$(dirname "$(readlink -f "$0")")/slack.sh"
 
-# the message a task owns: two lines, because it is read on a phone. Its branch and its worktree are
-# a terminal's business (t show), and the thread under it is the rest.
-task_text() { printf '*task %s*  %s\n%s' "$(task_num "$1")" "$(name "$1")" "$(where "$1")"; }
-
-# the board: the channel's tasks in the board's own columns, done ones too (`t ls -a`, since a phone
-# is where you read how it went), in a code block, because Slack's proportional font would only
-# pretend ragged lines lined up. Columns align, so an id needs no badge and a title no bold.
-board_text() {
-  local ch=$1 repo=$2 t ids= open=0 held=0 done_n=0 table
-  for t in "$T_TASKS"/*/; do
-    t=${t%/}
-    [ -f "$t/step" ] || continue
-    [ "$(channel_of "$t" 2> /dev/null || true)" = "$ch" ] || continue
-    ids+="$(task_num "$t") "
-    if [ "$(cat "$t/step")" = done ]; then done_n=$((done_n + 1)); continue; fi
-    open=$((open + 1))
-    if [ -e "$t/hold" ]; then held=$((held + 1)); fi
-  done
-  table=$(T_SNAPSHOT=1 T_COLS=68 board -a | awk -v ids=" $ids" 'index(ids, " " $1 " ")')
-  printf '*%s* — %s active%s, %s done\n```\n%s\n```' "$repo" "$open" \
-    "$(if [ "$held" -gt 0 ]; then echo ", $held needs you"; fi)" "$done_n" \
-    "${table:-nothing yet}"
+# the message a task owns: one line, because a channel of them is read on a phone. Why it is held,
+# how long it has been at it and what it did are the reply under it; its branch is a terminal's.
+task_text() {
+  local standing
+  standing=$(standing "$1")
+  printf '*%s*  %s  ·  %s %s' "$(task_num "$1")" "$(name "$1")" "$(fraction "$1")" "${standing%%  *}"
 }
 
 # a task's history as one message: the time, the steps it went through, and a loop it went round more
@@ -69,33 +53,25 @@ story() {
     END             { emit() }' "$1/history"
 }
 
-thread_text() { printf '*task %s — %s*\n%s' "$(task_num "$1")" "$(name "$1")" "$(story "$1")"; }
-
-# There is one board message in a channel, ever, and it lives where you last asked for it: saying
-# `status` there moves it to the bottom, which on a phone is the only place that is easy to find.
-# Between asks it is edited where it stands, so it is current wherever you left it.
-for pair in ${SLACK_CHANNELS:-}; do
-  ch=${pair%%=*}
-  text=$(board_text "$ch" "${pair#*=}")
-  ts=$(get "$SLACK_STATE/board.$ch.ts")
-  move=$SLACK_STATE/board.$ch.move
-  if [ ! -e "$move" ] && [ -n "$ts" ] && [ "$text" = "$(get "$SLACK_STATE/board.$ch.sent")" ]; then continue; fi
-  if [ -e "$move" ] || [ -z "$ts" ]; then
-    if [ -n "$ts" ]; then api chat.delete channel="$ch" ts="$ts" > /dev/null || true; fi
-    posted=$(api chat.postMessage channel="$ch" text="$text") || continue
-    put "$SLACK_STATE/board.$ch.ts" "$(jq -r .ts <<< "$posted")"
-    rm -f "$move"
-  else
-    api chat.update channel="$ch" ts="$ts" text="$text" > /dev/null || true
-  fi
-  put "$SLACK_STATE/board.$ch.sent" "$text"
-done
+details_text() {
+  where "$1"
+  if [ -s "$1/history" ]; then story "$1"; fi
+  echo "_reply here to tell task $(task_num "$1") what to change · help for the rest_"
+}
 
 : > "$SLACK_STATE/cards.tmp"
 for task in "$T_TASKS"/*/; do
   task=${task%/}
   [ -f "$task/step" ] || continue
   ch=$(channel_of "$task" 2> /dev/null) || continue
+
+  # `status` in the channel: an open task's card is posted again down where you are reading, and the
+  # one above goes the way a removed task's card does, at the end
+  if [ -e "$SLACK_STATE/move.$ch" ] && [ "$(cat "$task/step")" != done ] && [ -s "$task/slack_ts" ]; then
+    thread=$(get "$task/slack_thread")
+    if [ -n "$thread" ]; then api chat.delete channel="$ch" ts="$thread" > /dev/null || true; fi
+    rm -f "$task/slack_ts" "$task/slack_sent" "$task/slack_thread" "$task/slack_story"
+  fi
   ts=$(get "$task/slack_ts")
   text=$(task_text "$task")
 
@@ -115,18 +91,16 @@ for task in "$T_TASKS"/*/; do
 
   # one message in the thread, edited from then on, so what happened is where you look for it and not
   # spread over a reply per tick, each under an app header of its own
-  if [ -s "$task/history" ]; then
-    told=$(thread_text "$task")
-    if [ "$told" != "$(get "$task/slack_story")" ]; then
-      thread=$(get "$task/slack_thread")
-      if [ -z "$thread" ]; then
-        posted=$(api chat.postMessage channel="$ch" thread_ts="$ts" text="$told") || continue
-        put "$task/slack_thread" "$(jq -r .ts <<< "$posted")"
-      else
-        api chat.update channel="$ch" ts="$thread" text="$told" > /dev/null || true
-      fi
-      put "$task/slack_story" "$told"
+  told=$(details_text "$task")
+  if [ "$told" != "$(get "$task/slack_story")" ]; then
+    thread=$(get "$task/slack_thread")
+    if [ -z "$thread" ]; then
+      posted=$(api chat.postMessage channel="$ch" thread_ts="$ts" text="$told") || continue
+      put "$task/slack_thread" "$(jq -r .ts <<< "$posted")"
+    else
+      api chat.update channel="$ch" ts="$thread" text="$told" > /dev/null || true
     fi
+    put "$task/slack_story" "$told"
   fi
 
   # an edit is silent, so a hold says itself once, in a message of its own: tick is waiting on you
@@ -162,3 +136,4 @@ comm -13 "$SLACK_STATE/cards.tmp" <(sort "$SLACK_STATE/cards" 2> /dev/null) | wh
   api chat.delete channel="$ch" ts="$ts" > /dev/null || true
 done
 mv "$SLACK_STATE/cards.tmp" "$SLACK_STATE/cards"
+rm -f "$SLACK_STATE"/move.*

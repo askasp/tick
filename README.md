@@ -108,8 +108,8 @@ that is about to exist (`t new --dry`): its repo and where that came from,
 branch, base, who solves it, when it starts, and the command to type next
 time. `tab` picks the pipeline from the strip at the top of the pane. Enter
 creates it and puts the cursor on it, `^o` opens `$EDITOR` for details with
-the title already on line 1, `^r` picks another repo, `^s` another agent than
-the pipeline's (like `--cli`; the keys at the bottom say which), and esc goes
+the title already on line 1, `^r` picks another repo, `^s` another agent for
+every step (like `--cli`; the keys at the bottom say which), and esc goes
 back. `^a`, `^e` and `^u` edit the line as in a shell. With cron installed the
 task starts at once; without it, `? run` on its row runs it. Flags typed with
 the title work too: `Add proration -r amino`.
@@ -118,6 +118,8 @@ the title work too: `Add proration -r amino`.
 `? say` says something to it (`say to 7>`, and Enter on a held task): what you
 type goes to `feedback.md`, `tab` picks the step it restarts at, `^s` who
 solves it from then on, and the pane shows what will happen and its latest log.
+`^s` on a task's row does that without saying anything (`t agent`): claude,
+opencode, then its pipeline's agents again, from its next run on.
 
 Outside the board, `t new` without a title opens the same form as a screen of
 its own (`t compose`).
@@ -249,6 +251,16 @@ the one `VERDICT: approve | changes` contract. Same reviewer, different mindset.
 diff once per name. The task moves on only when every pass approves; the passes
 that ask for changes are what `feedback.md` holds, so the implementer is not
 handed four approvals to read. Unset, the step reads once, for everything.
+
+A reviewer remembers nothing, so each round it would read the whole diff afresh
+and find something new. `passes/` keeps each pass's last answer until the task
+moves past review instead: a pass that approved doesn't read again, and one that
+asked for changes reads its own answer back, and may ask again only for what is
+still not done or for a bug the fix added. From the third round on, only
+`LATE_MINDSETS=` (`feature`: intent and defects) may still send the task back.
+A round that sends the task back is not a failed run: the task holds only once
+review has sent it back `MAX_ROUNDS` times (5), with the last feedback waiting
+for implement when you `t resume` it.
 While it reads, the board says which pass it is on and of how many
 (`review  tests 2/3  Read client.ts`).
 
@@ -307,7 +319,7 @@ the worktree itself.
 
 The first one set wins:
 
-1. `t new --cli claude "…"`: every step of that one task.
+1. `t new --cli claude "…"`, or later `t agent 7 claude`: every step of that one task.
 2. `CLI_<step>=` in the pipeline's `env`: that step, in every task.
 3. `T_CLI` in `etc/tick.conf` (opencode): any step the pipeline doesn't name.
 
@@ -428,13 +440,19 @@ SLACK_ME=U0AKSEL                 # who a held task mentions
 `slack-loop` runs `slack-in` and `slack-out` every 10 seconds, so a message is
 answered in about that. It locks itself, and what fails lands in `~/.tick/slack.log`.
 
-From then on the channel holds one message per task, posted once and edited in
-place — an edit is silent, so four agents work without touching your phone. It
-says where the task stands, not what its agent is doing this second: a pushed
-message is read minutes later, and that line is stale by then.
+From then on the channel holds one short line per task, posted once and edited
+in place — an edit is silent, so four agents work without touching your phone:
 
-What a task did goes into one message in its thread, edited the same way, so
-the whole run is where you look instead of a reply per tick. Steps that follow
+```
+10  Backend: Health Connect source + ingest  ·  4/6 held
+```
+
+It says where the task stands, not what its agent is doing this second: a
+pushed message is read minutes later, and that line is stale by then.
+
+The details go into one reply under it, edited the same way: how long it has
+been at it, why it is held, and what it did, so the whole run is where you look
+instead of a reply per tick. Steps that follow
 each other join up (`implement → test → review`), and a loop it went round more
 than once says so (`↺ ×3`) — churn is the thing you want to see, and a line
 each hides it. Only a hold or an answer mentions you, because an edit is silent
@@ -442,23 +460,16 @@ and a mention is not, and both are tick waiting on you. A question's answer
 lands in that thread as itself, not as the news that there is one. `t rm` takes
 the message with the task, so the channel holds what the board holds.
 
-There is one board message in the channel, ever, and it lives where you last
-asked for it: say `status` and it moves to the bottom, where you are already
-looking. Between asks it is edited where it stands, so it is current wherever
-you left it. It is the board's own columns in a code block, because Slack's
-proportional font would only pretend ragged lines lined up:
-
-```
-  7  Android Health Connect sync +…  3/4   4m  review
-  8  └ Health Connect across sourc…  0/4       after 7
-  9  Flaky Test Verification         1/4   1m  implement
-```
+Say `status` and every open task's line is posted again at the bottom, where
+you are already looking, with its details under it; the old line goes. A reply
+under a line goes to that task.
 
 | you do | it runs |
 | --- | --- |
 | type in the channel | `t new -r REPO` there, first line the title and the rest details |
 | open with a pipeline's name | that pipeline (`ask where is the total rounded?`), and `+plan` after it |
-| say `status` | moves the board down to the bottom of the channel |
+| say `status` | posts each open task's line again at the bottom of the channel |
+| say `help` | what you can type in the channel and in a thread, with examples |
 | start with `t ` | that one command on the task it names (`t show 9`, `t rm 12`) |
 | reply in a task's thread | `t say` to that task |
 | reply starting with `t ` | the same command, on the task you are under (`t log`, `t stack …`) |
@@ -499,7 +510,7 @@ already taken can run twice.
   a task never stops on one model's bad day.
 
 A task directory holds `task.md`, `name`, `pipeline`, `step`, `opt`, `repo`, `base`,
-`branch`, `env`, `work/`, `plan.md`, `feedback.md`, `review.md`, `hold`, `after`,
+`branch`, `env`, `work/`, `plan.md`, `feedback.md`, `review.md`, `passes/`, `hold`, `after`,
 `runs/`, `history` and `log/`. `grep . ~/.tick/tasks/0007/*` shows all of it.
 
 ## Commands
@@ -522,6 +533,7 @@ t run [TASK]               run it now, in this terminal
 t hold [-f] [TASK] [why]   pause it after the running step; -f cancels that step now, agent and all
 t resume [TASK] [STEP]     unpause it, optionally at another step
 t name [TASK] ["name"]     what the board calls it; left out, an agent picks a short one
+t agent [TASK] [CLI]       who solves every step from its next run; left out, the next one
 t path [TASK]              its worktree:  cd "$(t path discount)"
 t rm [-f] [TASK]           delete the task and its worktree (the branch stays); -f stops its run first
 t doctor                   what's missing, and the pipelines
