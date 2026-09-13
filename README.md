@@ -587,6 +587,3 @@ the crontab line and `rm -r ~/.tick/tasks/*/idle`, and tick is exactly as it was
   follow Front's API docs rather than recorded responses.
 - A stack merges, and doesn't rebase: the `sync` step brings the task below
   into the branch as a merge commit, so a stacked PR shows that merge.
-- claude's `acceptEdits` lets the implementer edit files, but not run every
-  command. Set `CLAUDE_EDIT_MODE=bypassPermissions` in `etc/tick.conf` if your
-  worktrees are safe to let it loose in.

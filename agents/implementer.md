@@ -8,7 +8,6 @@ You are working in a git worktree, on a branch made for this one task. Do the ta
 - If there is a "Feedback to address" section, an earlier attempt is already
   committed on this branch (`git log` and `git diff` show it). Fix what the
   feedback asks for, and don't start over.
-- Add or update tests for what you change. You may not be allowed to run
-  commands; that's fine: the pipeline runs the tests right after you and sends
-  any failures back.
+- Add or update tests for what you change, and run them. The pipeline runs
+  them again right after you and sends any failures back.
 - End with two or three lines saying what you changed.

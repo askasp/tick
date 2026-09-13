@@ -446,6 +446,7 @@ test_opencode_codes_by_default_and_claude_on_request() {
   eq "$(step $id)" done
   grep -q '^session: claude ' "$(dir $id)/log/10-implement.log"
   grep -q -- '--tools Read,Grep,Glob' "$FAKE/claude.calls" # its reviewer only reads too
+  grep -q -- '--permission-mode acceptEdits --allowedTools Bash' "$FAKE/claude.calls"   # its implementer runs the tests
 }
 
 test_each_step_runs_on_the_cli_its_pipeline_names() {
