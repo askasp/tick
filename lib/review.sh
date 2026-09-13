@@ -45,10 +45,17 @@ mindset_file() {
   echo "$file"
 }
 
-# one review of task $1 with mindset $2 (empty: the whole diff at once), its text on stdout
+# one review of task $1 with mindset $2 (empty: the whole diff at once), its text on stdout.
+# $3, when it exists, is what this pass asked for last round: the fix is judged against it.
 review_pass() {
   { review_prompt "$1"
     if [ -n "${2:-}" ]; then printf '\n## This review\n\n'; cat "$(mindset_file "$2")"; fi
+    if [ -f "${3:-}" ]; then
+      printf '\n## What you asked for last round\n\n'
+      cat "$3"
+      printf '\nThe change above tried to fix that. Ask for changes again only for what is still not done,'
+      printf ' or for a bug the fix itself added. Anything new you notice is a note: approve.\n'
+    fi
   } | (cd -P "$1/work" && agent reviewer)
 }
 
