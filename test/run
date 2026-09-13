@@ -1576,7 +1576,7 @@ for name in $names; do
   if [ "$(cat "$logs/$name.exit")" -eq 0 ]; then
     pass=$((pass + 1)); echo "ok    $name"
   else
-    failed+=("$name"); echo "FAIL  $name"; tail -40 "$logs/$name" | sed 's/^/      /'
+    failed+=("$name"); echo "FAIL  $name"; cat "$logs/$name" | sed 's/^/      /'
   fi
 done
 rm -rf "$logs"
