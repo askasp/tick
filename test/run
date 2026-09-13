@@ -26,7 +26,9 @@ wait_done() {
     [ -z "$all" ] || return 0
     sleep 0.2
   done
-  echo "timed out waiting for $*" >&2; t ls -a >&2; return 1
+  echo "timed out waiting for $*" >&2; t ls -a >&2
+  for id; do tail -n 20 "$(dir "$id")"/history "$(dir "$id")"/log/*.log >&2 2> /dev/null || true; done
+  return 1
 }
 
 setup() {
@@ -427,9 +429,9 @@ test_a_pipelines_optional_step_is_left_out_unless_the_task_asks() {
   t ls | grep -qE '^ +2 .* 0/7 +next tick$'
   t complete steps gadget | grep -qx plan
   t new --dry -p feature +plan "add the gizmo" > "$tmp/out"
-  grep -q '^steps *plan → implement → test → review → sync → pr$' "$tmp/out"
+  grep -q '^steps *plan (claude) → implement (opencode) → test → review (opencode) → sync (opencode) → pr$' "$tmp/out"
   grep -q '^t feature +plan \\$' "$tmp/out"             # the command, to type next time
-  t new --dry -p feature +ci "add the gizmo" | grep -q '^steps *implement → test → review → sync → pr → ci$'
+  t new --dry -p feature +ci "add the gizmo" | grep -q '^steps *implement (opencode) → test → review (opencode) → sync (opencode) → pr → ci$'
   not new "fix the thing" -p feature +nosuch
   not new "fix the thing" -p local +plan                  # local has no optional steps at all
 }
@@ -447,6 +449,15 @@ test_opencode_codes_by_default_and_claude_on_request() {
   grep -q '^session: claude ' "$(dir $id)/log/10-implement.log"
   grep -q -- '--tools Read,Grep,Glob' "$FAKE/claude.calls" # its reviewer only reads too
   grep -q -- '--permission-mode acceptEdits --allowedTools Bash' "$FAKE/claude.calls"   # its implementer runs the tests
+}
+
+test_agents_may_read_the_task_directories_outside_their_worktree() {
+  id=$(new "add the widget")
+  t run $id
+  jq -e --arg tasks "$T_VAR/tasks/*" '.permission.external_directory[$tasks] == "allow"' "$FAKE/opencode.config" > /dev/null
+  id=$(new "add the gadget" --cli claude)
+  t run $id
+  grep -qF -- "--add-dir $T_VAR/tasks" "$FAKE/claude.calls"
 }
 
 test_each_step_runs_on_the_cli_its_pipeline_names() {
@@ -605,6 +616,22 @@ test_main_waits_while_your_uncommitted_work_is_in_the_way() {
   eq "$(cat notes.txt)" mine                               # the rest of your work stays
 }
 
+test_main_lands_past_your_uncommitted_edits_unless_they_clash() {
+  seq 5 > impl.txt && git add impl.txt && git commit -q -m numbers
+  echo mine >> impl.txt                                    # where the task appends its line
+  id=$(new "fix the widget" -p main)
+  t run $id
+  eq "$(step $id)" 40-merge
+  eq "$(tail -1 impl.txt)" mine
+  eq "$(git stash list)" ""
+  sed -i '$d; 1s/.*/mine/' impl.txt                        # the same file, somewhere else
+  t run $id
+  eq "$(step $id)" done
+  eq "$(head -1 impl.txt),$(tail -1 impl.txt)" "mine,change"
+  eq "$(git diff --name-only)" impl.txt                    # still yours to commit
+  eq "$(git stash list)" ""
+}
+
 test_main_resolves_conflicts_with_a_moved_main_and_tests_again() {
   export SLOTS_opencode=1
   id=$(new "fix the widget" -p main)
@@ -759,13 +786,15 @@ test_new_dry_shows_the_task_it_would_make() {
   t new --dry "Add proration. It must handle upgrades too." |
     grep -q '^branch *t/0001-add-proration$'              # the branch stops at the first sentence
   grep -q '^base *origin/main$' <<< "$out"
-  grep -q '^cli *opencode  (CLI_implement)$' <<< "$out"
+  grep -q '^steps *implement (opencode) → test → review (opencode)$' <<< "$out"
+  t new --dry --cli claude "add the widget" |
+    grep -q '^steps *implement (claude) → test → review (claude)$'   # --cli, on every agent step
   grep -q '^starts *only when you run it' <<< "$out"      # no cron tick here
   grep -q '^t new \\$' <<< "$out"
   [ ! -e "$T_VAR/tasks/0001" ]                            # it made nothing
   out=$(t new --dry -p research "what changed in bash 5.3?")
   grep -q '^repo *none needed$' <<< "$out"
-  grep -q '^cli *claude  (CLI_answer)$' <<< "$out"
+  grep -q '^steps *answer (claude)$' <<< "$out"
   grep -q '^t research \\$' <<< "$out"
   echo "* * * * * $tmp/tick/bin/t tick" > "$FAKE/crontab"
   t new --dry "$(printf 'x%.0s' {1..41})" > "$tmp/out"
@@ -1057,7 +1086,7 @@ test_the_board_starts_a_task_and_says_to_one_in_place() {
   eq "$(cat "$T_UI/pick")" feature
   t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *feature'   # in color
   t ui --key "$(keyfor agent)" '' '' > /dev/null          # another agent than the pipeline's
-  t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^cli *claude  (--cli)'
+  t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^steps *implement (claude) → test → review (claude) → sync (claude) → pr$'
   t ui --key enter '' 'add the widget' | grep -q 'reload-sync'   # made; the reload's end puts the cursor on it
   eq "$(cat "$T_UI/new")" 1
   eq "$(cat "$(dir 0001)/pipeline")" feature

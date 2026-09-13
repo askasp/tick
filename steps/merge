@@ -2,7 +2,7 @@
 # merge — land the task on TRUNK (main's: main). First TRUNK is merged into the task's branch, and the
 # merger agent resolves any conflicts; when that brings anything in, the task goes back to test, so what
 # lands is what was tested and reviewed. Then TRUNK fast-forwards to the branch, in the repo's checkout
-# when it's on TRUNK. git refuses to overwrite your uncommitted work there, and then the step waits.
+# when it's on TRUNK. Your uncommitted work there stays; while it clashes with the branch, the step waits.
 set -euo pipefail
 t=$PWD repo=$(cat repo) branch=$(cat branch)
 into=${TRUNK:?"no TRUNK= in the pipeline's env: the branch this step lands on"}
@@ -32,7 +32,13 @@ if ! git merge-base --is-ancestor "$into" HEAD; then
   exit 0
 fi
 
-if [ "$(git -C "$repo" branch --show-current)" = "$into" ]; then land=(merge -q --ff-only "$branch")
+if [ "$(git -C "$repo" branch --show-current)" = "$into" ]; then
+  yours=$(git -C "$repo" stash create)                     # your uncommitted work as a commit; the checkout stays as it is
+  if [ -n "$yours" ] && ! git -C "$repo" merge-tree --write-tree "$yours" "$branch" > /dev/null; then
+    echo "your uncommitted changes in $repo clash with $branch; commit or stash them, and it lands next tick" >&2
+    exit 75
+  fi
+  land=(merge -q --ff-only --autostash "$branch")
 else land=(fetch -q . "$branch:$into"); fi
 if ! git -C "$repo" "${land[@]}"; then
   echo "$into can't move to $branch yet (git says why above); trying again next tick" >&2

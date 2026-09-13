@@ -16,6 +16,7 @@ prompt=$(cat)
 mode=edit
 [[ " $* " != *" --agent plan "* ]] || mode=read
 echo "$*" >> "$FAKE/opencode.calls"
+[ -z "${OPENCODE_CONFIG_CONTENT:-}" ] || echo "$OPENCODE_CONFIG_CONTENT" >> "$FAKE/opencode.config"
 printf '%s\n=====\n' "$prompt" >> "$FAKE/$mode.prompts"
 
 fail=$(pop fails no)
