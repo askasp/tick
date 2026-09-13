@@ -606,6 +606,22 @@ test_main_waits_while_your_uncommitted_work_is_in_the_way() {
   eq "$(cat notes.txt)" mine                               # the rest of your work stays
 }
 
+test_main_lands_past_your_uncommitted_edits_unless_they_clash() {
+  seq 5 > impl.txt && git add impl.txt && git commit -q -m numbers
+  echo mine >> impl.txt                                    # where the task appends its line
+  id=$(new "fix the widget" -p main)
+  t run $id
+  eq "$(step $id)" 40-merge
+  eq "$(tail -1 impl.txt)" mine
+  eq "$(git stash list)" ""
+  sed -i '$d; 1s/.*/mine/' impl.txt                        # the same file, somewhere else
+  t run $id
+  eq "$(step $id)" done
+  eq "$(head -1 impl.txt),$(tail -1 impl.txt)" "mine,change"
+  eq "$(git diff --name-only)" impl.txt                    # still yours to commit
+  eq "$(git stash list)" ""
+}
+
 test_main_resolves_conflicts_with_a_moved_main_and_tests_again() {
   export SLOTS_opencode=1
   id=$(new "fix the widget" -p main)
