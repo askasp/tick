@@ -58,12 +58,9 @@ row() { printf '%s%-10s%s%s\n' "$C_DIM" "$1" "$C_OFF" "$2"; }
 
 # t new --dry: the task it would make, while you can still change it (t compose's preview)
 preview() {
-  local n first who source profile def cmd="t new" flags= short sibling want
+  local n profile def cmd="t new" flags= short sibling want
   terminal_colors
   n=$(( $(last_task_num) + 1 ))
-  first=$(steps "$pipeline" "$opt" | head -1)
-  first=${first#*-}
-  who=${cli:-$(solver "$pipeline" "$first")}
 
   if [ -n "$repo" ]; then
     profile=$(profile_of "$repo")
@@ -75,9 +72,7 @@ preview() {
     row pipeline "$pipeline"
     row repo "${C_DIM}none needed$C_OFF"
   fi
-  if [ -n "$(optional "$pipeline")" ]; then row steps "$(flow "$pipeline" "$opt" | sed 's/ ([^)]*)//g')"; fi
-  if [ -n "$cli" ]; then source=--cli; else source=CLI_$first; fi
-  if [ -n "$who" ]; then row cli "$who$C_DIM  ($source)$C_OFF"; fi
+  row steps "$(AGENT_CLI=$cli flow "$pipeline" "$opt")"
   if [ -n "$now" ]; then row starts "${C_BRIGHT}now, here$C_OFF"
   elif [ -n "$on" ]; then row starts "when task $(task_num "$parent") is done"
   elif has_cron_tick; then row starts "${C_BRIGHT}next tick, < 60s$C_OFF"

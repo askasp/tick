@@ -8,6 +8,7 @@ MODEL_plan=opus
 EFFORT_plan=max
 CLI_implement=opencode
 CLI_review=opencode
+CLI_sync=opencode                      # the merger, when the base moved on
 
 # The review reads the diff once per mindset named here, each time for one thing only: a name is a
 # file in mindsets/, and a small local model is better at five narrow questions than one wide one.

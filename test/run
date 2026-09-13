@@ -427,9 +427,9 @@ test_a_pipelines_optional_step_is_left_out_unless_the_task_asks() {
   t ls | grep -qE '^ +2 .* 0/7 +next tick$'
   t complete steps gadget | grep -qx plan
   t new --dry -p feature +plan "add the gizmo" > "$tmp/out"
-  grep -q '^steps *plan → implement → test → review → sync → pr$' "$tmp/out"
+  grep -q '^steps *plan (claude) → implement (opencode) → test → review (opencode) → sync (opencode) → pr$' "$tmp/out"
   grep -q '^t feature +plan \\$' "$tmp/out"             # the command, to type next time
-  t new --dry -p feature +ci "add the gizmo" | grep -q '^steps *implement → test → review → sync → pr → ci$'
+  t new --dry -p feature +ci "add the gizmo" | grep -q '^steps *implement (opencode) → test → review (opencode) → sync (opencode) → pr → ci$'
   not new "fix the thing" -p feature +nosuch
   not new "fix the thing" -p local +plan                  # local has no optional steps at all
 }
@@ -758,13 +758,15 @@ test_new_dry_shows_the_task_it_would_make() {
   t new --dry "Add proration. It must handle upgrades too." |
     grep -q '^branch *t/0001-add-proration$'              # the branch stops at the first sentence
   grep -q '^base *origin/main$' <<< "$out"
-  grep -q '^cli *opencode  (CLI_implement)$' <<< "$out"
+  grep -q '^steps *implement (opencode) → test → review (opencode)$' <<< "$out"
+  t new --dry --cli claude "add the widget" |
+    grep -q '^steps *implement (claude) → test → review (claude)$'   # --cli, on every agent step
   grep -q '^starts *only when you run it' <<< "$out"      # no cron tick here
   grep -q '^t new \\$' <<< "$out"
   [ ! -e "$T_VAR/tasks/0001" ]                            # it made nothing
   out=$(t new --dry -p research "what changed in bash 5.3?")
   grep -q '^repo *none needed$' <<< "$out"
-  grep -q '^cli *claude  (CLI_answer)$' <<< "$out"
+  grep -q '^steps *answer (claude)$' <<< "$out"
   grep -q '^t research \\$' <<< "$out"
   echo "* * * * * $tmp/tick/bin/t tick" > "$FAKE/crontab"
   t new --dry "$(printf 'x%.0s' {1..41})" > "$tmp/out"
@@ -1056,7 +1058,7 @@ test_the_board_starts_a_task_and_says_to_one_in_place() {
   eq "$(cat "$T_UI/pick")" feature
   t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *feature'   # in color
   t ui --key "$(keyfor agent)" '' '' > /dev/null          # another agent than the pipeline's
-  t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^cli *claude  (--cli)'
+  t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^steps *implement (claude) → test → review (claude) → sync (claude) → pr$'
   t ui --key enter '' 'add the widget' | grep -q 'reload-sync'   # made; the reload's end puts the cursor on it
   eq "$(cat "$T_UI/new")" 1
   eq "$(cat "$(dir 0001)/pipeline")" feature
