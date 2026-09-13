@@ -6,7 +6,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 path=$PATH
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 SHELL=/bin/bash
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
-unset T_VAR T_PIPELINE T_REPO T_REPOS MAX_RUNS DIFF_MAX GPU_BUSY IDLE_PASSES IDLE_FIXES SLOTS_claude SLOTS_opencode T_EFFORT CLAUDE_EDIT_MODE AGENT_CLI AGENT_MODEL T_PICKER
+unset T_VAR T_PIPELINE T_REPO T_REPOS MAX_RUNS DIFF_MAX GPU_BUSY IDLE_PASSES IDLE_FIXES SLOTS_claude SLOTS_opencode T_EFFORT CLAUDE_EDIT_MODE AGENT_CLI AGENT_MODEL AGENT_EFFORT T_PICKER
 # run by a tick task's test step, the task's settings are exported (TEST_CMD=test/run would be the toy's too),
 # and so is t ui's state when the board started the task: its T_UI is gone by now, and t new writes there
 unset TASK_ID T_STEP T_UI T_NEW T_UI_CHANGED TEST_CMD TEARDOWN $(cat "$root"/pipelines/*/env "$root"/repos/*/env 2> /dev/null | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' | sort -u)
@@ -1563,7 +1563,7 @@ test_drivers_read_real_cli_output() {
   not bash -c "echo hi | FAKE_REPLAY=$fx/opencode-error.jsonl '$root/drivers/opencode' > /dev/null 2>&1"
 }
 
-names=$(declare -F | awk '{ print $3 }' | grep '^test_' | grep -- "${1:-.}")
+names=$(declare -F | awk '{ print $3 }' | grep '^test_' | grep -E -- "${1:-.}")
 logs=$(mktemp -d)
 for name in $names; do
   while [ "$(jobs -rp | wc -l)" -ge "$(nproc)" ]; do wait -n; done
