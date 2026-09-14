@@ -235,7 +235,7 @@ words() {
 ACTIONS='log     ctrl-l  its output, live; again: all of it, unfolded
 say     ctrl-y  send it back to a step with your notes
 attach  ctrl-o  take over the agent conversation (its own screen)
-stack   ctrl-t  start a task that branches from this one (waits for it to finish)
+stack   ctrl-t  start a task that branches from this one (waits for it to finish); on an answer, one made from it
 diff    -       the files it changed, with the diff of each beside them
 run     -       run it now
 hold    ctrl-r  pause it after this step, or unpause it when it is held
@@ -290,7 +290,7 @@ offers() {
              else echo run hold rm; fi ;;
     after*)  echo log rm ;;
     HOLD)    if [[ $(cat "$1/step") == *-sign ]]; then echo sign say rm; else echo say log attach hold; fi ;;
-    *)       if [ -f "$1/answer.md" ]; then echo say rm; else echo diff stack say rm; fi ;;
+    *)       if [ -f "$1/answer.md" ]; then echo say stack rm; else echo diff stack say rm; fi ;;
   esac
 }
 

@@ -917,6 +917,29 @@ test_say_on_a_question_asks_a_follow_up() {
   grep -q 'and how do I run just one?' "$FAKE/read.prompts"
 }
 
+test_an_answered_question_becomes_a_task_with_the_question_and_answer_as_details() {
+  ask=$(new -p ask "how do the tests run?")
+  t run $ask
+  t say $ask "and how do I run just one?" 2> /dev/null
+  t run $ask
+  cd /                                                    # the question's repo, not the one you're in
+  t new --dry --from $ask "run one test" | grep -q "^details *task $((10#$ask))'s question and answer$"
+  id=$(new --from $ask "run one test")
+  eq "$(cat "$(dir $id)/repo")" "$(cat "$(dir $ask)/repo")"
+  [ "$(cat "$(dir $id)/pipeline")" != ask ]               # the repo's pipeline, which changes code
+  [ ! -e "$(dir $id)/after" ]                             # nothing to wait for
+  eq "$(head -1 "$(dir $id)/task.md")" "# run one test"
+  grep -q '^how do the tests run?$' "$(dir $id)/task.md"
+  grep -q 'and how do I run just one?' "$(dir $id)/task.md"
+  grep -qF "$(grep -m1 . "$(dir $ask)/answer.md")" "$(dir $id)/task.md"
+  eq "$(cat "$(dir "$(t stack $ask "again" < /dev/null 2> /dev/null)")/pipeline")" "$(cat "$(dir $id)/pipeline")"
+  not new --from $id "no answer here" 2> /dev/null
+  t keys $ask | grep -q ':stack '
+  export T_UI=$tmp/ui T_NEW=$tmp/ui                        # on the board, the stack key makes the task
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  t ui --key "$(keyfor stack)" $((10#$ask)) '' | grep -q "change-prompt(task from $((10#$ask))> )"
+}
+
 test_new_now_runs_the_task_at_once() {
   t new --now -p ask "how do the tests run?" < /dev/null > /dev/null 2>&1
   eq "$(step 0001)" done

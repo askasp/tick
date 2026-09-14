@@ -116,7 +116,8 @@ back. `^a`, `^e` and `^u` edit the line as in a shell. With cron installed the
 task starts at once; without it, `? run` on its row runs it. Flags typed with
 the title work too: `Add proration -r amino`.
 
-`^t` stacks a task on the one you're on the same way (`stack on 7>`), and
+`^t` stacks a task on the one you're on the same way (`stack on 7>`; on an
+answered question, `task from 7>` makes a task of it), and
 `? say` says something to it (`say to 7>`, and Enter on a held task): what you
 type goes to `feedback.md`, `tab` picks the step it restarts at, `^s` who
 solves it from then on, and the pane shows what will happen and its latest log.
@@ -172,7 +173,11 @@ t ask --now -r amino "How does checkout compute tax?"          # reads amino, ch
 t research --now "What changed in Postgres 18 upgrades?"       # searches the web, from anywhere
 t say 7 "and where is that tested?"                            # a follow-up
 t show 7                                                       # the question, the answer, the history
+t new --from 7 "Test the tax rounding"                         # make it a task (t stack 7, ^t on the board)
 ```
+
+A task made from a question works in its repo, with its repo's pipeline, and
+its details are the question, the follow-ups and the answer.
 
 These are ordinary pipelines with one step, `answer`. The step pipes the
 question to `agents/answerer.md` and writes `answer.md`, which `t show`

@@ -194,10 +194,19 @@ if [ "${1:-}" = --key ]; then
     default_pipeline > "$T_UI/def"
     form new - "new> " "$(cat "$T_UI/def")" "nofollow,~2" "$(keys new)"
   }
-  stack_form() {
-    printf -- '--on\n%s\n' "$1" > "$T_UI/args"; : > "$T_UI/repo"; : > "$T_UI/cli"
-    cat "$(tdir "$1")/pipeline" > "$T_UI/def"
-    form stack "$1" "stack on $1> " "$(cat "$T_UI/def")" "nofollow,~2" "$(keys stack)"
+  stack_form() {   # on an answer, a task made from it: in its repo's pipeline
+    local task
+    task=$(tdir "$1")
+    : > "$T_UI/repo"; : > "$T_UI/cli"
+    if [ -f "$task/answer.md" ]; then
+      printf -- '--from\n%s\n' "$1" > "$T_UI/args"
+      default_pipeline "$(cat "$task/repo" 2> /dev/null)" > "$T_UI/def"
+      form stack "$1" "task from $1> " "$(cat "$T_UI/def")" "nofollow,~2" "$(keys stack)"
+    else
+      printf -- '--on\n%s\n' "$1" > "$T_UI/args"
+      cat "$task/pipeline" > "$T_UI/def"
+      form stack "$1" "stack on $1> " "$(cat "$T_UI/def")" "nofollow,~2" "$(keys stack)"
+    fi
   }
   say_form() {
     local task first
@@ -369,7 +378,7 @@ if [ $# -gt 0 ]; then
     log)    if [[ $st == after* ]]; then id=$(cat "$task/after"); fi       # queued: what it waits for
             t-log "$id" -f; exit ;;
     say)    t-say "$id" "" ;;                # no notes yet: its screen asks for them
-    stack)  t-new --on "$id" ;;              # no title yet: t compose
+    stack)  t-stack "$id" ;;                 # no title yet: t compose
     hold)   if [ "$st" = HOLD ]; then t-resume "$id"; else t-hold "$id" "$(ask "why? (Enter: held by hand)")"; fi ;;
     cancel) t-hold -f "$id" cancelled ;;
     name)   t-name "$id" "$(ask "new name? (Enter: an agent picks one)")" ;;

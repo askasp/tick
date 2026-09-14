@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t new ["what to do" [-]] [-p PIPELINE] [+STEP] [--on TASK] [--cli claude|opencode] [--test CMD] [-r REPO] [--now] [--edit] [--dry] — create a task
+# t new ["what to do" [-]] [-p PIPELINE] [+STEP] [--on TASK] [--from TASK] [--cli claude|opencode] [--test CMD] [-r REPO] [--now] [--edit] [--dry] — create a task
 #
 # No title: in a terminal with fzf, t compose opens; else $EDITOR, where line 1 is the title and the rest
 # details for the agent (--edit opens it with a title too). A "-" reads the details from stdin instead:
@@ -10,16 +10,18 @@
 # The pipeline is -p (or t PIPELINE "..."), else the repo's own (PIPELINE= in repos/NAME/env), else $T_PIPELINE.
 # +STEP adds one of its optional steps (OPTIONAL= in its env), which it otherwise leaves out: t feature +plan "...".
 # --on TASK stacks it: that task's worktree, repo and pipeline, and it waits until that task is done.
+# --from TASK makes an answered question into a task: in its repo, with the question and answer as details.
 # A title longer than 40 characters gets a short name for the board from an agent (see t name).
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 . "$T_ROOT/lib/new.sh"
 set -euo pipefail
 
-args=("$@") pipeline= on= cli= test= repo= base= title= details= stdin= now= edit= dry= opt=
+args=("$@") pipeline= on= from= cli= test= repo= base= title= details= stdin= now= edit= dry= opt=
 while [ $# -gt 0 ]; do
   case $1 in
     -p)     pipeline=$2; shift ;;
     --on)   on=$2; shift ;;
+    --from) from=$2; shift ;;
     --cli)  cli=$2; shift ;;
     --test) test=$2; shift ;;
     --base) base=$2; shift ;;
@@ -46,6 +48,11 @@ fi
 repo_arg=$repo
 
 why=
+if [ -n "$from" ]; then
+  asked=$(task_dir "$from")
+  [ -s "$asked/answer.md" ] || die "task $(task_num "$asked") has no answer to start from; to build on its branch: t stack $(task_num "$asked")"
+  if [ -z "$repo" ] && [ -f "$asked/repo" ]; then repo=$(cat "$asked/repo") why="task $(task_num "$asked")'s"; fi
+fi
 if [ -n "$on" ]; then
   parent=$(task_dir "$on")
   repo=$(cat "$parent/repo") base=$(cat "$parent/branch") why="task $(task_num "$parent")'s"
@@ -81,6 +88,7 @@ if [ -z "$title" ] || [ -n "$edit" ]; then
 elif [ -n "$stdin" ]; then
   details=$(cat)
 fi
+if [ -n "$from" ]; then details=$(printf '%s\n\n' "$details"; question_and_answer "$asked" | from_first_words); fi
 
 # the next free id; mkdir is atomic, so two `t new` at once never share one
 mkdir -p "$T_TASKS"

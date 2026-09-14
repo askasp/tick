@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# t stack [TASK] ["what to do"] — start a task on another's branch: same repo and pipeline, starts when TASK is done
+# t stack [TASK] ["what to do"] — start a task on another's branch: same repo and pipeline, starts when TASK is done.
+# On an answered question, a task made from it instead (t new --from): the question and answer are its details.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 parent=$(task_dir "${1:-}")
 shift || true
+if [ -f "$parent/answer.md" ]; then exec "$T_ROOT/bin/t-new" --from "$parent" "$@"; fi
 exec "$T_ROOT/bin/t-new" --on "$parent" "$@"

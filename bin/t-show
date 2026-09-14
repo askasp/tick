@@ -105,6 +105,7 @@ next_steps() {
                echo "  t say $n \"...\"      reply again, to the thread as it is by then"
              elif [ -f "$task/answer.md" ]; then
                echo "  t say $n \"...\"      ask a follow-up"
+               echo "  t stack $n \"...\"    make it a task: the question and answer are its details"
              elif [ -f "$task/pr" ]; then
                echo "  review and merge   $(cat "$task/pr")"
                echo "  t say $n \"...\"      ask for more changes"
@@ -113,7 +114,7 @@ next_steps() {
                echo "  git -C $(cat "$task/repo") merge $(cat "$task/branch")"
                echo "  t say $n \"...\"      ask for more changes"
              fi
-             echo "  t stack $n          start a task stacked on this one"
+             if [ ! -f "$task/answer.md" ]; then echo "  t stack $n          start a task stacked on this one"; fi
              echo "  t rm $n             delete the task" ;;
   esac
 }
