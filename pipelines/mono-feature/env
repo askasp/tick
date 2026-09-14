@@ -1,4 +1,4 @@
-# periode-feature: a change to Periode's monorepo (repos/mono) from any directory: implement, test and review,
+# mono-feature: a change to Periode's monorepo (repos/mono) from any directory: implement, test and review,
 # then a pull request. The agents follow the repo's CLAUDE.md files and skills, and the house-rules review pass
 # holds the diff to them. With +plan, a planner first decides whether it is one pull request or a stack of
 # small ones; with +ci, the task waits for the PR's checks and fixes them.

@@ -192,6 +192,15 @@ age() {
   fi
 }
 
+# how long ago epoch $1 was: 40m, 5h, 6d, 3w
+ago() {
+  local s=$(( $(date +%s) - $1 ))
+  if [ "$s" -lt 3600 ]; then echo "$((s / 60))m"
+  elif [ "$s" -lt 86400 ]; then echo "$((s / 3600))h"
+  elif [ "$s" -lt 1209600 ]; then echo "$((s / 86400))d"
+  else echo "$((s / 604800))w"; fi
+}
+
 # a task that watches something and never ends: its step keeps what it watches in inbox, calendar or roadmap
 watching() { [ -f "$1/inbox" ] || [ -f "$1/calendar" ] || [ -f "$1/roadmap" ]; }
 
@@ -365,9 +374,15 @@ issue    ctrl-n  a new issue on the project: its title; in a list of sub-issues,
 status   ctrl-s  move it on the project: the list turns into its statuses, and enter picks one
 drop     ctrl-x  not mine: off this list, and nothing changes on GitHub
 keys     ?       every key, in the pane; again: the issue'
+# t later's: the query is the add box, so enter on nothing that matches adds what you typed
+LATER_KEYS='open     enter   its subtasks, where typing adds one; on a subtask, did it; on nothing that matches, add it
+task     ctrl-t  a task of it: its title typed in t compose, with pipeline me for what only your hands can do
+did      ctrl-d  did it: off the list
+drop     ctrl-x  not doing it: off the list
+edit     ctrl-e  its notes and subtasks in $EDITOR; a note "due 30 Sep" counts toward this week'
 
 # the key for $1 as fzf binds it (key_of agent → ctrl-s), and as the screens write it (key agent → ^s)
-key_of() { printf '%s\n' "$ACTIONS" "$BOARD_KEYS" "$FORM_KEYS" "$INBOX_KEYS" "$THREAD_KEYS" "$CAL_KEYS" "$ROADMAP_KEYS" | awk -v n="$1" '$1 == n { print $2; exit }'; }
+key_of() { printf '%s\n' "$ACTIONS" "$BOARD_KEYS" "$FORM_KEYS" "$INBOX_KEYS" "$THREAD_KEYS" "$CAL_KEYS" "$ROADMAP_KEYS" "$LATER_KEYS" | awk -v n="$1" '$1 == n { print $2; exit }'; }
 key() { keyname "$(key_of "$1")"; }
 
 # how t ui writes a key: ctrl-l as ^l, and a key an action hasn't (-) as nothing
@@ -415,7 +430,11 @@ offers() {
              elif [ -s "$1/log/$(cat "$1/step").log" ]; then echo log run hold
              else echo run hold rm; fi ;;
     after*)  echo log rm ;;
-    HOLD)    if [[ $(cat "$1/step") == *-sign ]]; then echo sign say rm; else echo say log attach hold; fi ;;
+    HOLD)    case $(cat "$1/step") in
+               *-sign) echo sign say rm ;;
+               *-do)   echo hold rm ;;                  # resuming it is saying you did it
+               *)      echo say log attach hold ;;
+             esac ;;
     *)       if [ -f "$1/answer.md" ]; then echo say stack rm
              elif [ -s "$1/pr" ] || [ -s "$1/preview" ]; then echo diff copy stack say rm
              else echo diff stack say rm; fi ;;

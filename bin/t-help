@@ -9,8 +9,8 @@ Start a task, from any directory (TAB completes -r, -p, --on and tasks):
   t new -r amino "Add a discount code field"   in amino, with amino's own pipeline
   t new "..."                                  in the repo you're standing in
   t new                                        the same, writing the title and details in $EDITOR
-  t periode-feature "..."                      a pipeline that names its repo: mono, from any directory
-  t amino +plan "..."                          with an optional step: plan it into one PR or a stack
+  t mono-feature "..."                         a pipeline that names its repo: mono, from any directory
+  t amino-feature +plan "..."                  with an optional step: plan it into one PR or a stack
   t new --on 3 "..."                           stack it on task 3: branches from 3, starts when 3 is done
   t new --cli claude "..."                     solve every step with claude instead
   t new --image "$(t paste)" "..."             with the image on the clipboard, for the agent to see
@@ -35,7 +35,7 @@ echo "Pipelines (t NAME \"...\", or t new -p NAME; * is the default):"
 for d in "$T_ROOT"/pipelines/*/; do
   name=$(basename "$d") mark=' '
   if [ "$name" = "$T_PIPELINE" ]; then mark='*'; fi
-  printf '  %s %-9s %s\n' "$mark" "$name" "$(flow "$name")"
+  printf '  %s %-13s %s\n' "$mark" "$name" "$(flow "$name")"
 done
 echo
 echo "Commands (t CMD --help for more; TASK is a number, a word from its title, or left out to pick):"

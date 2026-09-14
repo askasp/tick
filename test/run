@@ -41,7 +41,7 @@ setup() {
   mkdir -p "$tmp/tick/pipelines/local"         # the tests' own plain pipeline: implement, test, review, and no PR
   for step in 10-implement 20-test 30-review; do ln -sf "../../steps/${step#*-}" "$tmp/tick/pipelines/local/$step"; done
   printf 'CLI_implement=opencode\nCLI_review=opencode\n' > "$tmp/tick/pipelines/local/env"
-  echo "REPO=$tmp/repo" >> "$tmp/tick/pipelines/main/env"   # main is tick's; here it is the toy repo's
+  echo "REPO=$tmp/repo" >> "$tmp/tick/pipelines/tick-feature/env"   # tick-feature is tick's; here it is the toy repo's
   export T_PIPELINE=local T_VAR=$tmp/var FAKE=$tmp/fake PATH=$tmp/tick/test/fake:$tmp/tick/bin:$path
   mkdir -p "$FAKE"
   git init -q --bare -b main "$tmp/origin.git"
@@ -56,7 +56,7 @@ setup() {
 
 profile() {   # a repo named "toy" for the toy repo: amino by default, with a test command of its own
   mkdir -p "$tmp/tick/repos/toy"
-  printf 'REPO=%s\nPIPELINE=amino\nTEST_CMD="touch %s/tested && make test"\n' "$tmp/repo" "$tmp" > "$tmp/tick/repos/toy/env"
+  printf 'REPO=%s\nPIPELINE=amino-feature\nTEST_CMD="touch %s/tested && make test"\n' "$tmp/repo" "$tmp" > "$tmp/tick/repos/toy/env"
 }
 
 front() {   # a Front account for jobs/front-digest, served by the fake curl: me@example.com is tea_me
@@ -81,7 +81,7 @@ test_run_runs_only_the_tests_its_pattern_names() {
 
 test_help_shows_how_to_start_a_task() {
   t help | grep -q 'Start a task'
-  t help | grep -q 'amino .*implement (opencode)'
+  t help | grep -q 'amino-feature .*implement (opencode)'
   t help | grep -q 't resume'
   t new --help | grep -q 'stacks it'
   not t nosuch 2> "$tmp/err"
@@ -219,7 +219,7 @@ test_a_review_that_keeps_sending_it_back_holds_the_task_after_MAX_ROUNDS() {
 test_a_step_counts_its_runs_afresh_once_the_task_moved_past_it() {
   export SLOTS_opencode=1
   printf 'BROKEN\nBROKEN\nfixed\n' > "$FAKE/impl"         # test sends it back twice, then passes
-  id=$(new "fix the widget" -p main)
+  id=$(new "fix the widget" -p tick-feature)
   mkdir -p "$T_VAR/run"
   ( exec 8> "$T_VAR/run/opencode.1"; flock 8; sleep 2 ) &
   sleep 0.5
@@ -289,8 +289,8 @@ test_a_stacked_task_waits_then_builds_on_its_parent() {
 }
 
 test_a_stacked_task_takes_what_the_task_below_did_after_it_branched() {
-  a=$(new "parent work" -p amino)
-  b=$(new "child work" --on $a -p amino)
+  a=$(new "parent work" -p amino-feature)
+  b=$(new "child work" --on $a -p amino-feature)
   t run $a
   t run $b
   eq "$(step $b)" done
@@ -383,7 +383,7 @@ test_a_killed_run_is_picked_up_again() {
 
 test_feature_pipeline_opens_a_pr_and_waits_for_ci() {
   printf 'pending\nfail\npass\n' > "$FAKE/checks"
-  id=$(new "add the widget" -p amino +ci)
+  id=$(new "add the widget" -p amino-feature +ci)
   t run $id
   eq "$(step $id)" 50-ci                                  # checks pending: waiting
   eq "$(cat "$(dir $id)/runs/50-ci")" 0
@@ -398,7 +398,7 @@ test_feature_pipeline_opens_a_pr_and_waits_for_ci() {
 
 test_a_feature_is_one_pull_request_unless_its_plan_splits_it() {
   echo "Looks small to me." > "$FAKE/plan"
-  id=$(new "add the widget" -p amino +plan)
+  id=$(new "add the widget" -p amino-feature +plan)
   t run $id
   eq "$(step $id)" 05-plan                                # a plan without a PART line is no plan
   grep -q 'no PART line' "$(dir $id)/log/05-plan.log"
@@ -412,7 +412,7 @@ test_a_feature_is_one_pull_request_unless_its_plan_splits_it() {
 
 test_a_plan_in_parts_becomes_a_stack_of_pull_requests() {
   printf 'Three seams.\n\nPART: Add the widget table\nThe table only.\n\nPART: Show widgets\nA page.\n\nPART: Let users edit widgets\nA form.\n' > "$FAKE/plan"
-  a=$(new "build the whole widget feature" -p amino +plan)
+  a=$(new "build the whole widget feature" -p amino-feature +plan)
   t run $a
   eq "$(step $a)" done
   eq "$(head -1 "$(dir $a)/task.md")" "# Add the widget table"   # it became part 1...
@@ -432,28 +432,28 @@ test_a_plan_in_parts_becomes_a_stack_of_pull_requests() {
 }
 
 test_a_pipelines_optional_step_is_left_out_unless_the_task_asks() {
-  id=$(new "add the widget" -p amino)                   # amino plans and waits for CI only when asked
+  id=$(new "add the widget" -p amino-feature)                   # amino plans and waits for CI only when asked
   eq "$(step $id)" 10-implement
   [ ! -e "$(dir $id)/opt" ]
   t ls | grep -qE '^ +1 .* 0/5 +next tick$'               # five steps, not seven
   not grep -qx plan <(t complete steps widget)
-  with=$(new "add the gadget" -p amino +plan +ci)
+  with=$(new "add the gadget" -p amino-feature +plan +ci)
   eq "$(step $with)" 05-plan
   eq "$(cat "$(dir $with)/opt")" "$(printf 'plan\nci')"
   t ls | grep -qE '^ +2 .* 0/7 +next tick$'
   t complete steps gadget | grep -qx plan
-  t new --dry -p amino +plan "add the gizmo" > "$tmp/out"
+  t new --dry -p amino-feature +plan "add the gizmo" > "$tmp/out"
   grep -q '^steps *plan (claude) → implement (opencode) → test → review (opencode) → sync (opencode) → pr$' "$tmp/out"
-  grep -q '^t amino +plan \\$' "$tmp/out"             # the command, to type next time
-  t new --dry -p amino +ci "add the gizmo" | grep -q '^steps *implement (opencode) → test → review (opencode) → sync (opencode) → pr → ci$'
-  not new "fix the thing" -p amino +nosuch
+  grep -q '^t amino-feature +plan \\$' "$tmp/out"             # the command, to type next time
+  t new --dry -p amino-feature +ci "add the gizmo" | grep -q '^steps *implement (opencode) → test → review (opencode) → sync (opencode) → pr → ci$'
+  not new "fix the thing" -p amino-feature +nosuch
   not new "fix the thing" -p local +plan                  # local has no optional steps at all
 }
 
 test_a_preview_puts_its_links_on_the_pull_request_when_they_change() {
-  printf 'PREVIEW="echo starting >&2; cat %s/links"\n' "$FAKE" >> "$tmp/tick/pipelines/amino/env"
+  printf 'PREVIEW="echo starting >&2; cat %s/links"\n' "$FAKE" >> "$tmp/tick/pipelines/amino-feature/env"
   printf 'App https://app.example\nAPI https://api.example\n' > "$FAKE/links"
-  id=$(new "add the widget" -p amino +preview)
+  id=$(new "add the widget" -p amino-feature +preview)
   t run $id
   eq "$(step $id)" done
   eq "$(cat "$(dir $id)/preview")" "$(cat "$FAKE/links")"
@@ -484,9 +484,9 @@ test_a_tasks_links_show_with_it_and_copy_from_the_board() {
 test_a_done_task_takes_on_an_optional_step_from_resume_or_the_board() {
   export T_UI=$tmp/ui T_NEW=$tmp/ui
   mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
-  printf 'PREVIEW="echo App https://app.example"\n' >> "$tmp/tick/pipelines/amino/env"
-  a=$(new "add the widget" -p amino)
-  b=$(new "add the gadget" -p amino)
+  printf 'PREVIEW="echo App https://app.example"\n' >> "$tmp/tick/pipelines/amino-feature/env"
+  a=$(new "add the widget" -p amino-feature)
+  b=$(new "add the gadget" -p amino-feature)
   t run $a; t run $b
   eq "$(step $b)" done
   not t resume $a nosuch 2> "$tmp/err"
@@ -510,12 +510,12 @@ test_a_done_task_takes_on_an_optional_step_from_resume_or_the_board() {
 }
 
 test_a_preview_that_prints_no_links_fails_and_one_without_a_command_holds() {
-  printf 'PREVIEW="echo up"\n' >> "$tmp/tick/pipelines/amino/env"
-  id=$(new "add the widget" -p amino +preview)
+  printf 'PREVIEW="echo up"\n' >> "$tmp/tick/pipelines/amino-feature/env"
+  id=$(new "add the widget" -p amino-feature +preview)
   t run $id
   eq "$(step $id)" 45-preview
   grep -q 'printed no "NAME URL" lines' "$(dir $id)/log/45-preview.log"
-  sed -i '/^PREVIEW=/d' "$tmp/tick/pipelines/amino/env"
+  sed -i '/^PREVIEW=/d' "$tmp/tick/pipelines/amino-feature/env"
   t run $id
   grep -q 'PREVIEW= in the repo' "$(dir $id)/hold"
 }
@@ -545,16 +545,16 @@ test_agents_may_read_the_task_directories_outside_their_worktree() {
 }
 
 test_each_step_runs_on_the_cli_its_pipeline_names() {
-  echo MODEL_implement=vllm/test-model >> "$tmp/tick/pipelines/amino/env"
-  id=$(new "add the widget" -p amino +plan)             # amino: plan on claude, the rest on opencode
+  echo MODEL_implement=vllm/test-model >> "$tmp/tick/pipelines/amino-feature/env"
+  id=$(new "add the widget" -p amino-feature +plan)             # amino: plan on claude, the rest on opencode
   t run $id
   eq "$(step $id)" done
   eq "$(grep -c . "$FAKE/opencode.calls")" 6              # implement, and a review pass per mindset
   grep -q -- '-m vllm/test-model' "$FAKE/opencode.calls"  # the step's model went with it
   eq "$(grep -c . "$FAKE/claude.calls")" 1                # the planner
   grep -q -- '--model opus --effort max' "$FAKE/claude.calls"
-  t show $id | grep -q '^pipeline  amino · claude, opencode$'
-  id=$(new "add the gadget" -p amino +plan --cli claude)   # --cli beats the pipeline
+  t show $id | grep -q '^pipeline  amino-feature · claude, opencode$'
+  id=$(new "add the gadget" -p amino-feature +plan --cli claude)   # --cli beats the pipeline
   t run $id
   eq "$(grep -c . "$FAKE/claude.calls")" 8
   not grep -q -- 'test-model' "$FAKE/claude.calls"        # opencode's model isn't claude's
@@ -770,7 +770,7 @@ test_ctrl_x_is_offered_for_a_running_task() {
 
 test_main_codes_in_a_worktree_and_lands_on_the_local_main() {
   git commit -q --allow-empty -m "not pushed yet"
-  id=$(new "fix the widget" -p main)
+  id=$(new "fix the widget" -p tick-feature)
   t run $id
   eq "$(step $id)" done
   [ "$(t path $id)" != "$(realpath "$tmp/repo")" ]
@@ -782,7 +782,7 @@ test_main_codes_in_a_worktree_and_lands_on_the_local_main() {
 test_main_waits_while_your_uncommitted_work_is_in_the_way() {
   echo mine > notes.txt
   echo mine > impl.txt                                     # the task writes impl.txt too
-  id=$(new "fix the widget" -p main)
+  id=$(new "fix the widget" -p tick-feature)
   t run $id
   eq "$(step $id)" 40-merge
   eq "$(cat "$(dir $id)/runs/40-merge")" 0                 # waiting isn't a run
@@ -797,7 +797,7 @@ test_main_waits_while_your_uncommitted_work_is_in_the_way() {
 test_main_lands_past_your_uncommitted_edits_unless_they_clash() {
   seq 5 > impl.txt && git add impl.txt && git commit -q -m numbers
   echo mine >> impl.txt                                    # where the task appends its line
-  id=$(new "fix the widget" -p main)
+  id=$(new "fix the widget" -p tick-feature)
   t run $id
   eq "$(step $id)" 40-merge
   eq "$(tail -1 impl.txt)" mine
@@ -812,7 +812,7 @@ test_main_lands_past_your_uncommitted_edits_unless_they_clash() {
 
 test_main_resolves_conflicts_with_a_moved_main_and_tests_again() {
   export SLOTS_opencode=1
-  id=$(new "fix the widget" -p main)
+  id=$(new "fix the widget" -p tick-feature)
   mkdir -p "$T_VAR/run"
   exec 8> "$T_VAR/run/opencode.1"; flock 8
   t run $id                                                # makes the worktree, then waits for a slot
@@ -830,7 +830,7 @@ test_main_resolves_conflicts_with_a_moved_main_and_tests_again() {
 }
 
 test_a_task_stacked_on_a_main_task_lands_on_main_too() {
-  a=$(new "parent work" -p main)
+  a=$(new "parent work" -p tick-feature)
   b=$(new "child work" --on $a)
   t run $a
   t run $b
@@ -842,13 +842,13 @@ test_main_works_in_its_own_repo_from_anywhere() {
   git init -q "$tmp/other"
   git -C "$tmp/other" commit -q --allow-empty -m init
   cd "$tmp/other"
-  id=$(new "fix the widget" -p main)                      # standing in another repo doesn't count
+  id=$(new "fix the widget" -p tick-feature)                      # standing in another repo doesn't count
   eq "$(cat "$(dir $id)/repo")" "$(realpath "$tmp/repo")"
   cd /
-  id=$(new "fix the gadget" -p main)
+  id=$(new "fix the gadget" -p tick-feature)
   eq "$(cat "$(dir $id)/repo")" "$(realpath "$tmp/repo")"
-  id=$(new "fix the gizmo" -p main -r "$tmp/repo")
-  not new "fix the doohickey" -p main -r "$tmp/other"
+  id=$(new "fix the gizmo" -p tick-feature -r "$tmp/repo")
+  not new "fix the doohickey" -p tick-feature -r "$tmp/other"
 }
 
 test_a_repo_by_name_brings_its_pipeline_and_its_tests() {
@@ -856,14 +856,14 @@ test_a_repo_by_name_brings_its_pipeline_and_its_tests() {
   cd /
   id=$(new "add the widget" -r toy)
   eq "$(cat "$(dir $id)/repo")" "$(realpath "$tmp/repo")"
-  eq "$(cat "$(dir $id)/pipeline")" amino               # the repo's own pipeline
+  eq "$(cat "$(dir $id)/pipeline")" amino-feature               # the repo's own pipeline
   id=$(new "try the widget" -r toy -p local)              # another pipeline for once...
   t run $id
   eq "$(step $id)" done
   [ -e "$tmp/tested" ]                                    # ...still with the repo's test command
   cd "$tmp/repo"
   id=$(new "one more widget")
-  eq "$(cat "$(dir $id)/pipeline")" amino               # standing in the repo counts the same
+  eq "$(cat "$(dir $id)/pipeline")" amino-feature               # standing in the repo counts the same
 }
 
 test_a_repo_can_be_a_directory_name_or_the_default() {
@@ -881,8 +881,8 @@ test_completion_offers_what_you_can_type() {
   profile
   export T_REPOS=$tmp
   t complete commands | grep -q '^new:create a task'
-  t complete pipelines | grep -q '^amino:+plan (claude) → implement (opencode) → test .* → pr → +preview → +ci$'
-  t complete repos | grep -q '^toy:.*(pipeline amino)'
+  t complete pipelines | grep -q '^amino-feature:+plan (claude) → implement (opencode) → test .* → pr → +preview → +ci$'
+  t complete repos | grep -q '^toy:.*(pipeline amino-feature)'
   t complete repos | grep -q "^repo:$tmp/repo"
   t complete clis | grep -qx opencode
   id=$(new "add the widget")
@@ -1330,6 +1330,15 @@ test_compose_takes_flags_typed_with_the_title() {
   grep -q '"what changed in bash?"' <<< "$out"
 }
 
+test_the_pipeline_picker_offers_code_and_questions_only() {
+  export T_UI=$tmp/ui
+  mkdir "$T_UI"; : > "$T_UI/def"
+  rows=$(t ui --pipelines | sed 's/\x1b\[[0-9;]*m//g')
+  grep -qE '^tick-feature +code +repo$' <<< "$rows"              # the repo it works on
+  grep -qE '^research +answer +claude$' <<< "$rows"              # a question needs no repo: its agent
+  not grep -qE '^(reply|comment|front-inbox|amino-roadmap) ' <<< "$rows"   # these start from elsewhere
+}
+
 test_the_board_starts_a_task_and_says_to_one_in_place() {
   export T_UI=$tmp/ui T_NEW=$tmp/ui
   mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
@@ -1342,21 +1351,21 @@ test_the_board_starts_a_task_and_says_to_one_in_place() {
   grep -q 'reload-sync~t-ui --pipelines~+pos(1)' <<< "$out"       # the cursor lands on the first
   eq "$(cat "$T_UI/list")" pipelines
   eq "$(head -1 <<< "$(t ui --pipelines)" | awk '{ print $1 }')" local   # the repo's default, first
-  t ui --pane amino '' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *amino'  # the one under the cursor
-  [[ $(t ui --pane amino '' | head -1) != *local* ]]           # only it: the list beside shows the others
-  t ui --key enter amino '' | grep -q 'change-prompt(new> )+disable-search'   # enter on it: that one, then the title
+  t ui --pane amino-feature '' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *amino-feature'  # the one under the cursor
+  [[ $(t ui --pane amino-feature '' | head -1) != *local* ]]           # only it: the list beside shows the others
+  t ui --key enter amino-feature '' | grep -q 'change-prompt(new> )+disable-search'   # enter on it: that one, then the title
   eq "$(cat "$T_UI/list")" tasks
-  eq "$(cat "$T_UI/pick")" amino
+  eq "$(cat "$T_UI/pick")" amino-feature
   t ui --key "$(keyfor pipeline)" '' 'add the widget' > /dev/null  # ^p: the pipelines again
   eq "$(cat "$T_UI/title")" 'add the widget'
   t ui --key esc '' '' | grep -q 'change-query~add the widget~'   # esc: back to the title waiting, nothing picked
   eq "$(cat "$T_UI/list")" tasks
-  eq "$(cat "$T_UI/pick")" amino
+  eq "$(cat "$T_UI/pick")" amino-feature
   t ui --key "$(keyfor agent)" '' '' > /dev/null          # another agent than the pipeline's
   t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^steps *implement (claude) → test → review (claude) → sync (claude) → pr$'
   form_enter '' 'add the widget' | grep -q 'reload-sync'   # made; the reload's end puts the cursor on it
   eq "$(cat "$T_UI/new")" 1
-  eq "$(cat "$(dir 0001)/pipeline")" amino
+  eq "$(cat "$(dir 0001)/pipeline")" amino-feature
   grep -q '^AGENT_CLI=claude$' "$(dir 0001)/env"
   t hold 1 waiting
   t ui --key enter 1 '' | grep -q 'change-prompt(say to 1> )'   # Enter on a held task: say to it
@@ -1502,15 +1511,15 @@ test_the_board_picks_the_pipeline_from_a_list_of_them() {
   for i in $(seq 100); do screen | grep -qE '^[│ ]*> +local ' && break; sleep 0.1; done
   screen | grep -q 'pipeline> '
   screen | grep -qE '^[│ ]*> +local '                      # the default, under the cursor
-  tmux -L "$server" send-keys "'amino"                      # search them, as the tasks are searched
-  for i in $(seq 100); do screen | grep -qE '^[│ ]*> +amino ' && break; sleep 0.1; done
+  tmux -L "$server" send-keys "'amino-feature"                      # search them, as the tasks are searched
+  for i in $(seq 100); do screen | grep -qE '^[│ ]*> +amino-feature ' && break; sleep 0.1; done
   tmux -L "$server" send-keys Enter                        # picks it; the title next
   for i in $(seq 100); do screen | grep -q 'new> ' && break; sleep 0.1; done
   tmux -L "$server" send-keys 'add a discount code'
   for i in $(seq 100); do screen | grep -q 'new> add a discount code' && break; sleep 0.1; done
   tmux -L "$server" send-keys Enter
   for i in $(seq 100); do [ -f "$(dir 0002)/pipeline" ] && break; sleep 0.1; done
-  eq "$(cat "$(dir 0002)/pipeline")" amino
+  eq "$(cat "$(dir 0002)/pipeline")" amino-feature
   tmux -L "$server" kill-server
 }
 
@@ -1666,7 +1675,7 @@ test_two_idle_reviews_never_overlap() {
 }
 
 test_idle_review_passes_over_work_it_cannot_help() {
-  a=$(new "landed work" -p main)                          # main lands its branch on the trunk
+  a=$(new "landed work" -p tick-feature)                          # tick-feature lands its branch on the trunk
   t run $a
   b=$(new "parent work"); c=$(new "child work" --on $b)
   t run $b
@@ -1695,7 +1704,7 @@ test_idle_review_asks_one_task_for_no_more_fixes_than_it_may() {
 test_idle_review_leaves_a_closed_pull_request_alone() {
   profile
   echo MERGED > "$FAKE/pr_state"
-  id=$(new "add the widget" -r toy -p amino)
+  id=$(new "add the widget" -r toy -p amino-feature)
   t run $id
   eq "$(step $id)" done
   before=$(reads)
@@ -1999,9 +2008,9 @@ test_a_line_that_failed_to_send_is_not_written_twice_when_you_send_again() {
   conversation
   watched > /dev/null
   opened cnv_x
-  chmod -w "$T_VAR/tasks"
+  mv "$FAKE/front/conversations_cnv_x_messages" "$tmp/messages"       # Front doesn't answer: the task can't read the thread
   typed release 'Sent it again.' | grep -q 'clear-query'             # the line leaves the prompt for the text
-  chmod +w "$T_VAR/tasks"
+  mv "$tmp/messages" "$FAKE/front/conversations_cnv_x_messages"
   typed release '' > /dev/null
   eq "$(cat "$(dir $(newest))/answer.md")" 'Sent it again.'
 }
@@ -2672,7 +2681,7 @@ test_compose_types_the_title_it_was_given_and_keeps_the_details_from_stdin() {
   cat "$tmp/screen" >&2
   eq "$(head -1 "$(dir 0001)/task.md")" "# fix the gadget"
   grep -qx 'What #12 is about' "$(dir 0001)/task.md"
-  eq "$(cat "$(dir 0001)/pipeline")" amino                          # toy's own, under the cursor
+  eq "$(cat "$(dir 0001)/pipeline")" amino-feature                          # toy's own, under the cursor
   grep -q '^AGENT_CLI=' "$(dir 0001)/env"                             # the agent picked on the screen
 }
 
@@ -2719,6 +2728,74 @@ test_a_watch_stands_at_the_top_of_the_board() {
   t ls > "$tmp/board"
   head -1 "$tmp/board" | grep -q "^ *$((10#$watch)) .*front inbox"     # newer, and still first
   sed -n 2p "$tmp/board" | grep -q "^ *$((10#$task)) .*add the widget"
+}
+
+later_key() { FZF_PROMPT=${prompt:-later> } FZF_QUERY=${query:-} FZF_MATCH_COUNT=${matches:-1} t-later --key "$@"; }
+plain() { sed 's/\x1b\[[0-9;]*m//g'; }
+
+test_your_own_list_takes_a_line_from_anywhere_and_the_board_counts_what_rots() {
+  t later "Fikse lyden i møterommet" 2> /dev/null
+  not t later "Fikse lyden i møterommet" 2> "$tmp/err"
+  grep -q 'already on your list' "$tmp/err"
+  printf 'due %s\n' "$(date -d tomorrow '+%d %b')" >> "$(grep -lx 'Fikse lyden i møterommet' "$T_VAR"/later/*)"
+  t later "Bytte regnskapsfører" 2> /dev/null
+  rot=$T_VAR/later/$(date -d '15 weeks ago' +%s)000000000
+  mv "$(grep -lx 'Bytte regnskapsfører' "$T_VAR"/later/*)" "$rot"
+  touch -d '15 weeks ago' "$rot"
+  t ui --rows | plain | grep -qE '^ +later +2 · 1 this week · 1 rotting$'   # one row, under the tasks
+  t later --rows > "$tmp/rows"
+  sed -n 1p "$tmp/rows" | grep -q 'Bytte regnskapsfører .*15w .*never touched'   # what rots, above a line
+  eq "$(sed -n 2p "$tmp/rows" | cut -f1)" -
+  sed -n 3p "$tmp/rows" | grep -q 'Fikse lyden i møterommet .*due '
+}
+
+test_on_your_own_list_enter_adds_what_nothing_matches_and_ticks_off_subtasks() {
+  query="Sette opp backup" matches=0 later_key enter '' | grep -q 'on your list: Sette opp backup'
+  thing=$(ls "$T_VAR/later")
+  query=x matches=0 later_key result '' | grep -q 'add it to the list'   # the keys say what enter does
+  later_key enter "$thing" | grep -q 'change-prompt~later · Sette opp backup> ~'
+  prompt="later · Sette opp backup> "
+  query="velge leverandør" matches=0 later_key enter '' > /dev/null
+  query="teste restore" matches=0 later_key enter '' > /dev/null
+  eq "$(t later --rows "$thing" | cut -f1 | xargs)" "$thing:2 $thing:3"
+  later_key enter "$thing:2" > /dev/null
+  t later --rows "$thing" | grep -q $'\t✓ velge leverandør'
+  prompt=
+  t later --rows | grep -q 'Sette opp backup .* 1/2 '
+  later_key "$(keyfor did)" "$thing" | grep -q 'done: Sette opp backup'
+  [ -f "$T_VAR/later/done/$thing" ]                                    # one mv from undone
+  eq "$(t ui --rows | grep -c later)" 0                                 # an empty list is no row
+}
+
+test_a_task_for_your_hands_holds_until_you_say_you_did_it() {
+  id=$(new -p me "Fikse lyden i møterommet")
+  t run $id > /dev/null 2>&1 || true
+  grep -qx 'needs your hands' "$(dir $id)/hold"
+  t keys $id | grep -q '^enter:did it'
+  t resume $id 2> /dev/null
+  t run $id > /dev/null 2>&1
+  eq "$(step $id)" done
+}
+
+test_a_thing_on_your_own_list_becomes_a_task_and_leaves_the_list() {
+  command -v tmux > /dev/null && command -v fzf > /dev/null || return 0
+  t later "Svare Carl om compliance-dokumentene" 2> /dev/null
+  thing=$(ls "$T_VAR/later")
+  echo "you said Friday" >> "$T_VAR/later/$thing"
+  server=tick-${tmp##*/}
+  tmux -f /dev/null -L "$server" new-session -d -x 160 -y 20 "t-later --compose '$thing' ''; sleep 5"
+  for i in $(seq 100); do
+    tmux -L "$server" capture-pane -p > "$tmp/screen"
+    if grep -q 'new> Svare Carl' "$tmp/screen"; then tmux -L "$server" send-keys Enter; break; fi
+    sleep 0.1
+  done
+  for i in $(seq 100); do if [ -f "$T_VAR/later/made" ]; then break; fi; sleep 0.1; done
+  tmux -L "$server" kill-server
+  cat "$tmp/screen" >&2
+  eq "$(head -1 "$(dir 0001)/task.md")" "# Svare Carl om compliance-dokumentene"
+  grep -qx 'you said Friday' "$(dir 0001)/task.md"
+  [ ! -e "$T_VAR/later/$thing" ]
+  FZF_PROMPT="later> " t-later --made | grep -q 'task 1 is Svare Carl'
 }
 
 names=$(declare -F | awk '{ print $3 }' | grep '^test_' | grep -- "${1:-.}")

@@ -67,13 +67,17 @@ hold_it() {
   without_trailing_blanks < "$here/text" > "$task/answer.tmp" && mv "$task/answer.tmp" "$task/answer.md"
   rm -f "$task/signed"
   t-resume "$n" 2> /dev/null || true                  # its sign step holds again, now for what answer.md says
-  t-run "$n" > /dev/null 2>&1 || true
+  ran_here "$task"
   if [[ $(cat "$task/step") != *-sign ]]; then
     echo "task $n is at $(sed 's/^[0-9]*-//' "$task/step"), not yet waiting for your signature: t log $n" > "$here/err"
     return 1
   fi
   keep mode held
 }
+
+# task $1 run until it waits. A run t new or the tick started may hold its lock, and then ours ends at once: so it
+# ends when that one does, or a screen would read the task mid-run and say it didn't go.
+ran_here() { t-run "$(task_num "$1")" > /dev/null 2>&1 || true; flock -w 60 "$1/lock" true || true; }
 
 # the held task, signed and run to its end here, so the screen says whether it left: a thread that moved since you
 # read it holds it again, with what was said since in the pane
@@ -82,7 +86,7 @@ send_it() {
   task=$(kept task) n=$(task_num "$(kept task)")
   flock -w 60 "$task/lock" true || { echo "task $n is still running; send it again in a moment" > "$here/err"; return 1; }
   t-sign "$n" < /dev/null > /dev/null 2> "$here/err" || return 1
-  t-run "$n" > /dev/null 2>&1 || true
+  ran_here "$task"
   if [ -e "$task/hold" ]; then fresh > /dev/null; cp "$task/hold" "$here/err"; return 1; fi
   if [ "$(cat "$task/step")" != done ]; then last_words "$task/log/$(cat "$task/step").log" > "$here/err"; return 1; fi
   keep mode signed

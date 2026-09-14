@@ -8,6 +8,7 @@ keys=
 for action in $(offers "$task"); do
   label=$action key=$(awk -v a="$action" '$1 == a { print $2 }' <<< "$ACTIONS")
   if [ "$action" = hold ] && [ "$st" = HOLD ]; then label=resume; fi
+  if [ "$label" = resume ] && [[ $(cat "$task/step") == *-do ]]; then label="did it"; fi   # work only your hands finish
   if [ "$action" = log ] && [[ $st == after* ]]; then label="log ${st#after }"; fi      # nothing to watch here yet
   if [ -z "$keys" ]; then keys="enter:$label"
   elif [ "$key" != - ]; then keys+="   $(keyname "$key"):$label"
