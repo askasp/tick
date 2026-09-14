@@ -251,6 +251,7 @@ cal     -       the calendar it watches: the week ahead, and invites to answer'
 # the board's keys besides the actions', and a form's (new, stack and say on the board, and t compose).
 # Every key is here once: t ui binds it from here, and what the screens say about it comes from here.
 BOARD_KEYS='new      ctrl-n  a new task
+clean    ctrl-g  delete every task done, answered or held for 12 hours
 keys     ?       every action, in the pane'
 FORM_KEYS='details  ctrl-o  the details, in $EDITOR
 repo     ctrl-r  another repo'

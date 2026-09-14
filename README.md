@@ -77,7 +77,9 @@ without its diff.
 The keys are all ctrl-, so typing still searches, and they reach the board
 over ssh from any terminal. `^l` turns the pane to the log (again: the raw
 log), `^r` holds the task (the prompt asks why) or resumes it, `^t` stacks a
-task on it, `^n` starts a new one, and `^x` deletes one. `^o` attaches to its
+task on it, `^n` starts a new one, and `^x` deletes one. `^g` deletes every
+task done, answered or held for 12 hours, once the pane has listed them and you
+press Enter. `^o` attaches to its
 agent, the one key that leaves the board, for the agent's own screen. Everything
 else is a word away: `?` lists every action in the pane, with the agent's
 session id, and you type the one you want, or its first letters, and press
@@ -635,6 +637,7 @@ t name [TASK] ["name"]     what the board calls it; left out, an agent picks a s
 t agent [TASK] [CLI]       who solves every step from its next run; left out, the next one
 t path [TASK]              its worktree:  cd "$(t path discount)"
 t rm [-f] [TASK]           delete the task and its worktree (the branch stays); -f stops its run first
+t clean [-n] [HOURS]       delete every task done, answered or held for 12 hours (or HOURS); -n lists them
 t doctor                   what's missing, and the pipelines
 t tick                     what cron runs
 ```

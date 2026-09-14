@@ -128,6 +128,12 @@ if [ "${1:-}" = --pane ]; then
           echo "${C_RED}Task $(task_num "${child%/after}") is stacked on it: delete that one first.$C_OFF"
         fi
       done ;;
+    clean)
+      echo "${C_RED}delete$C_OFF  ${C_DIM}every task done, answered or held for 12 hours, and its worktree$C_OFF"
+      echo
+      t-clean -n
+      echo
+      echo "${C_DIM}The branches stay.$C_OFF" ;;
     do)
       echo "${C_BRIGHT}task $target$C_OFF  ${C_DIM}$(name "$task")$C_OFF"
       echo
@@ -137,7 +143,7 @@ if [ "${1:-}" = --pane ]; then
         echo "$C_MID$(pad 7 "$(keyname "$key")")$C_OFF$(pad 8 "$action")$C_DIM$what$C_OFF"
       done <<< "$ACTIONS"
       echo
-      for pair in "$(key new)|new task" "tab|the pane: show, steps, log, diff" "^d ^u|scroll the pane" "^w|a wide pane, and back" \
+      for pair in "$(key new)|new task" "$(key clean)|delete what is done, answered or held for 12h" "tab|the pane: show, steps, log, diff" "^d ^u|scroll the pane" "^w|a wide pane, and back" \
                   "$(key keys) esc|back to the board"; do
         echo "$C_MID$(pad 7 "${pair%%|*}")$C_OFF$C_DIM${pair#*|}$C_OFF"
       done
@@ -272,6 +278,9 @@ if [ "${1:-}" = --key ]; then
             t-rm $force "$target" 2> "$T_UI/err" || failed
             if [ -n "$cursor" ]; then echo "$cursor" > "$T_UI/new"; fi
             back "$cursor" ;;
+      clean) [ "$how" = enter ] || exit 0
+            t-clean 2>&1 > /dev/null | grep -v '^t: removed ' > "$T_UI/err" || true
+            if [ -s "$T_UI/err" ]; then echo "$(back "")+$(failed)"; else back ""; fi ;;
       say)  [ "$how" = enter ] && [ -n "$q" ] || exit 0
             t-agent "$target" "$(cat "$T_UI/cli")" > /dev/null   # the agent picked here solves it from now on
             t-say "$target" "$q" "$pick" > /dev/null 2> "$T_UI/err" || failed
@@ -304,6 +313,7 @@ if [ "${1:-}" = --key ]; then
       enter)  if [ -z "$id" ]; then new_form; else act_on "$(offers "$(tdir "$id")" | cut -d' ' -f1)"; fi ;;
       *)      name=$(named "$BOARD_KEYS" "$ACTIONS")
               if [ "$name" = new ]; then new_form
+              elif [ "$name" = clean ]; then form clean - "delete these? " "" "nofollow,~2" "$(hint enter delete esc back)"
               elif [ -z "$id" ]; then exit 0
               elif [ "$name" = keys ]; then form do "$id" "do to $id> " "" "nofollow,~2" "$(hint enter do "$(key keys) esc" back)"
               else act_on "$name"

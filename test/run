@@ -589,6 +589,38 @@ test_ctrl_x_deletes_a_task_in_place() {
   eq "$(cat "$T_UI/new")" 2
 }
 
+test_clean_deletes_what_is_done_answered_or_held_for_12_hours() {
+  old=$(new "old done")
+  t run $old
+  answered=$(new "old answer")
+  echo done > "$(dir $answered)/step"; touch "$(dir $answered)/answer.md"
+  held=$(new "old hold")
+  t hold $held waiting
+  fresh=$(new "fresh hold")
+  t hold $fresh waiting
+  stuck=$(new "never ran")
+  touch -d '13 hours ago' "$(dir $old)/step" "$(dir $answered)/step" "$(dir $held)/hold" "$(dir $stuck)/step"
+  t clean -n | grep -q "old answer  answered$"
+  eq "$(t clean -n | wc -l)" 3
+  t clean 2> /dev/null
+  [ ! -e "$(dir $old)" ] && [ ! -e "$(dir $answered)" ] && [ ! -e "$(dir $held)" ]
+  [ -d "$(dir $fresh)" ] && [ -d "$(dir $stuck)" ]
+  t clean 1 | grep -q 'no task done, answered or held for 1h'
+}
+
+test_the_board_cleans_after_listing_what_goes() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  id=$(new "old done")
+  t run $id
+  touch -d '2 days ago' "$(dir $id)/step"
+  t ui --key "$(keyfor clean)" 1 '' | grep -q 'change-prompt(delete these? )'
+  t ui --pane 1 '' | grep -q '1  old done  done'
+  [ -d "$(dir $id)" ]
+  t ui --key enter 1 '' | grep -q 'change-prompt(task> )'
+  [ ! -e "$(dir $id)" ]
+}
+
 test_ctrl_x_is_offered_for_a_running_task() {
   id=$(new "add the widget")
   ( exec 9> "$(dir $id)/lock"; flock 9; sleep 30 ) &
