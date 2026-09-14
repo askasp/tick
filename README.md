@@ -511,15 +511,18 @@ beside the one you are on.
 
 | key | does |
 | --- | --- |
-| enter | an agent drafts a reply: a task on pipeline `reply`, with `+draft` |
-| ^o | a reply you write: the thread is read, and `$EDITOR` opens on it |
-| ^t | a comment you write, for your teammates only: a task on pipeline `comment` |
+| enter | a reply you write: the thread is read, and you type the reply under it, ctrl-d ending it |
+| ^s | an agent drafts a reply: a task on pipeline `reply`, with `+draft` |
+| ^t | a comment you write the same way, for your teammates only: a task on pipeline `comment` |
 | ^x | archives the conversation in Front |
+| ^d ^u | scroll the thread half a page, as on the board |
+| ? | every key, in the pane; again, the thread |
 
 A reply is `thread → +draft → sign → send`, and nothing leaves until you sign
 it. The task holds at `sign`, in red (`draft ready`, or `write your reply`), and
-Enter on it, or `t sign N`, opens the reply in `$EDITOR` with the thread under
-it. What you save is what leaves. `t say N "shorter" draft` has the agent write
+Enter on it, or `t sign N`, opens a draft in `$EDITOR` with the thread under
+it; with no draft yet, it shows the thread and takes what you type under it.
+What you save or type is what leaves. `t say N "shorter" draft` has the agent write
 it again. `DELIVER=` in `pipelines/reply/env` says what leaving is:
 
 - `draft`, the default: a private draft on the conversation in Front, to read
@@ -649,8 +652,8 @@ t show [TASK]              where it is, and what you can do next
 t log [TASK] [-f] [--raw]  every run in order, rendered in one column; -f follows it, --raw is the file itself
 t diff [TASK]              the files it changed, with the diff of each beside them
 t say [TASK] "notes"       back to implement, with your notes
-t sign [TASK]              read a reply in $EDITOR and sign it: then it leaves
-t inbox [TASK]             the mail a watch keeps: enter drafts a reply, ^o you write one, ^x archives
+t sign [TASK]              read a reply in $EDITOR, or type it under the thread, and sign it: then it leaves
+t inbox [TASK]             the mail a watch keeps: enter writes a reply, ^s has an agent draft one, ? every key
 t cal [TASK]               the week a calendar watch keeps: ^y accepts an invite, ^t maybe, ^x declines
 t google login NAME        log a Google account in, for its linked mail and calendar
 t front login              the Front API token: what to choose when you make it, then it is checked and kept

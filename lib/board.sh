@@ -12,6 +12,9 @@ T_FZF_COLORS+=',input-border:#1c1c1c,list-border:#1c1c1c,footer-border:#1c1c1c'
 # background's color, the separator in spaces), and keys at the bottom. t doctor checks fzf knows them.
 BOARD_FZF=(--ansi --reverse --no-sort --with-shell 'bash -c' --color "$T_FZF_COLORS" --pointer '>' --gutter ' '
   --ellipsis '…' --separator ' ' --input-border horizontal --footer-border line)
+# a screen's pane scrolls as the board's: ^d/^u half a page, PgDn/PgUp a page, Shift-↓/↑ a line
+PANE_SCROLL=(--bind 'ctrl-d:preview-half-page-down,ctrl-u:preview-half-page-up,page-down:preview-page-down,page-up:preview-page-up'
+  --bind 'shift-down:preview-down,shift-up:preview-up')
 
 # the C_ colors stay only on a terminal, or with CLICOLOR_FORCE (t ui's pane); elsewhere they print nothing
 terminal_colors() {
@@ -328,11 +331,12 @@ keys     ?       every action, in the pane'
 FORM_KEYS='details  ctrl-o  the details, in $EDITOR
 repo     ctrl-r  another repo
 pipeline ctrl-p  the pipelines, to pick one'
-# t inbox's keys, on a screen of its own
-INBOX_KEYS='draft    enter   an agent drafts a reply, for you to read and sign
-write    ctrl-o  a reply you write, in $EDITOR
-comment  ctrl-t  a comment you write, for your teammates only
-archive  ctrl-x  archive it, where the mail lives'
+# t inbox's keys, on a screen of its own; ? lists them in its pane
+INBOX_KEYS='write    enter   a reply you type under the thread, and sign
+draft    ctrl-s  an agent drafts a reply, for you to read and sign
+comment  ctrl-t  a comment you type under the thread, for your teammates only
+archive  ctrl-x  archive it, where the mail lives
+keys     ?       every key, in the pane; again: the thread'
 # t cal's: answering is the signature, so each answer is a key of its own
 CAL_KEYS='open     enter   open it in the browser
 accept   ctrl-y  accept the invite; the organizer is told

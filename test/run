@@ -1642,6 +1642,16 @@ test_a_reply_you_write_holds_until_you_sign_it_then_lands_as_a_front_draft() {
   not grep -q '/messages$' "$FAKE/front.calls"                      # a draft: you send it from Front
 }
 
+test_a_reply_with_no_draft_is_typed_under_its_thread_and_signed_without_an_editor() {
+  conversation
+  id=$(reply)
+  t run $id
+  printf 'Sent it again just now.\n' | EDITOR=false tty "t sign $id" > "$tmp/screen"
+  grep -q 'Can you resend the invoice?' "$tmp/screen"               # the thread, above where you type
+  eq "$(cat "$(dir $id)/answer.md")" "Sent it again just now."
+  [ -e "$(dir $id)/signed" ]
+}
+
 test_an_agent_drafts_a_reply_from_the_thread_and_redrafts_it_from_your_notes() {
   conversation
   id=$(reply +draft 'say it goes out today')
@@ -1730,19 +1740,19 @@ watched() {   # a front watch that has read cnv_x once (after conversation); pri
 inbox() { T_INBOX=front "$tmp/tick/bin/t-inbox" "$@"; }
 offered() { (. "$tmp/tick/lib/tick.sh"; offers "$(dir "$1")"); }
 
-test_the_inbox_lists_what_the_watch_keeps_and_enter_drafts_one_reply_to_a_conversation() {
+test_the_inbox_lists_what_the_watch_keeps_and_an_agent_drafts_one_reply_to_a_conversation() {
   conversation
   watch=$(watched)
   eq "$(offered $watch)" "inbox log"                               # enter on the watch's row opens its mail
   inbox --rows | grep -q $'^cnv_x\t.*Invoice question'
   inbox --pane cnv_x | grep -q 'Can you resend the invoice?'
-  inbox --key enter cnv_x > /dev/null
+  inbox --key "$(keyfor draft)" cnv_x > /dev/null
   id=$(ls "$T_VAR/tasks" | tail -1)
   eq "$(cat "$(dir $id)/pipeline")" reply
   eq "$(cat "$(dir $id)/opt")" draft
   grep -qx 'conversation: front cnv_x' "$(dir $id)/task.md"
   inbox --rows | grep -q "task $((10#$id))"
-  inbox --key enter cnv_x | grep -q 'already replies'
+  inbox --key "$(keyfor draft)" cnv_x | grep -q 'already replies'
   eq "$(ls "$T_VAR/tasks" | wc -l)" 2                               # one reply to a conversation, not one a press
   t run $id
   eq "$(offered $id)" "sign say rm"                                 # and enter on the held reply signs it
@@ -1791,6 +1801,29 @@ test_the_inbox_says_where_a_comment_mentions_you_and_writes_a_comment_apart_from
   not grep -q '^#' "$tmp/pane"                                      # markdown is for the agent, not for you
   eq "$(inbox --key "$(keyfor comment)" cnv_x)" "execute(t-inbox --write comment cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
   eq "$(inbox --key "$(keyfor write)" cnv_x)" "execute(t-inbox --write reply cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
+}
+
+test_enter_in_the_inbox_is_a_reply_you_write_and_the_pane_lists_every_key() {
+  conversation
+  watched > /dev/null
+  eq "$(keyfor write)" enter                                        # an agent's draft is a key away, not the default
+  inbox --keys > "$tmp/keys"
+  while read -r name _; do
+    grep -Eq "^[^ ]+ +$name +[a-z]" "$tmp/keys"
+  done < <(. "$tmp/tick/lib/tick.sh"; echo "$INBOX_KEYS")
+  inbox --key "$(keyfor keys)" cnv_x | grep -q 't-inbox --keys'
+  FZF_PREVIEW_LABEL=' keys ' inbox --key "$(keyfor keys)" cnv_x | grep -q 't-inbox --pane {1}'   # again: the thread
+}
+
+test_the_inbox_scrolls_the_thread_with_the_keys_the_board_scrolls_its_pane() {
+  conversation
+  watched > /dev/null
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "$FAKE/fzf.args"\n' > "$tmp/tick/test/fake/fzf"
+  chmod +x "$tmp/tick/test/fake/fzf"
+  inbox < /dev/null
+  grep -q 'ctrl-d:preview-half-page-down' "$FAKE/fzf.args"
+  grep -q 'ctrl-u:preview-half-page-up' "$FAKE/fzf.args"
+  grep -q 'ctrl-d:preview-half-page-down' "$tmp/tick/bin/t-ui"     # as on the board
 }
 
 test_a_draft_follows_the_comments_and_is_told_the_customer_cannot_see_them() {
