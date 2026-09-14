@@ -43,14 +43,28 @@ search() {   # SINCE QUERY WHY: the conversations a Front search finds, each mar
 
 unquoted='def unquoted: split("\n") | map(select(startswith(">") | not)) | join("\n");'
 
+notice='def notice: .recipient.handle == "hello@frontapp.com" and (.subject // "" | startswith("Mentioned by "));'
+
+# Front's search finds no mentions, so a mention reaches you as Front's own email about it: for each such
+# email (its id on stdin), the conversation it links to, marked mention
+mentioned() {
+  local email conv
+  while read -r email; do
+    conv=$(results "/conversations/$email/messages" | jq -r .body | grep -o 'app\.frontapp\.com/open/cnv_[0-9a-z]*' | head -1)
+    [ -n "$conv" ] || continue
+    call GET "/conversations/${conv##*/}" | jq -c '. + {why: "mention"}'
+  done
+}
+
 poll() {
-  local since=${1:?usage: sources/front poll SINCE} me
+  local since=${1:?usage: sources/front poll SINCE} me found
   me=$(my_id)
-  { search "$since" "mention:$me" mention
-    search "$since" "assignee:$me" assigned
+  found=$({ search "$since" "assignee:$me" assigned
     search "$since" "participant:$me" participant
-    search "$since" "recipient:$FRONT_EMAIL" recipient; } |
-    jq -sc 'group_by(.id) | map(.[0] + {why: (map(.why) | join(" "))}) | sort_by(-.updated_at)[]
+    search "$since" "recipient:$FRONT_EMAIL" recipient; })
+  { jq -c "$notice"' select(notice | not)' <<< "$found"
+    jq -r "$notice"' select(notice) | .id' <<< "$found" | mentioned; } |
+    jq -sc 'group_by(.id) | map(.[0] + {why: (map(.why) | unique | join(" "))}) | sort_by(-.updated_at)[]
       | {id, subject, from: (.recipient.handle // ""), updated_at, why}'
 }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # t show [TASK] [--pane] — one task: its title, where it is in its pipeline, its state, what you can do next,
-# and its answer; a reply's comes with the thread it answers under it. In a terminal it pages through less, like
+# and its answer, or what its implementer says it changed; a reply's comes with the thread it answers under it.
+# In a terminal it pages through less, like
 # git, and glow renders the markdown.
 # --pane: as t ui's pane shows it, whose top line says the state and whose board has the keys: without
 # those, and a long title cut to two lines.
@@ -149,6 +150,8 @@ show() {
     echo; echo "${C_FAINT}thread$C_OFF"; rendered "$task/thread.md"
   elif [ -s "$task/answer.md" ]; then
     echo; echo "${C_FAINT}answer$C_OFF"; rendered "$task/answer.md"
+  elif [ -s "$task/summary.md" ]; then
+    echo; echo "${C_FAINT}summary$C_OFF"; rendered "$task/summary.md"
   fi
 }
 

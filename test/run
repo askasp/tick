@@ -249,6 +249,19 @@ test_an_implementer_that_changes_nothing_fails() {
   [ -e "$(dir $id)/hold" ]
 }
 
+test_implement_regenerates_what_tooling_writes_and_commits_it_with_the_change() {
+  echo 'GENERATE="wc -l < impl.txt > impl.gen"' >> "$tmp/tick/pipelines/local/env"
+  id=$(new "add the widget")
+  t run $id
+  eq "$(git -C "$(t path $id)" show HEAD:impl.gen)" 1     # made from the agent's edit, in the same commit
+
+  echo 'GENERATE=false' >> "$tmp/tick/pipelines/local/env"
+  id=$(new "add the gadget")
+  t run $id
+  eq "$(step $id)" 10-implement
+  grep -q 'GENERATE failed' "$(dir $id)/log/10-implement.log"
+}
+
 test_tasks_run_in_parallel_worktrees_off_main() {
   export SLOTS_opencode=2
   a=$(new "task a")
@@ -896,6 +909,14 @@ test_show_puts_the_answer_last_and_pages_in_a_terminal() {
   grep -q 'ask a follow-up' "$tmp/paged"
 }
 
+test_show_ends_a_coding_task_with_what_the_implementer_changed() {
+  id=$(new "add the widget")
+  t run $id
+  out=$(t show $id)
+  grep -A99 '^next$' <<< "$out" | grep -q '^summary$'
+  [[ $out == *$'\n'"Edited impl.txt." ]]
+}
+
 test_research_needs_no_repo_and_may_search_the_web() {
   cd /
   id=$(new -p research "what changed in bash 5.3?")
@@ -1158,20 +1179,21 @@ test_compose_takes_flags_typed_with_the_title() {
 test_the_board_starts_a_task_and_says_to_one_in_place() {
   export T_UI=$tmp/ui T_NEW=$tmp/ui
   mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
-  t ui --key "$(keyfor new)" '' '' | grep -q 'change-prompt(new> )+disable-search'
-  eq "$(cat "$T_UI/pick")" local
-  out=$(t ui --key "$(keyfor pipeline)" '' 'add the widget')      # ^p: the list becomes the pipelines
+  t ui --key "$(keyfor new)" '' '' > /dev/null
+  t ui --key esc '' '' > /dev/null                                # esc before a title: back to the board
+  eq "$(cat "$T_UI/mode")" board
+  out=$(t ui --key "$(keyfor new)" '' '')                         # ^n: the list becomes the pipelines
   grep -q 'change-prompt(pipeline> )+enable-search' <<< "$out"
   grep -q 'reload-sync~t-ui --pipelines~+pos(1)' <<< "$out"       # the cursor lands on the first
   eq "$(cat "$T_UI/list")" pipelines
-  eq "$(cat "$T_UI/title")" 'add the widget'                      # the title waits where you left it
   eq "$(head -1 <<< "$(t ui --pipelines)" | awk '{ print $1 }')" local   # the repo's default, first
   t ui --pane feature '' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *feature'  # the one under the cursor
-  t ui --key esc '' '' > /dev/null                                # esc: back to the tasks, nothing picked
+  t ui --key enter feature '' | grep -q 'change-prompt(new> )+disable-search'   # enter on it: that one, then the title
   eq "$(cat "$T_UI/list")" tasks
-  eq "$(cat "$T_UI/pick")" local
-  t ui --key "$(keyfor pipeline)" '' '' > /dev/null
-  t ui --key enter feature '' > /dev/null                         # enter on it: that is the pipeline
+  eq "$(cat "$T_UI/pick")" feature
+  t ui --key "$(keyfor pipeline)" '' 'add the widget' > /dev/null  # ^p: the pipelines again
+  eq "$(cat "$T_UI/title")" 'add the widget'
+  t ui --key esc '' '' | grep -q 'change-query~add the widget~'   # esc: back to the title waiting, nothing picked
   eq "$(cat "$T_UI/list")" tasks
   eq "$(cat "$T_UI/pick")" feature
   t ui --key "$(keyfor agent)" '' '' > /dev/null          # another agent than the pipeline's
@@ -1185,6 +1207,22 @@ test_the_board_starts_a_task_and_says_to_one_in_place() {
   t ui --key enter 1 'use a fixture' > /dev/null
   grep -q 'use a fixture' "$(dir 0001)/feedback.md"
   [ ! -e "$(dir 0001)/hold" ]
+  eq "$(cat "$T_UI/mode")" board
+}
+
+test_the_board_says_to_a_running_task_by_stopping_it_first() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  id=$(new "add the widget")
+  FAKE_SLEEP=30 t run $id > /dev/null 2>&1 &
+  pid=$!
+  for i in $(seq 50); do [ ! -s "$FAKE/opencode.calls" ] || break; sleep 0.1; done   # the agent is working
+  t ui --key "$(keyfor say)" 1 '' | grep -q 'change-prompt(say to 1> )'
+  t ui --pane 1 '' | grep -q 'It is running: enter stops it first'
+  t ui --key enter 1 'use a fixture' > /dev/null
+  not wait $pid                                            # killed, not finished
+  grep -q 'use a fixture' "$(dir $id)/feedback.md"
+  [ ! -e "$(dir $id)/hold" ]                               # and it goes on with the notes
   eq "$(cat "$T_UI/mode")" board
 }
 
@@ -1292,16 +1330,15 @@ test_the_board_picks_the_pipeline_from_a_list_of_them() {
   tmux -f /dev/null -L "$server" new-session -d -x 160 -y 16 t
   screen() { tmux -L "$server" capture-pane -p; }
   for i in $(seq 100); do screen | grep -q 'implement · next tick' && break; sleep 0.1; done
-  tmux -L "$server" send-keys C-n                          # the new form
-  for i in $(seq 100); do screen | grep -q 'new> ' && break; sleep 0.1; done
-  tmux -L "$server" send-keys 'add a discount code'
-  tmux -L "$server" send-keys C-p                          # the pipelines, the default first
+  tmux -L "$server" send-keys C-n                          # the pipelines, the default first
   for i in $(seq 100); do screen | grep -qE '^[│ ]*> +local ' && break; sleep 0.1; done
   screen | grep -q 'pipeline> '
   screen | grep -qE '^[│ ]*> +local '                      # the default, under the cursor
   tmux -L "$server" send-keys fea                          # search them, as the tasks are searched
   for i in $(seq 100); do screen | grep -qE '^[│ ]*> +feature ' && break; sleep 0.1; done
-  tmux -L "$server" send-keys Enter                        # picks it; the tasks come back, the title waiting
+  tmux -L "$server" send-keys Enter                        # picks it; the title next
+  for i in $(seq 100); do screen | grep -q 'new> ' && break; sleep 0.1; done
+  tmux -L "$server" send-keys 'add a discount code'
   for i in $(seq 100); do screen | grep -q 'new> add a discount code' && break; sleep 0.1; done
   tmux -L "$server" send-keys Enter
   for i in $(seq 100); do [ -f "$(dir 0002)/pipeline" ] && break; sleep 0.1; done
@@ -1517,16 +1554,23 @@ test_front_login_checks_the_token_before_it_keeps_it_where_front_is_read() {
 }
 
 front_source() { "$tmp/tick/sources/front" "$@"; }
+front_mention() {   # CONV: Front's own email saying Ida K mentioned you in CONV, which the recipient: search finds
+  page "$(jq -nc --argjson at "$(date +%s)" '[{id: "cnv_n", subject: "Mentioned by Ida K", recipient: {handle: "hello@frontapp.com"}, updated_at: $at}]')" \
+    > "$FAKE/front/conversations_search_recipient"
+  page "$(jq -nc --arg conv "$1" '[{body: "<a href=\"https://app.frontapp.com/open/\($conv)?around=evt_1\">View in Front</a>"}]')" \
+    > "$FAKE/front/conversations_cnv_n_messages"
+}
 
 test_front_polls_each_conversation_that_involves_you_once_with_why() {
   front
-  page '[{"id": "cnv_a", "subject": "A", "updated_at": 300}]' > "$FAKE/front/conversations_search_mention"
+  echo '{"id": "cnv_a", "subject": "A", "updated_at": 300}' > "$FAKE/front/conversations_cnv_a"
+  front_mention cnv_a
   page '[{"id": "cnv_a", "subject": "A", "updated_at": 300}, {"id": "cnv_b", "subject": "B", "updated_at": 400}]' > "$FAKE/front/conversations_search_assignee"
   page '[{"id": "cnv_c", "subject": "C", "updated_at": 200}]' > "$FAKE/front/conversations_search_participant"
   out=$(front_source poll 100)
-  eq "$(wc -l <<< "$out")" 3
+  eq "$(wc -l <<< "$out")" 3                                        # Front's email about the mention is no row
   eq "$(head -1 <<< "$out" | jq -r .id)" cnv_b                      # newest first
-  eq "$(jq -r 'select(.id == "cnv_a") | .why' <<< "$out")" "mention assigned"
+  eq "$(jq -r 'select(.id == "cnv_a") | .why' <<< "$out")" "assigned mention"   # the conversation it links to is
   eq "$(jq -r 'select(.id == "cnv_c") | .why' <<< "$out")" participant   # one you only replied in
   grep -q 'after%3A100' "$FAKE/curl.calls"
 }
@@ -1568,7 +1612,7 @@ test_a_front_draft_is_private_and_a_second_one_edits_the_first() {
 
 conversation() {   # Front's conversation cnv_x, where Bob asks for his invoice, to reply to
   front
-  echo '{"id": "cnv_x", "subject": "Invoice question"}' > "$FAKE/front/conversations_cnv_x"
+  echo '{"id": "cnv_x", "subject": "Invoice question", "updated_at": 100}' > "$FAKE/front/conversations_cnv_x"
   asks '[{"type": "email", "created_at": 100, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob"}], "text": "Can you resend the invoice?"}]'
   page '[]' > "$FAKE/front/conversations_cnv_x_comments"
   page '[{"id": "inb_1"}]' > "$FAKE/front/conversations_cnv_x_inboxes"
@@ -1658,10 +1702,10 @@ test_show_puts_a_reply_above_the_thread_it_answers_and_says_how_to_sign_it() {
 
 test_the_front_watch_keeps_what_changed_and_says_how_much_on_its_one_row() {
   conversation
-  page "[{\"id\": \"cnv_x\", \"subject\": \"Invoice question\", \"updated_at\": $(date +%s)}]" > "$FAKE/front/conversations_search_mention"
+  page "[{\"id\": \"cnv_x\", \"subject\": \"Invoice question\", \"updated_at\": $(date +%s)}]" > "$FAKE/front/conversations_search_assignee"
   id=$(new -p front-inbox "front inbox")
   t run $id
-  eq "$(step $id)" 10-watch                                         # a watch never ends
+  eq "$(step $id)" 10-watch                                        # a watch never ends
   mail=$T_VAR/mail/front/cnv_x
   grep -q 'Can you resend the invoice?' "$mail/thread.md"
   grep -q 'Can you resend the invoice?' "$FAKE/read.prompts"        # the gist is an agent's, of the thread
@@ -1679,7 +1723,7 @@ test_the_front_watch_keeps_what_changed_and_says_how_much_on_its_one_row() {
 }
 
 watched() {   # a front watch that has read cnv_x once (after conversation); prints its task id
-  page "[{\"id\": \"cnv_x\", \"subject\": \"Invoice question\", \"updated_at\": $(date +%s)}]" > "$FAKE/front/conversations_search_mention"
+  page "[{\"id\": \"cnv_x\", \"subject\": \"Invoice question\", \"updated_at\": $(date +%s)}]" > "$FAKE/front/conversations_search_assignee"
   new -p front-inbox "front inbox"
   t run 1 > /dev/null 2>&1
 }
@@ -1737,10 +1781,14 @@ test_the_inbox_says_where_a_comment_mentions_you_and_writes_a_comment_apart_from
   conversation
   page '[{"posted_at": 150, "author": {"first_name": "Ida", "last_name": "K"}, "body": "@me the PO was never updated"}]' \
     > "$FAKE/front/conversations_cnv_x_comments"
-  watched > /dev/null                                               # found by Front's mention: search
+  front_mention cnv_x
+  watched > /dev/null                                               # found by Front's email about the mention
   inbox --rows | grep -q $'^cnv_x\t.*Invoice question .*mention'
-  inbox --pane cnv_x | grep -q ' · 1 message, 1 comment'
-  inbox --pane cnv_x | grep -q '^### └ comment by Ida K'
+  inbox --pane cnv_x > "$tmp/pane"
+  grep -q ' · 1 message, 1 comment' "$tmp/pane"
+  grep -q '^  └ Ida K  ' "$tmp/pane"                                # indented under the message it follows
+  grep -q '^    @me the PO was never updated$' "$tmp/pane"
+  not grep -q '^#' "$tmp/pane"                                      # markdown is for the agent, not for you
   eq "$(inbox --key "$(keyfor comment)" cnv_x)" "execute(t-inbox --write comment cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
   eq "$(inbox --key "$(keyfor write)" cnv_x)" "execute(t-inbox --write reply cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
 }
@@ -1766,7 +1814,7 @@ test_the_first_poll_reads_a_day_back_and_a_later_mention_brings_the_whole_thread
   [ ! -e "$T_VAR/mail/front/cnv_x" ]
   page '[{"posted_at": 150, "author": {"first_name": "Ida", "last_name": "K"}, "body": "@me can you take this?"}]' \
     > "$FAKE/front/conversations_cnv_x_comments"
-  page "[{\"id\": \"cnv_x\", \"subject\": \"Invoice question\", \"updated_at\": $(date +%s)}]" > "$FAKE/front/conversations_search_mention"
+  front_mention cnv_x
   touch -d '1 hour ago' "$T_VAR/mail/front/polled"
   t run $id
   grep -q 'Can you resend the invoice?' "$T_VAR/mail/front/cnv_x/thread.md"   # the message from before the day, too

@@ -70,7 +70,7 @@ pane() {
   task=$(replying "$1")
   if [ -n "$task" ]; then echo; echo "${C_DIM}task $(task_num "$task")$C_OFF  $(standing "$task")"; fi
   echo
-  tail -n +2 "$mail/$1/thread.md"                     # its first line is the subject, above
+  thread_view "$mail/$1/thread.md"
 }
 
 # what key $1 does to conversation $2, as fzf actions

@@ -105,12 +105,12 @@ rev-parse --show-toplevel)" && ./ci.sh 2>&1` is `bash ci.sh`.
 ### Starting a task
 
 On the board, `^n` (or Enter on an empty board) starts one without leaving
-it: the prompt becomes `new>` and takes the title, and the pane shows the task
+it. The list turns into the pipelines, the repo's default first and under the
+cursor: search and scroll it as the tasks, and enter on one picks it. Then the
+prompt becomes `new>` and takes the title, and the pane shows the task
 that is about to exist (`t new --dry`): its repo and where that came from,
 branch, base, who solves it, when it starts, and the command to type next
-time. `^p` turns the list into the pipelines, the repo's default first and
-under the cursor: search and scroll it as the tasks, and enter on one picks
-it. Enter creates it and puts the cursor on it, `^o` opens `$EDITOR` for
+time. `^p` brings the pipelines back, the title waiting for you. Enter creates it and puts the cursor on it, `^o` opens `$EDITOR` for
 details with the title already on line 1, `^r` picks another repo, `^s`
 another agent for every step (like `--cli`; the keys at the bottom say
 which), and esc goes back. `^a`, `^e` and `^u` edit the line as in a shell.
@@ -119,8 +119,8 @@ runs it. Flags typed with the title work too: `Add proration -r amino`.
 
 `^t` stacks a task on the one you're on the same way (`stack on 7>`; on an
 answered question, `task from 7>` makes a task of it), and
-`? say` says something to it (`say to 7>`, and Enter on a held task): what you
-type goes to `feedback.md`, `tab` picks the step it restarts at, `^s` who
+`^y` says something to it (`say to 7>`, and Enter on a held task): what you
+type goes to `feedback.md` (a running task is stopped first), `tab` picks the step it restarts at, `^s` who
 solves it from then on, and the pane shows what will happen and its latest log.
 `^s` on a task's row does that without saying anything (`t agent`): claude,
 opencode, then its pipeline's agents again, from its next run on.
@@ -162,7 +162,7 @@ next
 3. Failing tests and review changes go back to implement on their own, and a
    step gets 3 runs.
 4. It ends `done`, or `held` when it needs you. `t show` tells you what to
-   do either way.
+   do either way, and ends with the implementer's summary of what it changed.
 5. When it's done, read it with `t diff`. Then take it with `git merge`, or
    with `-p feature`, review the PR it opened.
 6. Clean up with `t rm`. The branch stays.
@@ -347,10 +347,11 @@ REPO=~/git/amino-monorepo                  # where it is
 PIPELINE=feature                           # its default pipeline
 TEST_CMD="$T_ROOT/repos/amino/run-tests"   # what test steps run; without it, `make test` or nothing
 GENERATED="*openapi*.json *.gen.ts …"      # what tooling writes: no agent reads or reviews it
+GENERATE="$T_ROOT/repos/amino/generate"    # writes it: implement runs this after the agent, before it commits
 TEARDOWN="$T_ROOT/repos/amino/teardown"    # after every test run, and before `t rm` deletes the worktree
 ```
 
-`repos/amino/` also holds the two scripts it names. A repo's settings apply
+`repos/amino/` also holds the three scripts it names. A repo's settings apply
 under every pipeline you run on it, so `t new -r amino -p local "…"` runs
 amino's tests too.
 
@@ -527,12 +528,15 @@ it again. `DELIVER=` in `pipelines/reply/env` says what leaving is:
   someone wrote since, the reply holds again, with the thread as it is now.
 
 Comments are Front's, and stay there: tick never keeps one of its own. In a
-thread they hang under the message they follow (`### └ comment by Ida K`), and
-the thread ends by saying who can't see them (`_2 comments: only your
-teammates see them, not Anna Ø._`), so what a colleague said never reads like
+thread they hang under the message they follow, indented and dimmer (`└ Ida K`),
+and the thread ends by saying who can't see them (`2 comments: only your
+teammates see them, not Anna Ø.`), so what a colleague said never reads like
 something the customer was told. A draft reads them, does what they say, and
 never quotes them. A conversation that is there because a comment mentions
 you says `mention` in red, so typing `mention` in `t inbox` lists every one.
+Front's search can't find mentions, so tick learns of one from Front's email
+about it ("Mentioned by Ida K"): the email is no row, the conversation it links
+to is. Keep those emails on in Front's notification settings.
 The watch's first poll reads back a day (`SINCE=` in the pipeline's env), and
 each later one what changed since: a comment that mentions you tomorrow, on a
 thread from last year, brings that whole thread. A
@@ -627,7 +631,7 @@ the key is the signature, and the organizer is told at once.
   a task never stops on one model's bad day.
 
 A task directory holds `task.md`, `name`, `pipeline`, `step`, `opt`, `repo`, `base`,
-`branch`, `env`, `work/`, `plan.md`, `feedback.md`, `review.md`, `passes/`, `hold`, `after`,
+`branch`, `env`, `work/`, `plan.md`, `summary.md`, `feedback.md`, `review.md`, `passes/`, `hold`, `after`,
 `runs/`, `history` and `log/`. `grep . ~/.tick/tasks/0007/*` shows all of it.
 
 ## Commands

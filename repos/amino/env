@@ -10,3 +10,5 @@ TEARDOWN="$T_ROOT/repos/amino/teardown"
 # every prompt says so. The migrations under backend/drizzle/*.sql are written by drizzle-kit too,
 # but they are the schema change itself, so they stay in.
 GENERATED="*openapi*.json *.gen.ts backend/drizzle/meta/* backend/src/db/migrate/id_mappings.json *bun.lock"
+# implement runs it after the agent, so the API clients match the routes in every commit it makes
+GENERATE="$T_ROOT/repos/amino/generate"

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# generate — amino's OpenAPI spec, and the frontend and backoffice clients made from it, in the worktree.
+# The spec comes from the app itself, not from a server: every worktree's backend listens on port 3000,
+# so the one answering there may be another task's.
+set -euo pipefail
+cd backend
+bun install --silent
+bun -e '
+  const { app } = await import("./src/index.ts");
+  const res = await app.handle(new Request("http://localhost/openapi/json"));
+  if (!res.ok) throw new Error(`GET /openapi/json answered ${res.status}`);
+  await Bun.write("openapi.json", await res.text());
+  process.exit(0);
+'
+cd ..
+cp backend/openapi.json frontend/openapi.json
+cp backend/openapi.json backoffice/openapi.json
+
+cd frontend
+[ -d node_modules/@hey-api/openapi-ts ] || npm install --no-audit --no-fund --silent
+npm run --silent openapi-generate
+cd ../backoffice
+[ -d node_modules/@hey-api/openapi-ts ] || bun install --silent
+bun run --silent openapi

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # implement — the implementer agent changes the code in the task's worktree; this script commits.
+# GENERATE, when the repo sets it, runs between the two: what tooling writes is not the agent's to remember.
 # Reads task.md, plus feedback.md when a later step (or you, with `t say`) sent the task back.
+# What the agent says it changed goes to summary.md, which t show prints.
 set -euo pipefail
 task=$PWD repo=$(cat repo) base=$(cat base) branch=$(cat branch)
 title=$(sed -n '1s/^# //p' task.md)
@@ -39,12 +41,17 @@ before=$(git rev-parse HEAD)
 {
   cat "$task/task.md"
   if [ -s "$task/feedback.md" ]; then printf '\n## Feedback to address\n\n'; cat "$task/feedback.md"; fi
-} | agent implementer > /dev/null
+} | agent implementer > "$task/summary.tmp"
+mv "$task/summary.tmp" "$task/summary.md"
 
-git add -A
-if ! git diff --cached --quiet; then git commit -q -m "$title"; fi
-if [ "$(git rev-parse HEAD)" = "$before" ]; then
+if [ "$(git rev-parse HEAD)" = "$before" ] && [ -z "$(git status --porcelain)" ]; then
   echo "the implementer changed nothing" >&2
   exit 1
 fi
+if [ -n "${GENERATE:-}" ] && ! bash -c "$GENERATE"; then
+  echo "GENERATE failed; run it in the worktree to see why: cd $PWD && $GENERATE" >&2
+  exit 1
+fi
+git add -A
+if ! git diff --cached --quiet; then git commit -q -m "$title"; fi
 if [ -f "$task/feedback.md" ]; then mv "$task/feedback.md" "$task/log/feedback.$(date +%s).md"; fi

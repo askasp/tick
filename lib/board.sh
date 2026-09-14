@@ -23,6 +23,46 @@ terminal_colors() {
 # $3, when given, is printed in its place: the same text in color.
 pad() { printf '%s%*s' "${3:-$2}" $(($1 - ${#2})) ''; }
 
+# a thread.md as the inbox pane draws it: who and when over each message, each comment indented and dimmer
+# under the message it follows, one blank line at most, and no "On … wrote:" left behind by a quote.
+# Lines fold on words to $FZF_PREVIEW_COLUMNS, so a comment's text stays in its column.
+thread_view() {
+  awk -v today="$(date '+%a %d %b')" -v cols="${FZF_PREVIEW_COLUMNS:-0}" -v text="$C_TEXT" -v mid="$C_MID" \
+      -v dim="$C_DIM" -v faint="$C_FAINT" -v off="$C_OFF" '
+    function when(at) { return substr(at, 1, 10) == today ? substr(at, 12) : at }
+    function header(line, by, lead,   who, at) {
+      who = line; sub(by, "", who); sub(/, [^,]*$/, "", who)
+      at = line; sub(/.*, /, "", at)
+      if (said) print ""
+      print lead who off "  " faint when(at) off
+      said = 1; fresh = 1; gap = 0
+    }
+    function body(s,   lead, n, i, words, line) {
+      if (gap && !fresh) print ""
+      gap = 0; fresh = 0; said = 1
+      lead = s; sub(/[^ ].*/, "", lead)
+      n = split(s, words, " ")
+      for (i = 1; i <= n; i++) {
+        if (line != "" && cols > 0 && length(indent lead line " " words[i]) >= cols) { print color indent lead line off; line = "" }
+        line = line == "" ? words[i] : line " " words[i]
+      }
+      print color indent lead line off
+    }
+    function release() { if (quoting != "") body(quoting); quoting = "" }
+    { sub(/[ \t\r]+$/, "") }
+    NR == 1 && /^# / { next }
+    /^## / { release(); header(substr($0, 4), "^[^ ]* from ", mid); indent = ""; color = text; next }
+    /^### └ comment by / { release(); header(substr($0, 5), "^└ comment by ", "  " faint "└ " dim); indent = "    "; color = dim; next }
+    /^_[0-9]+ comments?: .*_$/ { release(); print ""; print faint substr($0, 2, length($0) - 2) off; next }
+    /^On .*(wrote|skrev):$/ { next }
+    quoting != "" && /(wrote|skrev):$/ { quoting = ""; next }
+    { release() }
+    /^On / { quoting = $0; next }
+    /^$/ { gap = 1; next }
+    { body($0) }
+    END { release() }' "$1"
+}
+
 # whether the step a task is on has begun: it runs, ran, or was held there
 started() { [ -e "$1/log/$(cat "$1/step").log" ] || [ -e "$1/hold" ]; }
 
