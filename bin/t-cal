@@ -88,4 +88,4 @@ done <<< "$CAL_KEYS"
 CLICOLOR_FORCE=1 t-cal --rows | fzf "${BOARD_FZF[@]}" --delimiter $'\t' --with-nth 2.. --prompt "$T_CALENDAR> " \
   --info inline-right --footer "$(hint enter open "$(key accept)" accept "$(key maybe)" maybe "$(key decline)" decline esc back)" \
   --preview 'CLICOLOR_FORCE=1 t-cal --pane {1}' --preview-window 'right,50%,wrap,border-left,<60(down,60%,border-top)' \
-  "${binds[@]}" || true
+  "${PANE_SCROLL[@]}" "${binds[@]}" || true

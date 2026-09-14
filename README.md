@@ -77,16 +77,17 @@ without its diff.
 The keys are all ctrl-, so typing still searches, and they reach the board
 over ssh from any terminal. `^l` turns the pane to the log (again: the raw
 log), `^r` holds the task (the prompt asks why) or resumes it, `^t` stacks a
-task on it, `^n` starts a new one, and `^x` deletes one. `^g` deletes every
+task on it, `^n` starts a new one, and `^x` deletes one at once, worktree
+and all (the branch stays). `^g` deletes every
 task done, answered or held for 12 hours, once the pane has listed them and you
 press Enter. `^o` attaches to its
 agent, the one key that leaves the board, for the agent's own screen. Everything
 else is a word away: `?` lists every action in the pane, with the agent's
 session id, and you type the one you want, or its first letters, and press
 Enter. `cancel` stops a running agent now and holds the task, `run` runs it
-in the background with the pane following it, and `rm` deletes it once the
-pane has said what that removes and you press Enter again. `^x` on a running
-task stops its agent first. `^w` widens the pane. Without fzf, `t`
+in the background with the pane following it, and `rm` deletes it like `^x`.
+`^x` on a running task stops its agent first. In a prompt that takes words,
+esc clears what you typed, and esc again goes back. `^w` widens the pane. Without fzf, `t`
 prints `t ls`.
 
 `t log` tells a task's story in one text column, with the time in the gutter:
@@ -123,7 +124,8 @@ answered question, `task from 7>` makes a task of it), and
 type goes to `feedback.md` (a running task is stopped first), `tab` picks the step it restarts at, `^s` who
 solves it from then on, and the pane shows what will happen and its latest log.
 `^s` on a task's row does that without saying anything (`t agent`): claude,
-opencode, then its pipeline's agents again, from its next run on.
+opencode, then its pipeline's agents again, from its next run on. A step stuck on
+opencode moves to claude now with `t agent -f 7 claude`.
 
 Outside the board, `t new` without a title opens the same form as a screen of
 its own (`t compose`).
@@ -511,15 +513,18 @@ beside the one you are on.
 
 | key | does |
 | --- | --- |
-| enter | an agent drafts a reply: a task on pipeline `reply`, with `+draft` |
-| ^o | a reply you write: the thread is read, and `$EDITOR` opens on it |
-| ^t | a comment you write, for your teammates only: a task on pipeline `comment` |
+| enter | a reply you write: the thread is read, and you type the reply under it, ctrl-d ending it |
+| ^s | an agent drafts a reply: a task on pipeline `reply`, with `+draft` |
+| ^t | a comment you write the same way, for your teammates only: a task on pipeline `comment` |
 | ^x | archives the conversation in Front |
+| ^d ^u | scroll the thread half a page, as on the board |
+| ? | every key, in the pane; again, the thread |
 
 A reply is `thread → +draft → sign → send`, and nothing leaves until you sign
 it. The task holds at `sign`, in red (`draft ready`, or `write your reply`), and
-Enter on it, or `t sign N`, opens the reply in `$EDITOR` with the thread under
-it. What you save is what leaves. `t say N "shorter" draft` has the agent write
+Enter on it, or `t sign N`, opens a draft in `$EDITOR` with the thread under
+it; with no draft yet, it shows the thread and takes what you type under it.
+What you save or type is what leaves. `t say N "shorter" draft` has the agent write
 it again. `DELIVER=` in `pipelines/reply/env` says what leaving is:
 
 - `draft`, the default: a private draft on the conversation in Front, to read
@@ -649,8 +654,8 @@ t show [TASK]              where it is, and what you can do next
 t log [TASK] [-f] [--raw]  every run in order, rendered in one column; -f follows it, --raw is the file itself
 t diff [TASK]              the files it changed, with the diff of each beside them
 t say [TASK] "notes"       back to implement, with your notes
-t sign [TASK]              read a reply in $EDITOR and sign it: then it leaves
-t inbox [TASK]             the mail a watch keeps: enter drafts a reply, ^o you write one, ^x archives
+t sign [TASK]              read a reply in $EDITOR, or type it under the thread, and sign it: then it leaves
+t inbox [TASK]             the mail a watch keeps: enter writes a reply, ^s has an agent draft one, ? every key
 t cal [TASK]               the week a calendar watch keeps: ^y accepts an invite, ^t maybe, ^x declines
 t google login NAME        log a Google account in, for its linked mail and calendar
 t front login              the Front API token: what to choose when you make it, then it is checked and kept
@@ -659,7 +664,7 @@ t run [TASK]               run it now, in this terminal
 t hold [-f] [TASK] [why]   pause it after the running step; -f cancels that step now, agent and all
 t resume [TASK] [STEP]     unpause it, optionally at another step
 t name [TASK] ["name"]     what the board calls it; left out, an agent picks a short one
-t agent [TASK] [CLI]       who solves every step from its next run; left out, the next one
+t agent [-f] [TASK] [CLI]  who solves every step from its next run; left out, the next one; -f switches the running step too
 t path [TASK]              its worktree:  cd "$(t path discount)"
 t rm [-f] [TASK]           delete the task and its worktree (the branch stays); -f stops its run first
 t clean [-n] [HOURS]       delete every task done, answered or held for 12 hours (or HOURS); -n lists them

@@ -543,6 +543,22 @@ test_rm_f_stops_the_run_and_its_agent_first() {
   not wait $pid                                            # killed, not finished
 }
 
+test_agent_f_moves_a_step_stuck_on_opencode_to_claude() {
+  id=$(new "add the widget")
+  FAKE_SLEEP=30 t run $id > /dev/null 2>&1 &
+  pid=$!
+  for i in $(seq 50); do [ ! -s "$FAKE/opencode.calls" ] || break; sleep 0.1; done   # opencode is stuck on it
+  hint=$(t agent $id claude | sed -n 's/.*too: //p')           # without -f, the running step keeps its agent
+  eq "$hint" "t agent -f 1 claude"
+  $hint | grep -q 'implement runs again'
+  not wait $pid
+  flock -n "$(dir $id)/lock" true
+  [ ! -e "$(dir $id)/hold" ]
+  eq "$(cat "$(dir $id)/runs/10-implement")" 0                # the cancelled run doesn't count
+  t run $id
+  grep -q '^session: claude ' "$(dir $id)/log/10-implement.log"
+}
+
 test_hold_f_cancels_the_running_agent_and_holds_the_task() {
   id=$(new "add the widget")
   FAKE_SLEEP=30 t run $id > /dev/null 2>&1 &
@@ -594,12 +610,30 @@ test_ctrl_x_deletes_a_task_in_place() {
   new "add the widget" > /dev/null
   new "fix the gadget" > /dev/null
   eq "$(keyfor rm)" ctrl-x
-  t ui --key "$(keyfor rm)" 1 '' | grep -q 'delete 1?'
-  t ui --pane 1 '' | grep -q 'Deletes its directory'
-  [ -d "$(dir 0001)" ]
-  t ui --key enter 1 '' > /dev/null
+  t ui --key "$(keyfor rm)" 1 '' | grep -q 'change-prompt(task> )'   # no asking: gone, and still on the board
   [ ! -e "$(dir 0001)" ]
   eq "$(cat "$T_UI/new")" 2
+  eq "$(cat "$T_UI/mode")" board
+}
+
+test_the_board_says_why_ctrl_x_could_not_delete() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  parent=$(new "parent work")
+  new "child work" --on $parent > /dev/null
+  t ui --key "$(keyfor rm)" 1 '' | grep -q 'change-footer~.*stacked on'
+  [ -d "$(dir $parent)" ]
+}
+
+test_esc_in_a_form_clears_the_words_before_going_back() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  t ui --key "$(keyfor new)" '' '' > /dev/null
+  t ui --key enter local '' > /dev/null                   # the pipeline, then the title
+  eq "$(t ui --key esc '' 'add the wid')" clear-query
+  eq "$(cat "$T_UI/mode")" "new -"
+  t ui --key esc '' '' > /dev/null
+  eq "$(cat "$T_UI/mode")" board
 }
 
 test_clean_deletes_what_is_done_answered_or_held_for_12_hours() {
@@ -1248,10 +1282,7 @@ test_the_board_holds_renames_and_deletes_in_place() {
   t ui --key enter 1 'Widget' > /dev/null
   eq "$(cat "$(dir 0001)/name")" Widget
   t ui --key "$(keyfor keys)" 1 '' > /dev/null
-  t ui --key enter 1 rm > /dev/null
-  t ui --pane 1 '' | grep -q 'Deletes its directory'   # the pane says what goes before Enter does it
-  [ -d "$(dir 0001)" ]
-  t ui --key enter 1 '' > /dev/null
+  t ui --key enter 1 rm | grep -q 'change-prompt(task> )'
   [ ! -e "$(dir 0001)" ]
   eq "$(cat "$T_UI/new")" 2                              # the cursor goes to the next task
   t ui --key "$(keyfor log)" 2 '' > /dev/null
@@ -1657,6 +1688,16 @@ test_a_reply_you_write_holds_until_you_sign_it_then_lands_as_a_front_draft() {
   not grep -q '/messages$' "$FAKE/front.calls"                      # a draft: you send it from Front
 }
 
+test_a_reply_with_no_draft_is_typed_under_its_thread_and_signed_without_an_editor() {
+  conversation
+  id=$(reply)
+  t run $id
+  printf 'Sent it again just now.\n' | EDITOR=false tty "t sign $id" > "$tmp/screen"
+  grep -q 'Can you resend the invoice?' "$tmp/screen"               # the thread, above where you type
+  eq "$(cat "$(dir $id)/answer.md")" "Sent it again just now."
+  [ -e "$(dir $id)/signed" ]
+}
+
 test_an_agent_drafts_a_reply_from_the_thread_and_redrafts_it_from_your_notes() {
   conversation
   id=$(reply +draft 'say it goes out today')
@@ -1745,19 +1786,19 @@ watched() {   # a front watch that has read cnv_x once (after conversation); pri
 inbox() { T_INBOX=front "$tmp/tick/bin/t-inbox" "$@"; }
 offered() { (. "$tmp/tick/lib/tick.sh"; offers "$(dir "$1")"); }
 
-test_the_inbox_lists_what_the_watch_keeps_and_enter_drafts_one_reply_to_a_conversation() {
+test_the_inbox_lists_what_the_watch_keeps_and_an_agent_drafts_one_reply_to_a_conversation() {
   conversation
   watch=$(watched)
   eq "$(offered $watch)" "inbox log"                               # enter on the watch's row opens its mail
   inbox --rows | grep -q $'^cnv_x\t.*Invoice question'
   inbox --pane cnv_x | grep -q 'Can you resend the invoice?'
-  inbox --key enter cnv_x > /dev/null
+  inbox --key "$(keyfor draft)" cnv_x > /dev/null
   id=$(ls "$T_VAR/tasks" | tail -1)
   eq "$(cat "$(dir $id)/pipeline")" reply
   eq "$(cat "$(dir $id)/opt")" draft
   grep -qx 'conversation: front cnv_x' "$(dir $id)/task.md"
   inbox --rows | grep -q "task $((10#$id))"
-  inbox --key enter cnv_x | grep -q 'already replies'
+  inbox --key "$(keyfor draft)" cnv_x | grep -q 'already replies'
   eq "$(ls "$T_VAR/tasks" | wc -l)" 2                               # one reply to a conversation, not one a press
   t run $id
   eq "$(offered $id)" "sign say rm"                                 # and enter on the held reply signs it
@@ -1806,6 +1847,29 @@ test_the_inbox_says_where_a_comment_mentions_you_and_writes_a_comment_apart_from
   not grep -q '^#' "$tmp/pane"                                      # markdown is for the agent, not for you
   eq "$(inbox --key "$(keyfor comment)" cnv_x)" "execute(t-inbox --write comment cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
   eq "$(inbox --key "$(keyfor write)" cnv_x)" "execute(t-inbox --write reply cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
+}
+
+test_enter_in_the_inbox_is_a_reply_you_write_and_the_pane_lists_every_key() {
+  conversation
+  watched > /dev/null
+  eq "$(keyfor write)" enter                                        # an agent's draft is a key away, not the default
+  inbox --keys > "$tmp/keys"
+  while read -r name _; do
+    grep -Eq "^[^ ]+ +$name +[a-z]" "$tmp/keys"
+  done < <(. "$tmp/tick/lib/tick.sh"; echo "$INBOX_KEYS")
+  inbox --key "$(keyfor keys)" cnv_x | grep -q 't-inbox --keys'
+  FZF_PREVIEW_LABEL=' keys ' inbox --key "$(keyfor keys)" cnv_x | grep -q 't-inbox --pane {1}'   # again: the thread
+}
+
+test_the_inbox_scrolls_the_thread_with_the_keys_the_board_scrolls_its_pane() {
+  conversation
+  watched > /dev/null
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "$FAKE/fzf.args"\n' > "$tmp/tick/test/fake/fzf"
+  chmod +x "$tmp/tick/test/fake/fzf"
+  inbox < /dev/null
+  grep -q 'ctrl-d:preview-half-page-down' "$FAKE/fzf.args"
+  grep -q 'ctrl-u:preview-half-page-up' "$FAKE/fzf.args"
+  grep -q 'ctrl-d:preview-half-page-down' "$tmp/tick/bin/t-ui"     # as on the board
 }
 
 test_a_draft_follows_the_comments_and_is_told_the_customer_cannot_see_them() {

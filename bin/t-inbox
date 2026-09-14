@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# t inbox [TASK] — the mail a watch keeps, newest first, its thread beside it: enter drafts a reply, ^o you write one, ^t a comment
+# t inbox [TASK] — the mail a watch keeps, newest first, its thread beside it: enter writes a reply, ^s has an agent draft one, ? every key
 #
 # The watch is a task on a pipeline like front-inbox (t new -p front-inbox "front inbox"), and Enter on its row opens this.
 # A reply (pipeline reply) and a comment (pipeline comment) are tasks that hold on the board until you sign them: nothing
 # another person sees leaves before that. The list is what the watch last read, and ^x archives where the mail lives.
-# fzf runs t-inbox for what changes: --rows, --pane ID, --key KEY ID (what KEY does to it), --write PIPELINE ID
+# fzf runs t-inbox for what changes: --rows, --pane ID, --keys, --key KEY ID (what KEY does to it), --write PIPELINE ID
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 shopt -s nullglob
@@ -73,6 +73,18 @@ pane() {
   thread_view "$mail/$1/thread.md"
 }
 
+# every key the inbox binds, and what it does
+keys() {
+  local name key what
+  while read -r name key what; do
+    echo "$C_MID$(pad 7 "$(keyname "$key")")$C_OFF$(pad 8 "$name")$C_DIM$what$C_OFF"
+  done <<< "$INBOX_KEYS"
+  echo "${C_MID}^d ^u  ${C_OFF}scroll  ${C_DIM}the pane, half a page; PgDn/PgUp a page, Shift-↓/↑ a line$C_OFF"
+  echo "${C_MID}esc    ${C_OFF}back    ${C_DIM}to the board$C_OFF"
+  echo
+  echo "${C_DIM}Type to filter: mention lists every conversation a comment mentions you in.$C_OFF"
+}
+
 # what key $1 does to conversation $2, as fzf actions
 act() {
   local task id out
@@ -97,10 +109,16 @@ act() {
       else
         echo "change-footer~$C_RED${out#t: }$C_OFF~"
       fi ;;
+    keys)                                               # the label says the pane is showing the keys
+      if [ -n "${FZF_PREVIEW_LABEL:-}" ]; then
+        echo "change-preview-label()+change-preview~CLICOLOR_FORCE=1 t-inbox --pane {1}~"
+      else
+        echo "change-preview-label( keys )+change-preview~CLICOLOR_FORCE=1 t-inbox --keys~"
+      fi ;;
   esac
 }
 
-# PIPELINE ID: a reply or a comment you write, its thread read now, then $EDITOR on it, where you sign it
+# PIPELINE ID: a reply or a comment you write, its thread read now, then typed under it, where you sign it
 write() {
   local id
   id=$(t-new -p "$1" "Re: $(subject_of "$2")" - <<< "conversation: $T_INBOX $2") || return 0
@@ -112,6 +130,7 @@ write() {
 case ${1:-} in
   --rows)  rows; exit ;;
   --pane)  pane "$2"; exit ;;
+  --keys)  keys; exit ;;
   --key)   act "$2" "$3"; exit ;;
   --write) write "$2" "$3"; exit ;;
 esac
@@ -122,6 +141,6 @@ while read -r _ key _; do
   binds+=(--bind "$key:transform:t-inbox --key '$key' {1}")
 done <<< "$INBOX_KEYS"
 CLICOLOR_FORCE=1 t-inbox --rows | fzf "${BOARD_FZF[@]}" --delimiter $'\t' --with-nth 2.. --prompt "$T_INBOX> " --info inline-right \
-  --footer "$(hint enter draft "$(key write)" write "$(key comment)" comment "$(key archive)" archive esc back)" \
+  --footer "$(hint enter write "$(key draft)" "agent draft" "$(key comment)" comment "$(key archive)" archive "$(key keys)" keys esc back)" \
   --preview 'CLICOLOR_FORCE=1 t-inbox --pane {1}' --preview-window 'right,50%,wrap,border-left,<60(down,60%,border-top)' \
-  "${binds[@]}" || true
+  "${PANE_SCROLL[@]}" "${binds[@]}" || true
