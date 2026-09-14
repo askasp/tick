@@ -8,7 +8,8 @@ git -C work push -q -u origin "$branch"
 touch pushed                       # ci counts its patience from here
 if [ -s pr ]; then echo "pushed to $(cat pr)"; exit 0; fi
 
-body() { sed 1d task.md; printf '\n---\n\n'; cat review.md 2> /dev/null || true; }
+# a task made from a roadmap issue (task.md's line "issue: owner/repo#553") closes it when it merges
+body() { sed 1d task.md; sed -n 's/^issue: /\nCloses /p' task.md; printf '\n---\n\n'; cat review.md 2> /dev/null || true; }
 body | (cd -P work && gh pr create --head "$branch" --base "${base#origin/}" --title "$title" --body-file -) > pr.tmp
 mv pr.tmp pr
 echo "opened $(cat pr)"

@@ -70,23 +70,23 @@ done
 if [ -n "$dry" ]; then preview; exit 0; fi
 
 from_first_words() { sed '/[^[:space:]]/,$!d'; }
-if [ -z "$title" ] || [ -n "$edit" ]; then
-  [ -t 0 ] && [ -t 1 ] || die 'usage: t new "what to do" [-p PIPELINE] [--on TASK]'
+if [ -n "$stdin" ]; then details=$(cat); fi
+if [ -z "$title" ] || [ -n "$edit" ]; then           # the editor, on the terminal even when stdin brought the details
+  { : < /dev/tty; } 2> /dev/null || die 'usage: t new "what to do" [-p PIPELINE] [--on TASK]'
   f=$(mktemp --suffix=.md)
   {
     printf '%s\n\n' "$title"
+    if [ -n "$details" ]; then printf '%s\n\n' "$details"; fi
     echo "# tick: line 1 is the title. Below it, details for the agent: files, examples, what done means."
     echo "# tick: ${repo:+${repo##*/} · }$pipeline${repo:+ · branches from $base}"
     echo "# tick: lines like these are dropped. Save an empty file to cancel."
   } > "$f"
-  "${EDITOR:-vi}" "$f"
+  "${EDITOR:-vi}" "$f" < /dev/tty > /dev/tty
   text=$(grep -v '^# tick:' "$f" | from_first_words || true)
   rm -f "$f"
   title=$(head -1 <<< "$text")
   details=$(tail -n +2 <<< "$text" | from_first_words)
   [ -n "$title" ] || die "no title, so nothing was created"
-elif [ -n "$stdin" ]; then
-  details=$(cat)
 fi
 if [ -n "$from" ]; then details=$(printf '%s\n\n' "$details"; question_and_answer "$asked" | from_first_words); fi
 
@@ -118,8 +118,8 @@ if [ -n "$on" ]; then
 fi
 if [ -n "$cli" ]; then echo "AGENT_CLI=$cli" >> env; fi
 if [ -n "$test" ]; then printf 'TEST_CMD=%q\n' "$test" >> env; fi
-if [ "${#title}" -gt 40 ]; then          # from t ui, named in the background: the board doesn't wait for an agent
-  if [ -n "${T_UI:-}" ]; then setsid "$T_ROOT/bin/t-name" "$n" < /dev/null > /dev/null 2>&1 &
+if [ "${#title}" -gt 40 ]; then          # from t ui or t compose, named in the background: a screen doesn't wait for an agent
+  if [ -n "${T_UI:-}${T_NEW:-}" ]; then setsid "$T_ROOT/bin/t-name" "$n" < /dev/null > /dev/null 2>&1 &
   else "$T_ROOT/bin/t-name" "$n" > /dev/null || true; fi
 fi
 if [ -n "${T_UI:-}" ]; then echo "$n" > "$T_UI/new"; fi                  # made from t ui: its cursor goes here

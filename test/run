@@ -18,6 +18,7 @@ dir()  { echo "$T_VAR/tasks/$1"; }
 step() { cat "$(dir "$1")/step"; }
 tty()  { script -qec "$1" /dev/null; }      # run a command line in a pseudo-terminal
 keyfor() { (. "$tmp/tick/lib/tick.sh"; key_of "$1"); }   # the board's key for an action: keyfor hold → ctrl-r
+gone() { for i in $(seq 50); do [ -e "$1" ] || return 0; sleep 0.1; done; echo "still there: $1" >&2; return 1; }
 wait_done() {
   local i id all
   for i in $(seq 150); do
@@ -61,18 +62,6 @@ front() {   # a Front account for jobs/front-digest, served by the fake curl: me
   echo '{"id": "tea_me"}' > "$FAKE/front/teammates_alt:email:me@example.com"
 }
 page() { jq -nc --argjson r "$1" '{_results: $r, _pagination: {next: null}}'; }
-
-slack() {   # a Slack workspace for jobs/slack-*: the toy repo is #C0TOY, and the past is already seen
-  profile
-  export XDG_CONFIG_HOME=$tmp/config
-  mkdir -p "$tmp/config/slack" "$FAKE/slack" "$T_VAR/slack"
-  printf 'SLACK_TOKEN=xoxb-test\nSLACK_CHANNELS="C0TOY=toy"\nSLACK_ME=U0AKSEL\n' > "$tmp/config/slack/env"
-  echo 0 > "$T_VAR/slack/since.C0TOY"
-}
-said() {   # what conversations.history or replies ($2) answers: said '[{"ts": "1.0", "text": "hi"}]' history
-  jq -nc --argjson m "$1" '{ok: true, messages: $m}' > "$FAKE/slack/conversations.$2"
-}
-calls() { grep -c "^$1\$" "$FAKE/slack.calls" 2> /dev/null || true; }
 
 test_scripts_parse() {
   for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/sources/* "$root"/calendars/* "$root"/jobs/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
@@ -611,9 +600,22 @@ test_ctrl_x_deletes_a_task_in_place() {
   new "fix the gadget" > /dev/null
   eq "$(keyfor rm)" ctrl-x
   t ui --key "$(keyfor rm)" 1 '' | grep -q 'change-prompt(task> )'   # no asking: gone, and still on the board
-  [ ! -e "$(dir 0001)" ]
+  gone "$(dir 0001)"
   eq "$(cat "$T_UI/new")" 2
   eq "$(cat "$T_UI/mode")" board
+}
+
+test_ctrl_x_leaves_the_board_before_the_teardown_ends() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  printf 'TEARDOWN="until [ -e %s/go ]; do sleep 0.05; done"\n' "$tmp" >> "$tmp/tick/pipelines/local/env"
+  id=$(new "add the widget")
+  touch "$tmp/go"; t run $id; rm "$tmp/go"                  # the teardown after its tests goes right through
+  t ui --key "$(keyfor rm)" $id '' | grep -q 'change-prompt(task> )'
+  not grep -q widget <<< "$(t ls -a 2>&1)"
+  [ -d "$(dir $id)" ]                                        # its teardown still waits
+  touch "$tmp/go"
+  gone "$(dir $id)"
 }
 
 test_the_board_says_why_ctrl_x_could_not_delete() {
@@ -2050,222 +2052,6 @@ test_logging_a_google_account_in_asks_only_for_what_its_links_need() {
   grep -q 'ln -s gmail' "$tmp/err"
 }
 
-test_slack_posts_a_task_once_and_edits_that_message_after_that() {
-  slack
-  id=$(new -r toy "add the widget")
-  "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 2                 # the task, and its details under it
-  "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 2                 # nothing changed: nothing said
-  eq "$(calls chat.update)" 0
-  t hold $id "waiting for you"
-  "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 3                 # the two, and the mention no edit of them can be
-  eq "$(calls chat.update)" 2                      # the same two messages, edited where they are
-  grep -A2 '^chat.update' "$FAKE/slack.calls" | grep -q "ts=$(cat "$(dir $id)/slack_ts")"
-  eq "$(wc -l < "$(dir $id)/slack_sent")" 1        # the card is one short line
-  grep -q ' held$' "$(dir $id)/slack_sent"
-  grep -q 'held  waiting for you' "$(dir $id)/slack_story"   # and why is in the thread
-  not grep -q "$(cat "$(dir $id)/branch")" "$FAKE/slack.calls"   # a branch is a terminal's business
-}
-
-test_slack_gets_the_answer_to_a_question_and_not_only_that_there_is_one() {
-  slack
-  id=$(new -r toy -p ask "where is the cart total rounded?")
-  "$tmp/tick/jobs/slack-out"
-  t run $id
-  eq "$(step $id)" done
-  "$tmp/tick/jobs/slack-out"
-  grep -q "$(head -c 30 "$(dir $id)/answer.md")" "$FAKE/slack.calls"
-  grep -q '<@U0AKSEL>' "$FAKE/slack.calls"          # you asked, so you are told
-  grep -q ' answered$' "$(dir $id)/slack_sent"      # and the card stays: a phone is where you read how it went
-  answers=$(calls chat.postMessage)
-  "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" "$answers"         # said once, not on every tick
-}
-
-test_saying_status_posts_each_open_task_again_where_you_are() {
-  slack
-  said '[{"ts": "9.0", "user": "U0AKSEL", "text": "status"}]' history
-  "$tmp/tick/jobs/slack-in"
-  grep -q 'nothing open here' "$FAKE/slack.calls"  # asked, so answered
-  id=$(new -r toy "add the widget")
-  "$tmp/tick/jobs/slack-out"
-  card=$(cat "$(dir $id)/slack_ts") details=$(cat "$(dir $id)/slack_thread")
-  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "status"}]' history
-  "$tmp/tick/jobs/slack-in"
-  eq "$(ls "$T_VAR/tasks" | wc -l)" 1              # the word is not a task about the tasks
-  "$tmp/tick/jobs/slack-out"
-  grep -A2 '^chat.delete' "$FAKE/slack.calls" | grep -q "ts=$card"
-  grep -A2 '^chat.delete' "$FAKE/slack.calls" | grep -q "ts=$details"
-  not eq "$(cat "$(dir $id)/slack_ts")" "$card"    # one card, posted afresh at the bottom
-  [ -s "$(dir $id)/slack_thread" ]                 # with its details under it
-  "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.delete)" 2                      # and it stays there until you ask again
-}
-
-test_help_in_slack_says_what_you_can_type_there() {
-  slack
-  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "help"}]' history
-  "$tmp/tick/jobs/slack-in"
-  eq "$(ls "$T_VAR/tasks" | wc -l)" 0
-  grep -A3 '^chat.postMessage' "$FAKE/slack.calls" | grep -q 'thread_ts=10.0'
-  grep -q 't stack' "$FAKE/slack.calls"
-  id=$(new -r toy "add the widget")
-  "$tmp/tick/jobs/slack-out"
-  said '[{"ts": "20.0", "user": "U0AKSEL", "text": "help"}]' replies
-  "$tmp/tick/jobs/slack-in"
-  [ ! -f "$(dir $id)/feedback.md" ]                # help is not something to tell the task
-  grep -A3 '^chat.postMessage' "$FAKE/slack.calls" | grep -q 'thread_ts=20.0'
-}
-
-test_slack_takes_the_card_of_a_task_you_removed() {
-  slack
-  id=$(new -r toy "add the widget")
-  "$tmp/tick/jobs/slack-out"
-  ts=$(cat "$(dir $id)/slack_ts")
-  t rm $id
-  "$tmp/tick/jobs/slack-out"
-  grep -A2 '^chat.delete' "$FAKE/slack.calls" | grep -q "ts=$ts"
-  "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.delete)" 1                      # deleted once, and never asked about again
-}
-
-test_a_message_in_the_slack_channel_starts_a_task_and_gets_an_eye() {
-  slack
-  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "add the widget\nit goes next to the cart"}]' history
-  "$tmp/tick/jobs/slack-in"
-  eq "$(step 0001)" 10-implement
-  eq "$(head -1 "$(dir 0001)/task.md")" "# add the widget"     # what you wrote after line 1 is the details
-  grep -q 'it goes next to the cart' "$(dir 0001)/task.md"
-  eq "$(cat "$(dir 0001)/pipeline")" feature       # the channel's repo decides, as in a terminal
-  grep -A3 '^reactions.add' "$FAKE/slack.calls" | grep -q 'name=eyes'
-  eq "$(cat "$(dir 0001)/slack_src")" 10.0
-  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "add the widget",
-          "reactions": [{"name": "eyes", "users": ["U0BOT"]}]}]' history
-  "$tmp/tick/jobs/slack-in"
-  not test -d "$(dir 0002)"                        # 👀 is the whole memory: it never starts twice
-}
-
-test_a_slack_message_that_opens_with_a_pipeline_starts_that_kind_of_task() {
-  slack
-  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "ask where is the cart total rounded?"}]' history
-  "$tmp/tick/jobs/slack-in"
-  eq "$(cat "$(dir 0001)/pipeline")" ask
-  eq "$(head -1 "$(dir 0001)/task.md")" "# where is the cart total rounded?"
-  eq "$(cat "$(dir 0001)/repo")" "$tmp/repo"       # ask reads the channel's repo
-  said '[{"ts": "11.0", "user": "U0AKSEL", "text": "research which bun test runner is fastest?"}]' history
-  "$tmp/tick/jobs/slack-in"
-  eq "$(cat "$(dir 0002)/pipeline")" research
-  [ ! -e "$(dir 0002)/repo" ]                      # research says REPO=none, so it gets none
-  said '[{"ts": "12.0", "user": "U0AKSEL", "text": "feature +plan add a discount code field"}]' history
-  "$tmp/tick/jobs/slack-in"
-  eq "$(cat "$(dir 0003)/opt")" plan
-  eq "$(head -1 "$(dir 0003)/task.md")" "# add a discount code field"
-}
-
-test_a_question_asked_in_a_channel_is_answered_there_though_it_has_no_repo() {
-  slack
-  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "research which bun test runner is fastest?"}]' history
-  "$tmp/tick/jobs/slack-in"
-  [ ! -e "$(dir 0001)/repo" ]                      # research says REPO=none, so its channel is the one you asked in
-  t run 0001
-  "$tmp/tick/jobs/slack-out"
-  grep -q "$(head -c 30 "$(dir 0001)/answer.md")" "$FAKE/slack.calls"
-  grep -q '<@U0AKSEL>' "$FAKE/slack.calls"
-}
-
-test_a_command_typed_in_the_channel_runs_on_the_task_it_names() {
-  slack
-  id=$(new -r toy "add the widget")
-  said '[{"ts": "10.0", "user": "U0AKSEL", "text": "t hold '"$((10#$id))"' sleep on it"}]' history
-  "$tmp/tick/jobs/slack-in"
-  eq "$(cat "$(dir $id)/hold")" "sleep on it"
-  eq "$(ls "$T_VAR/tasks" | wc -l)" 1              # a command is not a task about the command
-  said '[{"ts": "11.0", "user": "U0AKSEL", "text": "t show '"$((10#$id))"'"}]' history
-  "$tmp/tick/jobs/slack-in"
-  grep -q "add the widget" "$FAKE/slack.calls"
-}
-
-test_a_reply_in_a_task_thread_says_it_to_that_task() {
-  slack
-  id=$(new -r toy "add the widget")
-  "$tmp/tick/jobs/slack-out"
-  said '[{"ts": "1701.000000", "bot_id": "B0", "text": "task 1"},
-         {"ts": "20.0", "user": "U0AKSEL", "text": "use a fixture, not the live API"}]' replies
-  "$tmp/tick/jobs/slack-in"
-  grep -q 'use a fixture, not the live API' "$(dir $id)/feedback.md"
-  eq "$(step $id)" 10-implement
-  grep -q 'timestamp=20.0' "$FAKE/slack.calls"
-}
-
-test_a_reply_that_is_a_command_runs_it_and_posts_what_it_printed() {
-  slack
-  id=$(new -r toy "add the widget")
-  "$tmp/tick/jobs/slack-out"
-  said '[{"ts": "1701.000000", "bot_id": "B0", "text": "task 1"},
-         {"ts": "20.0", "user": "U0AKSEL", "text": "t hold sleep on it"}]' replies
-  "$tmp/tick/jobs/slack-in"
-  eq "$(cat "$(dir $id)/hold")" "sleep on it"
-  [ ! -f "$(dir $id)/feedback.md" ]
-  said '[{"ts": "1701.000000", "bot_id": "B0", "text": "task 1"},
-         {"ts": "22.0", "user": "U0AKSEL", "text": "t show"}]' replies
-  "$tmp/tick/jobs/slack-in"
-  grep -q 'sleep on it' "$FAKE/slack.calls"        # what it printed, not an empty block
-  said '[{"ts": "1701.000000", "bot_id": "B0", "text": "task 1"},
-         {"ts": "21.0", "user": "U0AKSEL", "text": "t frobnicate"}]' replies
-  "$tmp/tick/jobs/slack-in"
-  grep -q "no 'frobnicate' here" "$FAKE/slack.calls"
-}
-
-test_what_a_task_did_is_one_thread_message_edited_with_its_loops_collapsed() {
-  slack
-  id=$(new -r toy "add the widget")
-  "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 2                  # the task, and details that say only where it is
-  n=$((10#$id))
-  cat >> "$(dir $id)/history" <<EOF
-2026-01-01 09:00:00 $n 10-implement ok → 20-test
-2026-01-01 09:01:00 $n 20-test ok → 30-review
-2026-01-01 09:02:00 $n 30-review ok → 10-implement
-2026-01-01 09:10:00 $n 10-implement ok → 20-test
-2026-01-01 09:11:00 $n 20-test ok → 30-review
-2026-01-01 09:12:00 $n 30-review ok → 10-implement
-EOF
-  "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.postMessage)" 2                  # what it did is the same details message, edited
-  grep -q 'implement → test → review  \*↺ ×2\*' "$FAKE/slack.calls"   # the churn, not a line each
-  not grep -q '10-implement ok' "$FAKE/slack.calls"
-  thread=$(cat "$(dir $id)/slack_thread")
-  printf '2026-01-01 09:20:00 %s 10-implement failed (exit 127); it runs again on the next tick\n' \
-    "$((10#$id))" >> "$(dir $id)/history"
-  "$tmp/tick/jobs/slack-out"
-  grep -q '09:20  implement failed (exit 127)$' "$FAKE/slack.calls"   # a failure names itself, once
-  eq "$(calls chat.postMessage)" 2                  # the same message, edited where it stands
-  grep -A2 '^chat.update' "$FAKE/slack.calls" | grep -q "ts=$thread"
-  "$tmp/tick/jobs/slack-out"
-  eq "$(calls chat.update)" 2                       # and left alone while nothing happens
-}
-
-test_a_held_task_mentions_you_in_its_thread_and_nowhere_else() {
-  slack
-  id=$(new -r toy "add the widget")
-  printf '2026-01-01 09:00:00 %s 10-implement ok → 20-test\n' "$((10#$id))" >> "$(dir $id)/history"
-  "$tmp/tick/jobs/slack-out"
-  grep -q '09:00  implement → test' "$FAKE/slack.calls"
-  not grep -q 'U0AKSEL' "$FAKE/slack.calls"
-  t hold $id "test ran 3 times"
-  "$tmp/tick/jobs/slack-out"
-  grep -q '<@U0AKSEL>' "$FAKE/slack.calls"
-  eq "$(grep -c 'thread_ts=' "$FAKE/slack.calls")" 2   # the thread message, and the mention an edit can't be
-  "$tmp/tick/jobs/slack-out"
-  eq "$(grep -c 'thread_ts=' "$FAKE/slack.calls")" 2   # said once, not on every tick
-}
-
-test_slack_is_a_job_tick_itself_knows_nothing_about() {
-  not grep -rlq slack "$root/bin" "$root/lib" "$root/steps" "$root/drivers" "$root/pipelines" "$root/etc"
-}
-
 test_drivers_read_real_cli_output() {
   fx=$root/test/fixtures
   out=$(echo hi | FAKE_REPLAY=$fx/claude-read.jsonl "$root/drivers/claude" 2> "$tmp/err")
@@ -2326,6 +2112,186 @@ test_board_shows_token_rate_in_footer_not_in_row() {
   grep -qE '^ *1 .* implement .* Read foo\.ts' "$tmp/out"
   grep -q 'tokens/s: 100' "$tmp/out"
   kill $pid 2>/dev/null || true
+}
+
+roadmap() {   # a GitHub project, served by the fake gh: #10 with its sub-issue #11, #12 In progress but untouched for a
+              # week, #13 without a status, and #14 off the project; the toy repo is example/shop on GitHub
+  profile
+  git -C "$tmp/repo" remote add github git@github.com:example/shop.git
+  mkdir -p "$FAKE/gh"
+  jq -nc --argjson now "$(date +%s)" '
+    def issue($n; $title; $at): {number: $n, title: $title, state: "OPEN", url: "https://github.com/example/shop/issues/\($n)",
+      body: "What #\($n) is about", createdAt: ($at | todate), updatedAt: ($at | todate), author: {login: "carl"},
+      repository: {nameWithOwner: "example/shop"}, assignees: {nodes: []}, labels: {nodes: []},
+      subIssuesSummary: {total: 0, completed: 0}, parent: null,
+      comments: {nodes: [{author: {login: "ida"}, createdAt: ($at | todate), body: "the PO was never updated"}]}};
+    def item($status; $issue): {id: "PVTI_\($issue.number)", isArchived: false,
+      fieldValueByName: (if $status then {name: $status} else null end), content: $issue};
+    {data: {repositoryOwner: {projectV2: {items: {pageInfo: {hasNextPage: false}, nodes: [
+      item("Up-next"; issue(10; "Ready for scale"; $now) + {subIssuesSummary: {total: 2, completed: 1}}),
+      item("QA"; issue(11; "Page the survey"; $now) + {parent: {number: 10, repository: {nameWithOwner: "example/shop"}}}),
+      item("In progress"; issue(12; "Security hardening"; $now - 7 * 86400)),
+      item(null; issue(13; "Referral dashboard"; $now))]}}}}},
+    {data: {search: {nodes: [issue(14; "testsd"; $now)]}}}' > "$tmp/gh.json"
+  jq -c 'select(.data.repositoryOwner)' "$tmp/gh.json" > "$FAKE/gh/items"
+  jq -c 'select(.data.search)' "$tmp/gh.json" > "$FAKE/gh/offboard"
+  new -p amino-roadmap "roadmap" > /dev/null
+  t run 1 > /dev/null 2>&1
+}
+roadmap_ui() { T_ROADMAP="github AminoNordics/1" FZF_PROMPT=${prompt:-AminoNordics> } "$tmp/tick/bin/t-roadmap" "$@"; }
+row_of_the_roadmap() { t ls | grep '^ *1 '; }
+
+test_a_roadmap_row_says_only_what_needs_you_and_its_log_what_moved() {
+  roadmap
+  eq "$(step 0001)" 10-roadmap                                      # a watch never ends
+  row_of_the_roadmap | grep -q '1 stalled · 2 unplanned$'
+  jq -c '(.data.repositoryOwner.projectV2.items.nodes[] | select(.content.number == 13) | .fieldValueByName) = {name: "Up-next"}' \
+    "$FAKE/gh/items" > "$tmp/items" && mv "$tmp/items" "$FAKE/gh/items"
+  t run 1 > /dev/null 2>&1
+  not grep -q '#13' "$(dir 0001)/log/10-roadmap.log"                # within POLL, GitHub isn't asked again
+  touch -d '1 hour ago' "$T_VAR/roadmap/AminoNordics-1/items"
+  t run 1 > /dev/null 2>&1
+  grep -q '#13 no status → Up-next: Referral dashboard' "$(dir 0001)/log/10-roadmap.log"
+  row_of_the_roadmap | grep -q '1 stalled · 1 unplanned$'
+}
+
+test_the_roadmap_keeps_the_projects_order_with_what_needs_you_above_a_line() {
+  roadmap
+  eq "$(roadmap_ui --rows | cut -f1 | xargs)" "example/shop#12 example/shop#13 example/shop#14 - example/shop#10"   # #11 is #10's
+  roadmap_ui --rows | grep -q $'^example/shop#12\t.*In progress .*nothing for 7d'
+  roadmap_ui --rows | grep -q $'^example/shop#10\t.*Ready for scale .*1/2'
+  eq "$(roadmap_ui --key enter example/shop#10)" "reload~CLICOLOR_FORCE=1 t-roadmap --rows 'example/shop#10'~+change-prompt~#10> ~+first"
+  eq "$(roadmap_ui --rows example/shop#10 | cut -f1)" example/shop#11
+  roadmap_ui --pane example/shop#12 > "$tmp/pane"
+  grep -q '^status    In progress$' "$tmp/pane"
+  grep -q '^  └ ida  ' "$tmp/pane"
+  roadmap_ui --key "$(keyfor drop)" example/shop#13 > /dev/null
+  roadmap_ui --rows > "$tmp/rows"
+  not grep -q 'shop#13' "$tmp/rows"                                 # not mine: off the list
+  not grep -q 'issue edit\|item-edit' "$FAKE/gh.calls"              # and GitHub is told nothing
+}
+
+test_a_new_roadmap_issue_lands_on_the_project_or_under_the_parent_whose_list_you_are_in() {
+  roadmap
+  roadmap_ui --key "$(keyfor issue)" example/shop#12 | grep -q 'change-prompt~example/shop title> ~'
+  FZF_QUERY="Rate limit the API" prompt="example/shop title> " roadmap_ui --key enter - | grep -q '#15 is on the project'
+  grep -q '^issue create -R example/shop --title Rate limit the API' "$FAKE/gh.calls"
+  grep -q '^project item-add 1 --owner AminoNordics --url https://github.com/example/shop/issues/15' "$FAKE/gh.calls"
+  roadmap_ui --rows | grep -q $'^example/shop#15\t.*no status'       # above the line at once, not at the next poll
+  roadmap_ui --key enter example/shop#10 > /dev/null
+  prompt="#10> " roadmap_ui --key "$(keyfor issue)" example/shop#11 | grep -q 'change-prompt~#10 sub-issue title> ~'
+  FZF_QUERY="Export the survey" prompt="#10 sub-issue title> " roadmap_ui --key enter example/shop#11 |
+    grep -q "t-roadmap --rows 'example/shop#10'~+change-prompt~#10> ~.*#16 is on the project"
+  grep -q '^api graphql -f parent=I_parent -f url=https://github.com/example/shop/issues/16 .*addSubIssue' "$FAKE/gh.calls"
+  eq "$(roadmap_ui --rows example/shop#10 | cut -f1 | xargs)" "example/shop#11 example/shop#16"
+  roadmap_ui --rows | grep -q $'^example/shop#10\t.*1/3'
+}
+
+eventually() { local i; for i in $(seq 50); do if "$@"; then return 0; fi; sleep 0.1; done; "$@"; }
+
+composed() {   # ISSUE NOTE: what enter after ^t's note does, on a terminal: compose opens on the issue, and enter takes it
+  local server=tick-${tmp##*/} i
+  tmux -f /dev/null -L "$server" new-session -d -x 160 -y 20 "T_ROADMAP='github AminoNordics/1' t-roadmap --compose '$1' '$2'"
+  for i in $(seq 100); do
+    tmux -L "$server" capture-pane -p > "$tmp/screen" 2> /dev/null || break
+    if grep -q 'new> ' "$tmp/screen"; then tmux -L "$server" send-keys Enter; break; fi
+    sleep 0.1
+  done
+  for i in $(seq 100); do tmux -L "$server" has-session 2> /dev/null || return 0; sleep 0.1; done
+  tmux -L "$server" kill-server
+}
+
+test_promoting_a_roadmap_issue_composes_a_task_and_tells_github_in_the_background() {
+  command -v tmux > /dev/null && command -v fzf > /dev/null || return 0
+  roadmap
+  roadmap_ui --key "$(keyfor task)" example/shop#12 | grep -q 'change-prompt~#12 note> ~'
+  eq "$(prompt="#12 note> " roadmap_ui --key enter -)" "execute~t-roadmap --compose 'example/shop#12' {q}~+transform~t-roadmap --made~"
+  composed example/shop#12 "leave the JWT part for later"
+  grep -q 'new> Security hardening' "$tmp/screen"                   # its title typed: the pipeline, agent and repo yours to pick
+  roadmap_ui --made | grep -q 'task 2 works on #12'
+  eq "$(cat "$(dir 0002)/repo")" "$tmp/repo"                        # in the repo on GitHub as example/shop
+  task=$(dir 0002)
+  eq "$(head -1 "$task/task.md")" "# Security hardening"
+  grep -qx 'issue: example/shop#12' "$task/task.md"
+  grep -q 'What #12 is about' "$task/task.md"
+  grep -q 'the PO was never updated' "$task/task.md"
+  grep -qx 'leave the JWT part for later' "$task/task.md"
+  eventually grep -q '^issue edit 12 -R example/shop --add-assignee @me' "$FAKE/gh.calls"   # in the background
+  grep -q '^project item-edit --id PVTI_12 --project-id PVT_1 --field-id F_status --single-select-option-id O_started' "$FAKE/gh.calls"
+  roadmap_ui --key "$(keyfor task)" example/shop#12 | grep -q 'task 2 already works on #12'
+  touch "$FAKE/gh/offline"
+  composed example/shop#14 ""
+  grep -q '^project item-add 1 --owner AminoNordics --url https://github.com/example/shop/issues/14' "$FAKE/gh.calls"   # onto the project first
+  eventually grep -q "GitHub didn't hear #14 is In progress: error connecting to api.github.com" "$(dir 0001)/note"
+  row_of_the_roadmap | grep -q "GitHub didn't hear #14"
+  rm "$FAKE/gh/offline"
+  touch -d '1 hour ago' "$T_VAR/roadmap/AminoNordics-1/items"
+  t run 1 > /dev/null 2>&1
+  row_of_the_roadmap > "$tmp/row"
+  not grep -q "stalled\|didn't hear" "$tmp/row"                     # a task made from #12 is #12 moving; a poll clears the rest
+}
+
+test_compose_types_the_title_it_was_given_and_keeps_the_details_from_stdin() {
+  command -v tmux > /dev/null && command -v fzf > /dev/null || return 0
+  profile
+  printf 'What #12 is about\n' > "$tmp/details"
+  server=tick-${tmp##*/}
+  tmux -f /dev/null -L "$server" new-session -d -x 160 -y 20 "t compose -r toy --title 'fix the gadget' - < $tmp/details; sleep 5"
+  for i in $(seq 100); do
+    tmux -L "$server" capture-pane -p > "$tmp/screen"
+    if grep -q 'new> fix the gadget' "$tmp/screen"; then break; fi
+    sleep 0.1
+  done
+  agent=$(keyfor agent)
+  tmux -L "$server" send-keys "C-${agent#ctrl-}"
+  sleep 0.3
+  tmux -L "$server" send-keys Enter
+  for i in $(seq 100); do if [ -f "$(dir 0001)/task.md" ]; then break; fi; sleep 0.1; done
+  tmux -L "$server" kill-server
+  cat "$tmp/screen" >&2
+  eq "$(head -1 "$(dir 0001)/task.md")" "# fix the gadget"
+  grep -qx 'What #12 is about' "$(dir 0001)/task.md"
+  eq "$(cat "$(dir 0001)/pipeline")" feature                          # toy's own, under the cursor
+  grep -q '^AGENT_CLI=' "$(dir 0001)/env"                             # the agent picked on the screen
+}
+
+test_new_opens_the_details_from_stdin_in_the_editor() {
+  cat > "$tmp/ed" << 'EOF'
+#!/bin/sh
+grep -qx 'What #12 is about' "$1" && printf 'fix the gadget\n\nWhat #12 is about\n\nand my note\n' > "$1"
+EOF
+  chmod +x "$tmp/ed"
+  printf 'What #12 is about\n' > "$tmp/details"
+  EDITOR=$tmp/ed tty "t new --edit 'fix the gadget' - < $tmp/details" > /dev/null < /dev/null   # compose's details key
+  grep -qx 'and my note' "$(dir 0001)/task.md"
+}
+
+test_the_roadmap_moves_an_issue_to_the_status_you_pick_and_says_every_key() {
+  roadmap
+  roadmap_ui --key "$(keyfor status)" example/shop#13 | grep -q "t-roadmap --statuses 'example/shop#13'~+change-prompt~#13 status> ~"
+  eq "$(roadmap_ui --statuses example/shop#10 | cut -f1 | xargs)" "Backlog Up-next In progress QA"   # the project's, in its order
+  roadmap_ui --statuses example/shop#10 | grep -q $'^Up-next\t.*now$'
+  prompt="#13 status> " roadmap_ui --key enter QA | grep -q '#13 is QA now'
+  grep -q '^project item-edit --id PVTI_13 --project-id PVT_1 --field-id F_status --single-select-option-id O_qa' "$FAKE/gh.calls"
+  not grep -q '^issue edit' "$FAKE/gh.calls"                         # a move assigns nobody
+  roadmap_ui --rows > "$tmp/rows"
+  grep -q $'^example/shop#13\t.*Referral dashboard .*QA' "$tmp/rows"   # at once, not at the next poll
+  not grep -q 'no status' "$tmp/rows"
+  prompt="#12 note> " roadmap_ui --key '?' - | grep -qx 'put(?)'   # a note can still ask a question
+  roadmap_ui --keys > "$tmp/keys"
+  grep -q '^\^s *status ' "$tmp/keys"
+  grep -q '^\^t *task ' "$tmp/keys"
+  grep -q 'stalled' "$tmp/keys"
+}
+
+test_a_watch_stands_at_the_top_of_the_board() {
+  task=$(new "add the widget")
+  conversation
+  watch=$(new -p front-inbox "front inbox")
+  t run $watch > /dev/null 2>&1
+  t ls > "$tmp/board"
+  head -1 "$tmp/board" | grep -q "^ *$((10#$watch)) .*front inbox"     # newer, and still first
+  sed -n 2p "$tmp/board" | grep -q "^ *$((10#$task)) .*add the widget"
 }
 
 names=$(declare -F | awk '{ print $3 }' | grep '^test_' | grep -- "${1:-.}")

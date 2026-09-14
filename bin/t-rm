@@ -15,6 +15,7 @@ if ! flock -n "$task/lock" true; then
   [ -n "$force" ] || die "task $n is running; stop it and delete it with: t rm -f $n"
   stop "$task"
 fi
+rm -f "$task/step"     # off the board and out of the tick now; the teardown may take a while
 
 branch=$(cat "$task/branch" 2> /dev/null || true)
 work=$(readlink -f "$task/work" 2> /dev/null || true)

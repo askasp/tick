@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# A stand-in for curl against the Front, Google and Slack APIs.
+# A stand-in for curl against the Front and Google APIs.
 # Front (api2.frontapp.com) and Google (*.googleapis.com) answer from $FAKE/front or $FAKE/google: the file whose
 # name (the URL's path, slashes as _) starts the requested path; longest name wins. No file: an empty Front page.
 # $FAKE/SERVICE/401 makes every request fail the way `curl -f` does. A call that writes (-X POST, PATCH, PUT) goes
 # to $FAKE/SERVICE.calls as "METHOD /path" and its body on the next line, and answers with $FAKE/SERVICE/POST_path
 # first, then as a GET would, else an id of its own.
-# For Slack, answers with $FAKE/slack/METHOD if there is one, else ok with a ts of its own, and
-# writes the method and its fields to $FAKE/slack.calls.
 set -eu
 url=${!#}
 echo "$url" >> "$FAKE/curl.calls"
@@ -14,21 +12,6 @@ verb=GET
 for ((i = 1; i < $#; i++)); do
   if [ "${!i}" = -X ]; then j=$((i + 1)); verb=${!j}; fi
 done
-
-if [[ $url == https://slack.com/api/* ]]; then
-  method=${url##*/}
-  { echo "$method"
-    while [ $# -gt 0 ]; do
-      if [ "$1" = --data-urlencode ]; then echo "  $2"; fi
-      shift
-    done
-  } >> "$FAKE/slack.calls"
-  if [ -e "$FAKE/slack/$method" ]; then cat "$FAKE/slack/$method"; exit 0; fi
-  n=$(( $(cat "$FAKE/slack.n" 2> /dev/null || echo 0) + 1 ))
-  echo "$n" > "$FAKE/slack.n"
-  printf '{"ok": true, "user_id": "U0BOT", "canvas_id": "F0CANVAS", "ts": "%d.000000"}\n' "$((1700 + n))"
-  exit 0
-fi
 
 case $url in
   https://api2.frontapp.com/*) service=front ;;

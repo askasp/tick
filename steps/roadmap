@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# roadmap — a project board as one row that never ends. Every POLL seconds it asks roadmaps/$ROADMAP for PROJECT's issues
+# and keeps them in $T_VAR/roadmap/OWNER-NUMBER/items (a JSON line each, in the project's order), logs what arrived and
+# what moved since the poll before, and marks what needs you (lift): an open issue off the project or without a status,
+# and one In progress that nothing touched for STALL days, neither on GitHub nor in the commits of a task made from it.
+# Its row says how many, and nothing when nothing does. Between polls and after one it exits 75: not yet.
+set -euo pipefail
+shopt -s nullglob
+: "${ROADMAP:?needs ROADMAP= in the pipeline env: the name of a file in roadmaps/}"
+: "${PROJECT:?needs PROJECT= in the pipeline env: the project, as owner/number}"
+cache=$T_VAR/roadmap/${PROJECT//\//-}
+items=$cache/items
+mkdir -p "$cache"
+echo "$ROADMAP $PROJECT" > roadmap.tmp && mv roadmap.tmp roadmap     # what the board opens on Enter
+
+if [ -f "$items" ] && [ $(( $(date +%s) - $(stat -c %Y "$items") )) -lt "${POLL:-900}" ]; then exit 75; fi
+
+# it runs every minute for as long as it lives, so its log keeps only the latest runs
+log=log/$(cat step).log
+if [ "$(wc -l < "$log")" -gt 1000 ]; then tail -n 200 "$log" > log.tmp; cat log.tmp > "$log"; rm log.tmp; fi
+
+rm -f note                                                # a poll that fails says so on the board, not the last count
+"$T_ROOT/roadmaps/$ROADMAP" items "$PROJECT" > items.tmp
+"$T_ROOT/roadmaps/$ROADMAP" statuses "$PROJECT" > "$cache/statuses.tmp"   # what ^s in t roadmap offers
+mv "$cache/statuses.tmp" "$cache/statuses"
+
+# when a task made from an issue last touched it: its latest commit, or when it was made
+touched=$(for task in "$T_VAR"/tasks/*/; do
+  key=$(sed -n 's/^issue: //p' "$task/task.md" 2> /dev/null | head -1)
+  if [ -z "$key" ]; then continue; fi
+  at=$(stat -c %Y "$task/task.md")
+  commit=$(git -C "$task/work" log -1 --format=%ct 2> /dev/null || echo 0)
+  if [ "$commit" -gt "$at" ]; then at=$commit; fi
+  jq -nc --arg key "$key" --argjson at "$at" '{($key): $at}'
+done | jq -sc 'add // {}')
+
+jq -c --argjson touched "$touched" --argjson quiet "$(( $(date +%s) - ${STALL:-3} * 86400 ))" '
+  . + {last: ([.updated, ($touched[.key] // 0)] | max)}
+  | . + {lift: (if .state != "OPEN" then null
+                elif .onboard | not then "off the project"
+                elif .status == null then "no status"
+                elif .status == "In progress" and .last < $quiet then "stalled"
+                else null end)}' items.tmp > items.new
+rm items.tmp
+
+if [ -f "$items" ]; then                                  # what moved, for the log: the runs are the week's movement
+  jq -rn --slurpfile was "$items" --slurpfile now items.new '
+    ($was | map({(.key): .}) | add // {}) as $before
+    | $now[] | $before[.key] as $old | (.key | sub(".*#"; "#")) as $n
+    | if $old == null then
+        if .state == "OPEN" then "\($n) arrived from \(.author)\(if .onboard then "" else ", off the project" end): \(.title)" else empty end
+      elif $old.state != .state then "\($n) \(.state | ascii_downcase): \(.title)"
+      elif $old.status != .status then "\($n) \($old.status // "no status") → \(.status // "no status"): \(.title)"
+      else empty end'
+fi
+mv items.new "$items"
+
+read -r stalled unplanned <<< "$(jq -rs --rawfile skip <(cat "$cache/not-mine" 2> /dev/null || true) '
+  map(select(.lift != null and (.key | IN($skip | split("\n")[]) | not)))
+  | [(map(select(.lift == "stalled")) | length), (map(select(.lift != "stalled")) | length)] | @tsv' "$items")"
+note=
+if [ "$stalled" -gt 0 ]; then note="$stalled stalled"; fi
+if [ "$unplanned" -gt 0 ]; then note+="${note:+ · }$unplanned unplanned"; fi
+if [ -n "$note" ]; then echo "$note" > note.tmp && mv note.tmp note; fi
+echo "$PROJECT: ${note:-nothing needs you}"
+exit 75
