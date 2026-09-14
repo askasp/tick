@@ -17,15 +17,26 @@ teardown() { echo "\$ $TEARDOWN"; bash -c "$TEARDOWN"; }
 if [ -n "${TEARDOWN:-}" ]; then trap teardown EXIT; fi     # whatever the tests started, pass or fail
 
 echo "\$ $cmd"
-if timeout "${TEST_TIMEOUT:-30m}" bash -c "$cmd" > "$task/test.out" 2>&1; then
+timeout "${TEST_TIMEOUT:-30m}" bash -c "$cmd" > "$task/test.out" 2>&1
+status=$?
+if [ $status -eq 0 ]; then
   tail -5 "$task/test.out"
   exit 0
 fi
 tail -40 "$task/test.out"
 {
-  echo "The tests fail (\`$cmd\`). Make them pass. The last 80 lines of output:"
-  echo '```'
-  tail -80 "$task/test.out"
-  echo '```'
+  if [ $status -eq 124 ]; then
+    echo "The tests (\`$cmd\`) still ran after ${TEST_TIMEOUT:-30m}, so they were stopped: something in them hangs. Find it, then make them pass."
+  else
+    echo "The tests fail (\`$cmd\`). Make them pass."
+  fi
+  if [ -s "$task/test.out" ]; then
+    echo "The last 80 lines of output:"
+    echo '```'
+    tail -80 "$task/test.out"
+    echo '```'
+  else
+    echo "They printed nothing."
+  fi
 } > "$task/feedback.md"
 echo implement > "$task/goto"

@@ -2,6 +2,7 @@
 # test/run [PATTERN] — every test (or those matching PATTERN), with fake claude/opencode/gh/crontab.
 # Never calls a model. Tests run in parallel, each under set -e in its own copy of tick, with its own T_VAR and a
 # toy repo that has a bare "origin" and a `make test` that fails while impl.txt ends in BROKEN.
+# A test still running after TEST_SECONDS (60) is stopped, and fails.
 root=$(cd "$(dirname "$0")/.." && pwd)
 path=$PATH
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 SHELL=/bin/bash
@@ -69,6 +70,13 @@ page() { jq -nc --argjson r "$1" '{_results: $r, _pagination: {next: null}}'; }
 
 test_scripts_parse() {
   for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/sources/* "$root"/calendars/* "$root"/jobs/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
+}
+
+test_run_stops_a_test_that_hangs_and_says_so() {
+  sed -i '/ = --one ]/i test_fake_sleeper() { sleep 30; }' "$tmp/tick/test/run"
+  not env TEST_SECONDS=1 bash "$tmp/tick/test/run" 'fake_sleeper' > "$tmp/out"
+  grep -q '^FAIL  test_fake_sleeper$' "$tmp/out"
+  grep -q 'something in it hangs' "$tmp/out"
 }
 
 test_run_runs_only_the_tests_its_pattern_names() {
@@ -200,6 +208,14 @@ test_failing_tests_go_back_to_the_implementer() {
   grep -q 'The tests fail' "$FAKE/edit.prompts"
   grep -q '20-test ok → 10-implement' "$(dir $id)/history"
   t show $id | grep -q '  test       →  implement   looped back$'
+}
+
+test_tests_that_hang_are_stopped_and_the_implementer_is_told_so() {
+  id=$(new --test "[ -e $tmp/slept ] || { touch $tmp/slept; sleep 10; }" "add the widget")
+  TEST_TIMEOUT=1 t run $id
+  eq "$(step $id)" done
+  grep -q 'still ran after 1, so they were stopped' "$FAKE/edit.prompts"
+  grep -q '^They printed nothing\.$' "$FAKE/edit.prompts"
 }
 
 test_a_review_that_keeps_sending_it_back_holds_the_task_after_MAX_ROUNDS() {
@@ -954,6 +970,15 @@ grep -q '^fix the gadget$' "$1" && grep -q '^# tick: repo · local · branches f
 EOF
   EDITOR=$tmp/ed tty "t new --edit 'fix the gadget'" > /dev/null < /dev/null   # compose's ^E: title and choices there
   grep -q '^use spaces' "$(dir 0002)/task.md"
+}
+
+test_new_says_why_when_it_cant_make_the_task_directory() {
+  new "add the widget" > /dev/null
+  chmod -w "$T_VAR/tasks"
+  [ ! -w "$T_VAR/tasks" ] || { chmod +w "$T_VAR/tasks"; return 0; }   # root writes there anyway
+  not timeout 5 t new "add the gadget" < /dev/null 2> "$tmp/err"
+  chmod +w "$T_VAR/tasks"
+  grep -q "can't make .*/tasks/0002; see who may write there" "$tmp/err"
 }
 
 test_new_dry_shows_the_task_it_would_make() {
@@ -2764,7 +2789,7 @@ test_on_your_own_list_enter_adds_what_nothing_matches_and_ticks_off_subtasks() {
   t later --rows | grep -q 'Sette opp backup .* 1/2 '
   later_key "$(keyfor did)" "$thing" | grep -q 'done: Sette opp backup'
   [ -f "$T_VAR/later/done/$thing" ]                                    # one mv from undone
-  eq "$(t ui --rows | grep -c later)" 0                                 # an empty list is no row
+  t ui --rows | plain | grep -qE '^ +later +nothing yet'                # an empty list keeps its row, to write the first one down
 }
 
 test_a_task_for_your_hands_holds_until_you_say_you_did_it() {
@@ -2798,12 +2823,22 @@ test_a_thing_on_your_own_list_becomes_a_task_and_leaves_the_list() {
   FZF_PROMPT="later> " t-later --made | grep -q 'task 1 is Svare Carl'
 }
 
+if [ "${1:-}" = --one ]; then set -e; setup; "$2"; exit; fi
+
 names=$(declare -F | awk '{ print $3 }' | grep '^test_' | grep -- "${1:-.}")
 [ -n "$names" ] || { echo "no test matches ${1:-.}; run test/run with no pattern for all of them" >&2; exit 1; }
+limit=${TEST_SECONDS:-60}
 logs=$(mktemp -d)
 for name in $names; do
   while [ "$(jobs -rp | wc -l)" -ge "$(nproc)" ]; do wait -n; done
-  ( ( set -e; setup; "$name" ) > "$logs/$name" 2>&1; echo $? > "$logs/$name.exit" ) &
+  (
+    timeout -k 5 "$limit" bash "$root/test/run" --one "$name" > "$logs/$name" 2>&1
+    status=$?
+    if [ $status -eq 124 ] || [ $status -eq 137 ]; then
+      echo "still running after ${limit}s, so it was stopped: something in it hangs" >> "$logs/$name"
+    fi
+    echo $status > "$logs/$name.exit"
+  ) &
 done
 wait
 
