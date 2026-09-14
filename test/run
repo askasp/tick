@@ -834,33 +834,38 @@ EOF
 }
 
 test_new_dry_shows_the_task_it_would_make() {
-  out=$(t new --dry "add the widget")
-  grep -q '^repo *repo   (this directory)$' <<< "$out"
-  grep -q '^pipeline *local$' <<< "$out"
-  grep -q '^branch *t/0001-add-the-widget$' <<< "$out"
+  trc() { echo ">> $*" >&2; }
+  trc 1
+  out=$(t new --dry "add the widget"); trc 2 "$out"
+  grep -q '^repo *repo   (this directory)$' <<< "$out" && trc 3 || { trc FAIL3; return 1; }
+  grep -q '^pipeline *local$' <<< "$out" && trc 4 || { trc FAIL4; return 1; }
+  grep -q '^branch *t/0001-add-the-widget$' <<< "$out" && trc 5 || { trc FAIL5; return 1; }
   t new --dry "Add proration. It must handle upgrades too." |
-    grep -q '^branch *t/0001-add-proration$'              # the branch stops at the first sentence
-  grep -q '^base *origin/main$' <<< "$out"
-  grep -q '^steps *implement (opencode) → test → review (opencode)$' <<< "$out"
+    grep -q '^branch *t/0001-add-proration$' && trc 6 || { trc FAIL6; return 1; }
+  grep -q '^base *origin/main$' <<< "$out" && trc 7 || { trc FAIL7; return 1; }
+  grep -q '^steps *implement (opencode) → test → review (opencode)$' <<< "$out" && trc 8 || { trc FAIL8; return 1; }
   t new --dry --cli claude "add the widget" |
-    grep -q '^steps *implement (claude) → test → review (claude)$'   # --cli, on every agent step
-  grep -q '^starts *only when you run it' <<< "$out"      # no cron tick here
-  grep -q '^t new \\$' <<< "$out"
-  [ ! -e "$T_VAR/tasks/0001" ]                            # it made nothing
-  out=$(t new --dry -p research "what changed in bash 5.3?")
-  grep -q '^repo *none needed$' <<< "$out"
-  grep -q '^steps *answer (claude)$' <<< "$out"
-  grep -q '^t research \\$' <<< "$out"
+    grep -q '^steps *implement (claude) → test → review (claude)$' && trc 9 || { trc FAIL9; return 1; }
+  grep -q '^starts *only when you run it' <<< "$out" && trc 10 || { trc FAIL10; return 1; }
+  grep -q '^t new \\$' <<< "$out" && trc 11 || { trc FAIL11; return 1; }
+  [ ! -e "$T_VAR/tasks/0001" ] && trc 12 || { trc FAIL12; return 1; }
+  out=$(t new --dry -p research "what changed in bash 5.3?"); trc 13 "$out"
+  grep -q '^repo *none needed$' <<< "$out" && trc 14 || { trc FAIL14; return 1; }
+  grep -q '^steps *answer (claude)$' <<< "$out" && trc 15 || { trc FAIL15; return 1; }
+  grep -q '^t research \\$' <<< "$out" && trc 16 || { trc FAIL16; return 1; }
+  echo "crontab-write tmp=$tmp" >> /tmp/opencode/nd.trace
   echo "* * * * * $tmp/tick/bin/t tick" > "$FAKE/crontab"
-  t new --dry "$(printf 'x%.0s' {1..41})" > "$tmp/out"
-  grep -q '^starts *next tick' "$tmp/out"
-  grep -q 'an agent will pick a short one' "$tmp/out"
-  new "add the widget" > /dev/null
-  new "child work" --on 0001 > /dev/null
-  t new --dry --on 1 "more child work" > "$tmp/out"            # compose's preview for a stack
-  grep -q '^starts *when task 1 is done' "$tmp/out"
-  grep -q "^branches *from task 1's branch, into a worktree of its own" "$tmp/out"
-  grep -q 'task 2 is already stacked here' "$tmp/out"
+  t new --dry "$(printf 'x%.0s' {1..41})" > "$tmp/out" && trc 17 || { trc FAIL17; return 1; }
+  cat "$tmp/out" >&2
+  grep -q '^starts *next tick' "$tmp/out" && trc 18 || { trc FAIL18; return 1; }
+  grep -q 'an agent will pick a short one' "$tmp/out" && trc 19 || { trc FAIL19; return 1; }
+  t new "add the widget" < /dev/null > /tmp/opencode/nd1.out 2>&1 && trc 20 || { trc FAIL20; cat /tmp/opencode/nd1.out >&2; return 1; }
+  t new "child work" --on 0001 < /dev/null > /tmp/opencode/nd2.out 2>&1 && trc 21 || { trc FAIL21; cat /tmp/opencode/nd2.out >&2; return 1; }
+  t new --dry --on 1 "more child work" > "$tmp/out" && trc 22 || { trc FAIL22; return 1; }
+  cat "$tmp/out" >&2
+  grep -q '^starts *when task 1 is done' "$tmp/out" && trc 23 || { trc FAIL23; return 1; }
+  grep -q "^branches *from task 1's branch, into a worktree of its own" "$tmp/out" && trc 24 || { trc FAIL24; return 1; }
+  grep -q 'task 2 is already stacked here' "$tmp/out" && trc 25 || { trc FAIL25; return 1; }
 }
 
 test_a_stray_file_among_the_tasks_does_not_stop_new_ones() {

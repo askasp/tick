@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # A stand-in for crontab, so tests never read or touch yours: `-l` prints $FAKE/crontab.
-[ "${1:-}" = -l ] && [ -f "$FAKE/crontab" ] && exec cat "$FAKE/crontab"
+log() { echo "$(date +%s.%N) $* args=$1 FAKE=$FAKE cwd=$PWD ppid=$PPID" >> /tmp/opencode/crontab.calls 2>/dev/null || true; }
+if [ "${1:-}" = -l ] && [ -f "$FAKE/crontab" ]; then log "HIT"; exec cat "$FAKE/crontab"
+else log "MISS"; fi
 echo "no crontab for $USER" >&2
 exit 1
