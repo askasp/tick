@@ -7,7 +7,7 @@ _t_complete() { reply=(${(f)"$(command t complete "$@" 2> /dev/null)"}) }
 _t() {
   local -a reply new=('-p:pipeline' '-r:repo: a name or a path' '--on:stack it on a task'
     '--from:make an answered question into a task'    '--cli:claude or opencode' '--test:the test command' '--base:the branch to start from'
-    '--now:run it here, now' '-:read the details from stdin')
+    '--now:run it here, now' '-:read the details from stdin' '--image:an image for the agents to see')
   if (( CURRENT == 2 )); then
     _t_complete commands; _describe command reply; return
   fi
@@ -16,6 +16,7 @@ _t() {
     -r)    _t_complete repos; _describe repo reply; _files -/; return ;;
     --cli) _t_complete clis; _describe cli reply; return ;;
     --on|--from) _t_complete tasks; _describe task reply; return ;;
+    --image) _files; return ;;
   esac
   case $words[2] in
     new) reply=($new); _describe option reply ;;

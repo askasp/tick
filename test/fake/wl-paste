@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# A stand-in for `wl-paste --type image/png`: the clipboard is $FAKE/clipboard.png, and without it there is no image.
+[ -f "$FAKE/clipboard.png" ] || { echo "No suitable type of content copied" >&2; exit 1; }
+cat "$FAKE/clipboard.png"

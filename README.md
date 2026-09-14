@@ -118,6 +118,9 @@ another agent for every step (like `--cli`; the keys at the bottom say
 which), and esc goes back. `^a`, `^e` and `^u` edit the line as in a shell.
 With cron installed the task starts at once; without it, `? run` on its row
 runs it. Flags typed with the title work too: `Add proration -r amino`.
+`^v` pastes the image on the clipboard, a screenshot say, as `--image FILE`:
+it goes into the task's `images/`, and `task.md` lists its path, which claude
+and opencode read to see it. Outside the board: `t new --image "$(t paste)" "..."`.
 
 `^t` stacks a task on the one you're on the same way (`stack on 7>`; on an
 answered question, `task from 7>` makes a task of it), and

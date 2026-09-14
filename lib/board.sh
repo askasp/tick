@@ -298,7 +298,7 @@ words() {
   flags=() title=
   for ((i = 0; i < ${#w[@]}; i++)); do
     case ${w[i]} in
-      -r | -p | --cli | --on | --base | --test) flags+=("${w[i]}" "${w[i + 1]:-}"); i=$((i + 1)) ;;
+      -r | -p | --cli | --on | --base | --test | --image) flags+=("${w[i]}" "${w[i + 1]:-}"); i=$((i + 1)) ;;
       --now) flags+=(--now) ;;
       +*)    flags+=("${w[i]}") ;;                  # +plan: one of the pipeline's optional steps
       *)     title+=${title:+ }${w[i]} ;;
@@ -332,7 +332,8 @@ clean    ctrl-g  delete every task done, answered or held for 12 hours
 keys     ?       every action, in the pane'
 FORM_KEYS='details  ctrl-o  the details, in $EDITOR
 repo     ctrl-r  another repo
-pipeline ctrl-p  the pipelines, to pick one'
+pipeline ctrl-p  the pipelines, to pick one
+image    ctrl-v  the image on the clipboard, for the agents to see'
 # t inbox's keys, on a screen of its own; ? lists them in its pane
 INBOX_KEYS='open     enter   the thread, the width of the screen, with a reply or a comment typed under it
 archive  ctrl-x  archive it, where the mail lives

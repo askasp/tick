@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# t paste — save the image on the clipboard, and print where: for t new --image, and ^v in a form
+#
+#   t new "the button overlaps the logo" --image "$(t paste)"
+#
+# It lands in $T_VAR/paste, and t new moves it into the task. Wayland's wl-paste, X's xclip, or macOS's pngpaste.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+mkdir -p "$T_VAR/paste"
+file=$T_VAR/paste/$(date +%s%N).png
+
+if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-paste > /dev/null; then wl-paste --type image/png > "$file.tmp" 2> /dev/null || true
+elif [ -n "${DISPLAY:-}" ] && command -v xclip > /dev/null; then xclip -selection clipboard -t image/png -o > "$file.tmp" 2> /dev/null || true
+elif command -v pngpaste > /dev/null; then pngpaste "$file.tmp" 2> /dev/null || true
+else die "no clipboard to paste from here (over ssh?): save the image and use t new --image FILE; on a desktop, sudo apt install wl-clipboard or xclip"
+fi
+if [ ! -s "$file.tmp" ]; then
+  rm -f "$file.tmp"
+  die "no image on the clipboard: copy one (a screenshot to the clipboard), then paste again"
+fi
+mv "$file.tmp" "$file"
+echo "$file"

@@ -204,8 +204,8 @@ if [ "${1:-}" = --key ]; then
     agent="agent ${agent:-default}"
     if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ]; then hint enter "this pipeline" "$(key agent)" "$agent" esc back; return; fi
     case $1 in
-      new)   hint enter create "$(key pipeline)" pipeline "$(key agent)" "$agent" "$(key details)" details "$(key repo)" repo esc back ;;
-      stack) hint enter create "$(key pipeline)" pipeline "$(key agent)" "$agent" "$(key details)" details esc back ;;
+      new)   hint enter create "$(key pipeline)" pipeline "$(key agent)" "$agent" "$(key details)" details "$(key repo)" repo "$(key image)" image esc back ;;
+      stack) hint enter create "$(key pipeline)" pipeline "$(key agent)" "$agent" "$(key details)" details "$(key image)" image esc back ;;
       say)   hint enter say tab "restart step" "$(key agent)" "$agent" esc back ;;
     esac
   }
@@ -392,6 +392,9 @@ if [ "${1:-}" = --key ]; then
                                        then pipeline_done
                                        else printf '%s' "$q" > "$T_UI/title"; pipeline_list "$mode"; fi ;;
                         esac ;;
+              image)   [[ $mode == new || $mode == stack ]] || exit 0   # a flag typed with the title, for t new
+                       image=$(t-paste 2> "$T_UI/err") || failed
+                       echo "put~ --image $image~" ;;
               keys)    if [ "$mode" = do ]; then back; else echo "put($key)"; fi ;;   # typed in a title, it is the title's
             esac ;;
   esac

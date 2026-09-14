@@ -1,5 +1,5 @@
 # lib/new.sh — where a new task goes, and what t new --dry shows of it. Sourced by bin/t-new,
-# whose flags ($repo, $pipeline, $base, $on, $from, $cli, $now, $title) these read and fill in.
+# whose flags ($repo, $pipeline, $base, $on, $from, $images, $cli, $now, $title) these read and fill in.
 
 # the branch a repo's tasks start from: origin's copy first, since a local main may be behind
 trunk() {
@@ -99,6 +99,7 @@ preview() {
     done
   fi
   if [ -n "$from" ]; then row details "task $(task_num "$asked")'s question and answer"; fi
+  if [ ${#images[@]} -gt 0 ]; then row images "${#images[@]}, for the agents to see"; fi
   if [ "${#title}" -gt 40 ]; then printf '\n%sname     an agent will pick a short one (title > 40)%s\n' "$C_BRIGHT" "$C_OFF"; fi
   if [ -z "$repo" ] && [ -z "$now" ]; then printf '\n%sthe answer lands in the pane%s\n' "$C_DIM" "$C_OFF"; fi
 

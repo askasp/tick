@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t new ["what to do" [-]] [-p PIPELINE] [+STEP] [--on TASK] [--from TASK] [--cli claude|opencode] [--test CMD] [-r REPO] [--now] [--edit] [--dry] — create a task
+# t new ["what to do" [-]] [-p PIPELINE] [+STEP] [--on TASK] [--from TASK] [--image FILE] [--cli claude|opencode] [--test CMD] [-r REPO] [--now] [--edit] [--dry] — create a task
 #
 # No title: in a terminal with fzf, t compose opens; else $EDITOR, where line 1 is the title and the rest
 # details for the agent (--edit opens it with a title too). A "-" reads the details from stdin instead:
@@ -11,17 +11,20 @@
 # +STEP adds one of its optional steps (OPTIONAL= in its env), which it otherwise leaves out: t feature +plan "...".
 # --on TASK stacks it: that task's worktree, repo and pipeline, and it waits until that task is done.
 # --from TASK makes an answered question into a task: in its repo, with the question and answer as details.
+# --image FILE (again for more) goes into the task's images/, and task.md names it for the agents to read;
+# one from t paste moves there. ^v in t compose and the board's forms pastes one.
 # A title longer than 40 characters gets a short name for the board from an agent (see t name).
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 . "$T_ROOT/lib/new.sh"
 set -euo pipefail
 
-args=("$@") pipeline= on= from= cli= test= repo= base= title= details= stdin= now= edit= dry= opt=
+args=("$@") pipeline= on= from= cli= test= repo= base= title= details= stdin= now= edit= dry= opt= images=()
 while [ $# -gt 0 ]; do
   case $1 in
     -p)     pipeline=$2; shift ;;
     --on)   on=$2; shift ;;
     --from) from=$2; shift ;;
+    --image) [ -s "$2" ] || die "no image at $2"; images+=("$(realpath -s "$2")"); shift ;;
     --cli)  cli=$2; shift ;;
     --test) test=$2; shift ;;
     --base) base=$2; shift ;;
@@ -100,6 +103,16 @@ done
 id=$(printf %04d "$n")
 cd "$T_TASKS/$id"
 
+if [ ${#images[@]} -gt 0 ]; then           # the agent works elsewhere, so it gets the whole path
+  mkdir images
+  listed=
+  for i in "${!images[@]}"; do
+    image=$PWD/images/$((i + 1))-${images[i]##*/}
+    if [[ ${images[i]} == "$T_VAR/paste/"* ]]; then mv "${images[i]}" "$image"; else cp "${images[i]}" "$image"; fi
+    listed+=$'\n'"- $image"
+  done
+  details=$(printf '%s\n\n## Images\n\nRead each file to see it:%s\n' "$details" "$listed" | from_first_words)
+fi
 { echo "# $title"; if [ -n "$details" ]; then printf '\n%s\n' "$details"; fi; } > task.md
 if [ -n "$repo" ]; then
   echo "$repo" > repo

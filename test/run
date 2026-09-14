@@ -937,6 +937,39 @@ test_details_come_from_stdin_only_with_a_dash() {
   grep -q '^use tabs' "$(dir 0002)/task.md"
 }
 
+test_a_pasted_image_goes_into_the_task_for_the_agent_to_read() {
+  export WAYLAND_DISPLAY=test
+  not t paste 2> "$tmp/err"                                    # nothing on the clipboard: it says so
+  grep -q 'no image on the clipboard' "$tmp/err"
+  printf '\x89PNG screenshot' > "$FAKE/clipboard.png"
+  pasted=$(t paste)
+  t new --dry --image "$pasted" "fix the layout" | grep -q '^images *1, for the agents to see$'
+  printf 'the logo overlaps\n' | t new --image "$pasted" "fix the layout" - > /dev/null 2>&1
+  image=$(dir 0001)/images/1-${pasted##*/}
+  cmp "$FAKE/clipboard.png" "$image"
+  [ ! -e "$pasted" ]                                           # moved into the task, not left behind
+  grep -qxF -- "- $image" "$(dir 0001)/task.md"
+  grep -q '^the logo overlaps' "$(dir 0001)/task.md"           # the details stay
+  t run 1 > /dev/null 2>&1
+  grep -qF -- "- $image" "$FAKE/edit.prompts"                  # the implementer is told where to look
+  not new --image "$tmp/nosuch.png" "fix the layout"
+}
+
+test_the_board_pastes_an_image_into_a_new_task() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui WAYLAND_DISPLAY=test
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  t ui --key enter '' '' > /dev/null
+  t ui --key enter local '' > /dev/null                        # the pipeline, then the title
+  t ui --key "$(keyfor image)" '' 'fix the layout' | grep -q 'no image on the clipboard'
+  printf '\x89PNG screenshot' > "$FAKE/clipboard.png"
+  pasted=$(t ui --key "$(keyfor image)" '' 'fix the layout' | sed -n 's/^put~ --image \(.*\)~$/\1/p')
+  [ -s "$pasted" ]
+  t ui --pane '' "fix the layout --image $pasted" | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^images *1'
+  form_enter '' "fix the layout --image $pasted" > /dev/null
+  eq "$(head -1 "$(dir 0001)/task.md")" "# fix the layout"
+  cmp "$FAKE/clipboard.png" "$(dir 0001)/images/1-${pasted##*/}"
+}
+
 test_ask_answers_about_the_repo_and_changes_nothing() {
   id=$(new -p ask "how do the tests run?")
   t run $id

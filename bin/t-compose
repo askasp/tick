@@ -11,6 +11,10 @@ if [ "${1:-}" = --dry ]; then           # the preview: pipeline $2, what you typ
   repo=$(cat "$T_NEW/repo") cli=$(cat "$T_NEW/cli" 2> /dev/null)
   exec t-new --dry -p "$2" ${repo:+-r "$repo"} ${cli:+--cli "$cli"} "${extra[@]}" "${flags[@]}" "$title"
 fi
+if [ "${1:-}" = --paste ]; then         # the clipboard's image, as a flag typed with the title
+  if image=$(t-paste 2>&1); then echo "put~ --image $image~"; else echo "change-footer~${image#t: }~"; fi
+  exit
+fi
 if [ "${1:-}" = --enter ]; then         # enter, unless it is a newline in a paste (after_paste): $2 is what you typed
   printf '%s ' "$2" > "$T_NEW/entered"
   after_paste 't-compose --entered "$FZF_QUERY"'
@@ -64,7 +68,8 @@ pos=$(grep -n "^$pick " <<< "$rows" | cut -d: -f1)
 
 details=$(key_of details)
 out=$(printf '%s\n' "$rows" | fzf "${BOARD_FZF[@]}" --disabled --sync --prompt "$prompt" --query "$typed" --info hidden \
-  --footer "$(hint enter create "$(key details)" details "$(key repo)" repo "$(key agent)" agent esc cancel)" \
+  --footer "$(hint enter create "$(key details)" details "$(key repo)" repo "$(key agent)" agent "$(key image)" image esc cancel)" \
+  --bind "$(key_of image):transform:t-compose --paste" \
   --print-query --expect "$details" --bind "start:pos(${pos:-1})" --bind 'enter:transform:t-compose --enter {q}' --preview 'CLICOLOR_FORCE=1 t-compose --dry {1} {q} 2>&1' \
   --preview-window 'right,50%,border-left,wrap,<50(down,50%,border-top)' \
   --bind "$(key_of agent)"':execute-silent[. "$T_ROOT/lib/tick.sh"; next_cli "$(cat "$T_NEW/cli")" > "$T_NEW/c" && mv "$T_NEW/c" "$T_NEW/cli"]+refresh-preview' \
