@@ -99,6 +99,7 @@ n=$(last_task_num)
 while :; do
   n=$((n + 1))
   if mkdir "$T_TASKS/$(printf %04d "$n")" 2> /dev/null; then break; fi
+  [ -e "$T_TASKS/$(printf %04d "$n")" ] || die "can't make a task in $T_TASKS; check its permissions: ls -ld $T_TASKS"
 done
 id=$(printf %04d "$n")
 cd "$T_TASKS/$id"
