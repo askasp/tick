@@ -18,6 +18,7 @@ dir()  { echo "$T_VAR/tasks/$1"; }
 step() { cat "$(dir "$1")/step"; }
 tty()  { script -qec "$1" /dev/null; }      # run a command line in a pseudo-terminal
 keyfor() { (. "$tmp/tick/lib/tick.sh"; key_of "$1"); }   # the board's key for an action: keyfor hold → ctrl-r
+form_enter() { t ui --key enter "$1" "$2" > /dev/null; t ui --key entered - "$2 "; }   # enter in a board form, as fzf sends it: no paste went on
 gone() { for i in $(seq 50); do [ -e "$1" ] || return 0; sleep 0.1; done; echo "still there: $1" >&2; return 1; }
 wait_done() {
   local i id all
@@ -666,7 +667,7 @@ test_the_board_cleans_after_listing_what_goes() {
   t ui --key "$(keyfor clean)" 1 '' | grep -q 'change-prompt(delete these? )'
   t ui --pane 1 '' | grep -q '1  old done  done'
   [ -d "$(dir $id)" ]
-  t ui --key enter 1 '' | grep -q 'change-prompt(task> )'
+  form_enter 1 '' | grep -q 'change-prompt(task> )'
   [ ! -e "$(dir $id)" ]
 }
 
@@ -678,7 +679,7 @@ test_the_board_stays_on_clean_and_says_what_it_could_not_delete() {
   child=$(new "child work" --on $parent)
   touch -d '2 days ago' "$(dir $parent)/step"
   t ui --key "$(keyfor clean)" 1 '' > /dev/null
-  out=$(t ui --key enter 1 '')
+  out=$(form_enter 1 '')
   not grep -q 'change-prompt(task> )' <<< "$out"
   grep -q "change-footer~.*task $((10#$child)) is stacked on $((10#$parent))" <<< "$out"
   eq "$(cat "$T_UI/mode")" "clean -"
@@ -1220,6 +1221,7 @@ test_the_board_starts_a_task_and_says_to_one_in_place() {
   eq "$(cat "$T_UI/mode")" board
   out=$(t ui --key "$(keyfor new)" '' '')                         # ^n: the list becomes the pipelines
   grep -q 'change-prompt(pipeline> )+enable-search' <<< "$out"
+  grep -qF "unbind($(keyfor keys))" <<< "$out"                    # in a form, ? is text, so a pasted one runs nothing
   grep -q 'reload-sync~t-ui --pipelines~+pos(1)' <<< "$out"       # the cursor lands on the first
   eq "$(cat "$T_UI/list")" pipelines
   eq "$(head -1 <<< "$(t ui --pipelines)" | awk '{ print $1 }')" local   # the repo's default, first
@@ -1234,13 +1236,13 @@ test_the_board_starts_a_task_and_says_to_one_in_place() {
   eq "$(cat "$T_UI/pick")" feature
   t ui --key "$(keyfor agent)" '' '' > /dev/null          # another agent than the pipeline's
   t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^steps *implement (claude) → test → review (claude) → sync (claude) → pr$'
-  t ui --key enter '' 'add the widget' | grep -q 'reload-sync'   # made; the reload's end puts the cursor on it
+  form_enter '' 'add the widget' | grep -q 'reload-sync'   # made; the reload's end puts the cursor on it
   eq "$(cat "$T_UI/new")" 1
   eq "$(cat "$(dir 0001)/pipeline")" feature
   grep -q '^AGENT_CLI=claude$' "$(dir 0001)/env"
   t hold 1 waiting
   t ui --key enter 1 '' | grep -q 'change-prompt(say to 1> )'   # Enter on a held task: say to it
-  t ui --key enter 1 'use a fixture' > /dev/null
+  form_enter 1 'use a fixture' > /dev/null
   grep -q 'use a fixture' "$(dir 0001)/feedback.md"
   [ ! -e "$(dir 0001)/hold" ]
   eq "$(cat "$T_UI/mode")" board
@@ -1255,7 +1257,7 @@ test_the_board_says_to_a_running_task_by_stopping_it_first() {
   for i in $(seq 50); do [ ! -s "$FAKE/opencode.calls" ] || break; sleep 0.1; done   # the agent is working
   t ui --key "$(keyfor say)" 1 '' | grep -q 'change-prompt(say to 1> )'
   t ui --pane 1 '' | grep -q 'It is running: enter stops it first'
-  t ui --key enter 1 'use a fixture' > /dev/null
+  form_enter 1 'use a fixture' > /dev/null
   not wait $pid                                            # killed, not finished
   grep -q 'use a fixture' "$(dir $id)/feedback.md"
   [ ! -e "$(dir $id)/hold" ]                               # and it goes on with the notes
@@ -1275,16 +1277,16 @@ test_the_board_holds_renames_and_deletes_in_place() {
   new "add the widget" > /dev/null
   new "fix the gadget" > /dev/null
   t ui --key "$(keyfor hold)" 1 '' | grep -q 'change-prompt(hold 1 because> )'
-  t ui --key enter 1 'waiting on design' > /dev/null
+  form_enter 1 'waiting on design' > /dev/null
   grep -q 'waiting on design' "$(dir 0001)/hold"
   t ui --key "$(keyfor hold)" 1 '' > /dev/null                    # held: ^r resumes it at once
   [ ! -e "$(dir 0001)/hold" ]
   t ui --key "$(keyfor keys)" 1 '' | grep -q 'change-prompt(do to 1> )'   # ? asks for the action by name...
-  t ui --key enter 1 na | grep -q 'change-query~add the widget~'   # ...and its first letters will do
-  t ui --key enter 1 'Widget' > /dev/null
+  form_enter 1 na | grep -q 'change-query~add the widget~'   # ...and its first letters will do
+  form_enter 1 'Widget' > /dev/null
   eq "$(cat "$(dir 0001)/name")" Widget
   t ui --key "$(keyfor keys)" 1 '' > /dev/null
-  t ui --key enter 1 rm | grep -q 'change-prompt(task> )'
+  form_enter 1 rm | grep -q 'change-prompt(task> )'
   [ ! -e "$(dir 0001)" ]
   eq "$(cat "$T_UI/new")" 2                              # the cursor goes to the next task
   t ui --key "$(keyfor log)" 2 '' > /dev/null
@@ -1293,7 +1295,7 @@ test_the_board_holds_renames_and_deletes_in_place() {
   t ui --key "$(keyfor keys)" 2 '' > /dev/null
   t ui --pane 2 '' | grep -q 'delete it and its worktree'
   eq "$(cat "$T_UI/mode")" "do 2"
-  t ui --key enter 2 r | grep -q 'could be: run rm'      # two start so: it says which
+  form_enter 2 r | grep -q 'could be: run rm'      # two start so: it says which
   t ui --key "$(keyfor keys)" 2 '' > /dev/null                        # ? again: back
   eq "$(cat "$T_UI/mode")" board
 }
@@ -1377,6 +1379,29 @@ test_the_board_picks_the_pipeline_from_a_list_of_them() {
   for i in $(seq 100); do [ -f "$(dir 0002)/pipeline" ] && break; sleep 0.1; done
   eq "$(cat "$(dir 0002)/pipeline")" feature
   tmux -L "$server" kill-server
+}
+
+test_a_paste_is_one_title_though_fzf_reads_its_newlines_as_enter() {
+  command -v tmux > /dev/null && command -v fzf > /dev/null || return 0
+  new "add the widget" > /dev/null
+  server=tick-${tmp##*/}
+  tmux -f /dev/null -L "$server" new-session -d -x 160 -y 16 t
+  screen() { tmux -L "$server" capture-pane -p; }
+  for i in $(seq 100); do screen | grep -q 'implement · next tick' && break; sleep 0.1; done
+  tmux -L "$server" send-keys C-n
+  for i in $(seq 100); do screen | grep -qE '^[│ ]*> +local ' && break; sleep 0.1; done
+  tmux -L "$server" send-keys Enter                        # the default pipeline; the title next
+  for i in $(seq 100); do screen | grep -q 'new> ' && break; sleep 0.1; done
+  printf 'see the design\nhttps://claude.ai/design/p/8ff?file=Canvas-3.dc.html' > "$tmp/paste"
+  tmux -L "$server" load-buffer "$tmp/paste"
+  tmux -L "$server" paste-buffer -p
+  for i in $(seq 100); do screen | grep -q 'Canvas-3.dc.html' && break; sleep 0.1; done
+  sleep 0.5
+  [ ! -e "$(dir 0002)" ]                                   # the newline made no task of the first line
+  tmux -L "$server" send-keys Enter
+  for i in $(seq 100); do [ -f "$(dir 0002)/task.md" ] && break; sleep 0.1; done
+  tmux -L "$server" kill-server
+  eq "$(head -1 "$(dir 0002)/task.md")" '# see the design https://claude.ai/design/p/8ff?file=Canvas-3.dc.html'
 }
 
 test_the_board_changes_who_solves_a_task_it_already_has() {
@@ -1773,22 +1798,91 @@ watched() {   # a front watch that has read cnv_x once (after conversation); pri
 inbox() { T_INBOX=front "$tmp/tick/bin/t-inbox" "$@"; }
 offered() { (. "$tmp/tick/lib/tick.sh"; offers "$(dir "$1")"); }
 
-test_the_inbox_lists_what_the_watch_keeps_and_an_agent_drafts_one_reply_to_a_conversation() {
+thread() { T_INBOX=front T_THREAD=$tmp/thread "$tmp/tick/bin/t-thread" "$@"; }
+opened() {   # t thread on $1 as it starts, with a fake fzf that keeps its args in $FAKE/fzf.args
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "$FAKE/fzf.args"\n' > "$tmp/tick/test/fake/fzf"
+  chmod +x "$tmp/tick/test/fake/fzf"
+  rm -rf "$tmp/thread" && mkdir "$tmp/thread"
+  thread "$1" < /dev/null
+}
+typed() { thread --key "$(keyfor "$1")" "${2:-}"; }   # key NAME in t thread, with $2 typed at the prompt
+newest() { ls "$T_VAR/tasks" | tail -1; }
+
+test_the_inbox_lists_what_the_watch_keeps_and_enter_opens_the_thread() {
   conversation
   watch=$(watched)
   eq "$(offered $watch)" "inbox log"                               # enter on the watch's row opens its mail
   inbox --rows | grep -q $'^cnv_x\t.*Invoice question'
   inbox --pane cnv_x | grep -q 'Can you resend the invoice?'
-  inbox --key "$(keyfor draft)" cnv_x > /dev/null
-  id=$(ls "$T_VAR/tasks" | tail -1)
+  eq "$(inbox --key "$(keyfor open)" cnv_x)" "execute(t-thread cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
+}
+
+test_what_you_type_under_a_thread_holds_on_the_board_until_you_sign_it() {
+  conversation
+  watched > /dev/null
+  opened cnv_x
+  grep -q 'up,99%,follow' "$FAKE/fzf.args"                         # the thread fills the screen, open at its end
+  typed line 'Hi Bob,' > /dev/null
+  typed line 'sent it again just now.' > /dev/null
+  typed line 'Oops' > /dev/null
+  thread --pane > "$tmp/pane"
+  grep -q 'Can you resend the invoice?' "$tmp/pane"
+  grep -q '^> Hi Bob,$' "$tmp/pane"                                 # under the thread, where a reply goes
+  thread --key bspace '' | grep -q 'transform-query(t-thread --pop)'   # backspace on an empty line: the one above
+  eq "$(thread --pop)" Oops
+  typed done Aksel > /dev/null
+  id=$(newest)
   eq "$(cat "$(dir $id)/pipeline")" reply
-  eq "$(cat "$(dir $id)/opt")" draft
-  grep -qx 'conversation: front cnv_x' "$(dir $id)/task.md"
+  eq "$(cat "$(dir $id)/hold")" "draft ready"
+  eq "$(cat "$(dir $id)/answer.md")" "$(printf 'Hi Bob,\nsent it again just now.\nAksel')"
+  not grep -qs '^POST ' "$FAKE/front.calls"                         # ended is not sent
   inbox --rows | grep -q "task $((10#$id))"
-  inbox --key "$(keyfor draft)" cnv_x | grep -q 'already replies'
-  eq "$(ls "$T_VAR/tasks" | wc -l)" 2                               # one reply to a conversation, not one a press
-  t run $id
-  eq "$(offered $id)" "sign say rm"                                 # and enter on the held reply signs it
+  typed release > /dev/null
+  wait_done $id
+  grep -q '^POST /conversations/cnv_x/drafts$' "$FAKE/front.calls"
+}
+
+test_a_thread_turns_what_you_wrote_into_a_comment_and_has_an_agent_write_it() {
+  conversation
+  watched > /dev/null
+  opened cnv_x
+  typed line 'Ida, can you confirm the PO?' > /dev/null
+  typed comment > /dev/null
+  thread --pane > "$tmp/pane"
+  grep -q '^  └ you  now$' "$tmp/pane"                              # where a comment lands, your text with it
+  grep -q '^    Ida, can you confirm the PO?$' "$tmp/pane"
+  grep -q 'internal, for your teammates' "$tmp/pane"
+  typed done > /dev/null
+  id=$(newest)
+  eq "$(cat "$(dir $id)/pipeline")" comment
+  eq "$(cat "$(dir $id)/answer.md")" 'Ida, can you confirm the PO?'
+  typed discard > /dev/null
+  gone "$(dir $id)"
+  typed draft 'say it goes out today' | grep -q 'reload(t-thread --wait)'
+  eq "$(cat "$(dir $(newest))/opt")" draft
+  thread --wait
+  thread --loaded | grep -q 'transform-query(t-thread --pop)'       # the agent's draft, in the prompt to change
+  grep -q 'say it goes out today' "$FAKE/read.prompts"
+  thread --pane | grep -q 'drafted by an agent'
+}
+
+test_escape_leaves_what_you_wrote_held_and_the_board_opens_the_thread_on_it() {
+  conversation
+  watched > /dev/null
+  opened cnv_x
+  eq "$(thread --key esc 'Sent it again.')" abort
+  id=$(newest)
+  eq "$(cat "$(dir $id)/answer.md")" 'Sent it again.'
+  eq "$(cat "$(dir $id)/hold")" "draft ready"
+  eq "$(offered $id)" "sign say rm"
+  export T_UI=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  t ui --key enter $((10#$id)) '' | grep -q "execute(t-thread $((10#$id)))"
+  opened $((10#$id))
+  grep -q 'start:hide-input' "$FAKE/fzf.args"                       # ended: keys act on it, nothing is typed
+  thread --pane | grep -q '^you  unsigned$'
+  eq "$(thread --key esc '')" abort
+  eq "$(ls "$T_VAR/tasks" | wc -l)" 2                               # leaving again makes nothing new
 }
 
 test_archiving_in_the_inbox_archives_in_front_and_takes_the_row() {
@@ -1820,7 +1914,7 @@ test_a_comment_is_posted_for_your_teammates_only_once_you_sign_it() {
   not grep -q '/drafts$\|/messages$' "$FAKE/front.calls"            # a comment, never a reply
 }
 
-test_the_inbox_says_where_a_comment_mentions_you_and_writes_a_comment_apart_from_a_reply() {
+test_the_inbox_says_where_a_comment_mentions_you() {
   conversation
   page '[{"posted_at": 150, "author": {"first_name": "Ida", "last_name": "K"}, "body": "@me the PO was never updated"}]' \
     > "$FAKE/front/conversations_cnv_x_comments"
@@ -1832,14 +1926,12 @@ test_the_inbox_says_where_a_comment_mentions_you_and_writes_a_comment_apart_from
   grep -q '^  └ Ida K  ' "$tmp/pane"                                # indented under the message it follows
   grep -q '^    @me the PO was never updated$' "$tmp/pane"
   not grep -q '^#' "$tmp/pane"                                      # markdown is for the agent, not for you
-  eq "$(inbox --key "$(keyfor comment)" cnv_x)" "execute(t-inbox --write comment cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
-  eq "$(inbox --key "$(keyfor write)" cnv_x)" "execute(t-inbox --write reply cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
 }
 
-test_enter_in_the_inbox_is_a_reply_you_write_and_the_pane_lists_every_key() {
+test_the_inbox_pane_lists_every_key() {
   conversation
   watched > /dev/null
-  eq "$(keyfor write)" enter                                        # an agent's draft is a key away, not the default
+  eq "$(keyfor open)" enter                                         # one door: the thread, and the choices in it
   inbox --keys > "$tmp/keys"
   while read -r name _; do
     grep -Eq "^[^ ]+ +$name +[a-z]" "$tmp/keys"
@@ -2171,20 +2263,34 @@ test_the_roadmap_keeps_the_projects_order_with_what_needs_you_above_a_line() {
   not grep -q 'issue edit\|item-edit' "$FAKE/gh.calls"              # and GitHub is told nothing
 }
 
-test_a_new_roadmap_issue_lands_on_the_project_or_under_the_parent_whose_list_you_are_in() {
+test_a_new_roadmap_issue_is_on_the_list_at_once_and_github_makes_it_in_the_background() {
   roadmap
+  local sock=$tmp/fzf.sock
   roadmap_ui --key "$(keyfor issue)" example/shop#12 | grep -q 'change-prompt~example/shop title> ~'
-  FZF_QUERY="Rate limit the API" prompt="example/shop title> " roadmap_ui --key enter - | grep -q '#15 is on the project'
-  grep -q '^issue create -R example/shop --title Rate limit the API' "$FAKE/gh.calls"
+  touch "$FAKE/gh/hold"                                             # GitHub takes its time
+  FZF_SOCK=$sock FZF_QUERY="Rate limit the API" prompt="example/shop title> " roadmap_ui --key enter - | grep -q 'GitHub is making it'
+  roadmap_ui --rows | grep -q $'\t#… .*Rate limit the API .*no status'   # before GitHub answers
+  rm "$FAKE/gh/hold"
+  eventually grep -q 'transform(t-roadmap --refresh)' "$FAKE/fzf.calls"   # the open list is told to reload
+  roadmap_ui --rows | grep -q $'^example/shop#15\t#15 .*Rate limit the API'
+  roadmap_ui --refresh | grep -q "reload~CLICOLOR_FORCE=1 t-roadmap --rows~+change-footer~#15 is on the project"
   grep -q '^project item-add 1 --owner AminoNordics --url https://github.com/example/shop/issues/15' "$FAKE/gh.calls"
-  roadmap_ui --rows | grep -q $'^example/shop#15\t.*no status'       # above the line at once, not at the next poll
   roadmap_ui --key enter example/shop#10 > /dev/null
   prompt="#10> " roadmap_ui --key "$(keyfor issue)" example/shop#11 | grep -q 'change-prompt~#10 sub-issue title> ~'
-  FZF_QUERY="Export the survey" prompt="#10 sub-issue title> " roadmap_ui --key enter example/shop#11 |
-    grep -q "t-roadmap --rows 'example/shop#10'~+change-prompt~#10> ~.*#16 is on the project"
+  rm "$FAKE/fzf.calls"
+  FZF_SOCK=$sock FZF_QUERY="Export the survey" prompt="#10 sub-issue title> " roadmap_ui --key enter example/shop#11 |
+    grep -q "t-roadmap --rows 'example/shop#10'~+change-prompt~#10> ~"
+  eventually test -s "$FAKE/fzf.calls"
   grep -q '^api graphql -f parent=I_parent -f url=https://github.com/example/shop/issues/16 .*addSubIssue' "$FAKE/gh.calls"
   eq "$(roadmap_ui --rows example/shop#10 | cut -f1 | xargs)" "example/shop#11 example/shop#16"
+  prompt="#10> " roadmap_ui --refresh | grep -q "t-roadmap --rows 'example/shop#10'~"
   roadmap_ui --rows | grep -q $'^example/shop#10\t.*1/3'
+  roadmap_ui --key "$(keyfor issue)" example/shop#12 > /dev/null
+  touch "$FAKE/gh/offline"
+  FZF_SOCK=$sock FZF_QUERY="Never made" prompt="example/shop title> " roadmap_ui --key enter - > /dev/null
+  eventually grep -q "GitHub didn't make “Never made”: error connecting to api.github.com" "$(dir 0001)/note"
+  roadmap_ui --rows > "$tmp/rows"
+  not grep -q 'Never made' "$tmp/rows"                              # off the list again
 }
 
 eventually() { local i; for i in $(seq 50); do if "$@"; then return 0; fi; sleep 0.1; done; "$@"; }
@@ -2272,11 +2378,17 @@ test_the_roadmap_moves_an_issue_to_the_status_you_pick_and_says_every_key() {
   eq "$(roadmap_ui --statuses example/shop#10 | cut -f1 | xargs)" "Backlog Up-next In progress QA"   # the project's, in its order
   roadmap_ui --statuses example/shop#10 | grep -q $'^Up-next\t.*now$'
   prompt="#13 status> " roadmap_ui --key enter QA | grep -q '#13 is QA now'
-  grep -q '^project item-edit --id PVTI_13 --project-id PVT_1 --field-id F_status --single-select-option-id O_qa' "$FAKE/gh.calls"
-  not grep -q '^issue edit' "$FAKE/gh.calls"                         # a move assigns nobody
   roadmap_ui --rows > "$tmp/rows"
   grep -q $'^example/shop#13\t.*Referral dashboard .*QA' "$tmp/rows"   # at once, not at the next poll
   not grep -q 'no status' "$tmp/rows"
+  eventually grep -q '^project item-edit --id PVTI_13 --project-id PVT_1 --field-id F_status --single-select-option-id O_qa' "$FAKE/gh.calls"
+  not grep -q '^issue edit' "$FAKE/gh.calls"                         # a move assigns nobody
+  roadmap_ui --key "$(keyfor status)" example/shop#10 > /dev/null
+  touch "$FAKE/gh/offline"
+  prompt="#10 status> " roadmap_ui --key enter QA | grep -q '#10 is QA now'
+  eventually grep -q "GitHub didn't move #10 to QA: error connecting to api.github.com" "$(dir 0001)/note"
+  roadmap_ui --rows | grep -q $'^example/shop#10\t.*Up-next'        # back as it was
+  rm "$FAKE/gh/offline"
   prompt="#12 note> " roadmap_ui --key '?' - | grep -qx 'put(?)'   # a note can still ask a question
   roadmap_ui --keys > "$tmp/keys"
   grep -q '^\^s *status ' "$tmp/keys"

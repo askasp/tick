@@ -449,19 +449,30 @@ beside the one you are on.
 
 | key | does |
 | --- | --- |
-| enter | a reply you write: the thread is read, and you type the reply under it, ctrl-d ending it |
-| ^s | an agent drafts a reply: a task on pipeline `reply`, with `+draft` |
-| ^t | a comment you write the same way, for your teammates only: a task on pipeline `comment` |
+| enter | `t thread`: the conversation the width of the screen, and you write under it |
 | ^x | archives the conversation in Front |
 | ^d ^u | scroll the thread half a page, as on the board |
 | ? | every key, in the pane; again, the thread |
 
+`t thread` is one screen for reading, writing and signing, and it opens where
+the thread ends, with the prompt under the last message. There is no editor: a
+line is what you type at the prompt, enter starts the next, and backspace on an
+empty one takes the line above back. A paste keeps its lines.
+
+| key | does |
+| --- | --- |
+| ^d | ends it: a task on pipeline `reply` holds on the board with it, and nothing leaves |
+| ^t | a comment for your teammates instead (pipeline `comment`), or a reply again; your text comes along |
+| ^s | an agent writes it into the prompt, from what you wrote so far (`+draft`) |
+| ^y | signs what you ended: then it leaves |
+| ^e ^x | once ended: write on at its end, or delete it |
+| esc | back to the inbox; what you wrote holds on the board |
+
 A reply is `thread → +draft → sign → send`, and nothing leaves until you sign
 it. The task holds at `sign`, in red (`draft ready`, or `write your reply`), and
-Enter on it, or `t sign N`, opens a draft in `$EDITOR` with the thread under
-it; with no draft yet, it shows the thread and takes what you type under it.
-What you save or type is what leaves. `t say N "shorter" draft` has the agent write
-it again. `DELIVER=` in `pipelines/reply/env` says what leaving is:
+Enter on it opens it in `t thread` again, where it was. Without fzf, `t sign N`
+opens it in `$EDITOR` with the thread under it. `DELIVER=` in
+`pipelines/reply/env` says what leaving is:
 
 - `draft`, the default: a private draft on the conversation in Front, to read
   once more and send from there. Signing again edits the same draft.
@@ -572,8 +583,8 @@ parent shows its sub-issues as a fraction (`4/6`), and enter lists them.
 | --- | --- |
 | enter | its sub-issues, as a list of their own; esc goes back |
 | ^t | asks for your note, then opens `t compose` with the issue's title typed, where you pick the pipeline, the agent (^s) and the repo (^r), and ^o shows the details: the issue, its comments and your note. Enter makes the task, and GitHub hears in the background that the issue is In progress, assigned to you; if it can't be told, the roadmap's row says so |
-| ^n | asks for a title, and enter makes a new issue on the project with no status, in the repo of the issue you are on. In a list of sub-issues it is a sub-issue of their parent, in the parent's repo |
-| ^s | the list turns into the project's statuses (the issue's own says `now`), and enter moves it there; one off the project is put on it |
+| ^n | asks for a title, and enter puts a new issue on the list at once as `#…`, with no status, in the repo of the issue you are on; in a list of sub-issues, a sub-issue of their parent. GitHub makes it in the background, and the list reloads with its number; if GitHub can't, it leaves the list, and the footer and the roadmap's row say why |
+| ^s | the list turns into the project's statuses (the issue's own says `now`), and enter moves it there at once; one off the project is put on it. GitHub hears in the background, and if it can't, the issue moves back |
 | ^x | not mine: off the list, and nothing changes on GitHub |
 | ? | every key in the pane, and what the red words mean; again: the issue |
 
@@ -633,7 +644,8 @@ t log [TASK] [-f] [--raw]  every run in order, rendered in one column; -f follow
 t diff [TASK]              the files it changed, with the diff of each beside them
 t say [TASK] "notes"       back to implement, with your notes
 t sign [TASK]              read a reply in $EDITOR, or type it under the thread, and sign it: then it leaves
-t inbox [TASK]             the mail a watch keeps: enter writes a reply, ^s has an agent draft one, ? every key
+t inbox [TASK]             the mail a watch keeps: enter opens the thread to write under it, ? every key
+t thread CONV|TASK         a conversation the width of the screen: type a reply or comment under it, ^d, ^y signs it
 t cal [TASK]               the week a calendar watch keeps: ^y accepts an invite, ^t maybe, ^x declines
 t roadmap [TASK]           the project a roadmap watch keeps: enter lists sub-issues, ^t makes a task with your note, ^n an issue
 t google login NAME        log a Google account in, for its linked mail and calendar

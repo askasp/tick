@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+# t thread CONVERSATION|TASK — a conversation the width of the screen, and what you write under it: enter starts a new
+# line, ^d ends it and it holds on the board, ^y signs it and it leaves. ^t makes it a comment, ^s has an agent write it.
+#
+# The inbox's enter opens a conversation here ($T_INBOX is its source); the board's, a reply held for you. There is no
+# editor: the line you type is fzf's query, and backspace on an empty one takes the line above back. What you ended is a
+# task on pipeline reply or comment, held at sign with it in answer.md, so esc loses nothing and nothing leaves before ^y.
+# fzf runs t-thread for what changes: --pane, --key KEY QUERY, --pop (the last line, out of the text), --wait (for an
+# agent's draft) and --loaded (the draft, into the prompt). $T_THREAD holds the screen: conv, kind, mode, task, text.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+terminal_colors
+
+here=${T_THREAD:-}
+kept() { cat "$here/$1" 2> /dev/null || true; }
+keep() { printf '%s\n' "$2" > "$here/$1.tmp" && mv "$here/$1.tmp" "$here/$1"; }
+failed() { echo "change-input-label~$C_RED$(grep -m1 . "$here/err" | sed 's/^t: //')$C_OFF~"; exit; }
+written() { grep -qs '[^[:space:]]' "$here/text"; }
+lines() { wc -l < "$here/text"; }
+without_trailing_blanks() { tac | sed '/[^[:space:]]/,$!d' | tac; }
+unchanged() { [ -n "$(kept task)" ] && without_trailing_blanks < "$here/text" | cmp -s - "$(kept task)/answer.md"; }
+
+mail() { local source id; read -r source id <<< "$(kept conv)"; echo "$T_VAR/mail/$source/$id"; }
+thread_md() { if [ -f "$(mail)/thread.md" ]; then echo "$(mail)/thread.md"; else echo "$(kept task)/thread.md"; fi; }
+subject() { sed -n '1s/^# //p' "$(thread_md)" 2> /dev/null | grep . || echo "(no subject)"; }
+from() { jq -r '.from // empty' "$(mail)/conv.json" 2> /dev/null || true; }
+
+# the prompt a line is typed at, with $1 lines above it: > starts a reply, └ a comment, and the rest line up under it
+prompt() {
+  if [ "${1:-$(lines)}" -gt 0 ]; then echo "  "
+  elif [ "$(kept kind)" = comment ]; then echo "└ "
+  else echo "> "; fi
+}
+
+# $1, a conversation in $T_INBOX or a reply or comment task, as the screen starts on it
+open() {
+  local task=
+  : > "$here/text"
+  if [[ $1 =~ ^[0-9]+$ ]]; then
+    task=$(task_dir "$1")
+    grep -q '^conversation: ' "$task/task.md" || die "task $(task_num "$task") answers no conversation"
+    keep conv "$(sed -n 's/^conversation: //p' "$task/task.md" | head -1)"
+    keep kind "$(load_env "$task" > /dev/null 2>&1; echo "${KIND:-reply}")"
+  else
+    [ -n "${T_INBOX:-}" ] || die "which inbox is $1 in? open it from t inbox, or: T_INBOX=front t thread $1"
+    keep conv "$T_INBOX $1"
+    keep kind reply
+    task=$(reply_to "$T_INBOX" "$1")
+  fi
+  keep task "$task"
+  keep mode write
+  [ -n "$task" ] || return 0
+  if grep -qsx draft "$task/opt"; then touch "$here/drafted"; fi
+  if [[ $(cat "$task/step") != *-sign ]] && [ -e "$here/drafted" ]; then keep mode drafting
+  elif [ -s "$task/answer.md" ]; then cp "$task/answer.md" "$here/text"; keep mode held; fi
+}
+
+# what you wrote, as answer.md of a task held at its sign step: the task you had, else a new reply or comment
+hold_it() {
+  local task n
+  task=$(kept task)
+  if [ -z "$task" ]; then
+    n=$(printf 'conversation: %s\n' "$(kept conv)" | t-new -p "$(kept kind)" "Re: $(subject)" - 2> "$here/err") || return 1
+    task=$(tdir "$n")
+    keep task "$task"
+  fi
+  n=$(task_num "$task")
+  flock -w 60 "$task/lock" true || { echo "task $n is still running; end it again in a moment" > "$here/err"; return 1; }
+  without_trailing_blanks < "$here/text" > "$task/answer.tmp" && mv "$task/answer.tmp" "$task/answer.md"
+  rm -f "$task/signed"
+  t-resume "$n" 2> /dev/null || true                  # its sign step holds again, now for what answer.md says
+  t-run "$n" > /dev/null 2>&1 || true
+  if [[ $(cat "$task/step") != *-sign ]]; then
+    echo "task $n is at $(sed 's/^[0-9]*-//' "$task/step"), not yet waiting for your signature: t log $n" > "$here/err"
+    return 1
+  fi
+  keep mode held
+}
+
+# an agent writes it, told what you wrote so far: a new task with +draft, in place of the one you had
+agent_writes() {
+  local n
+  if [ -n "$(kept task)" ]; then t-rm "$(task_num "$(kept task)")" > /dev/null 2> "$here/err" || return 1; fi
+  n=$({ printf 'conversation: %s\n' "$(kept conv)"; if written; then echo; cat "$here/text"; fi; } |
+    t-new -p "$(kept kind)" +draft "Re: $(subject)" - 2> "$here/err") || return 1
+  keep task "$(tdir "$n")"
+  : > "$here/text"
+  keep mode drafting
+  setsid t-run "$n" < /dev/null > /dev/null 2>&1 &
+}
+
+# until the agent's run ends: at sign with its draft, or short of it
+wait_for_draft() {
+  local task
+  [ "$(kept mode)" = drafting ] || return 0
+  task=$(kept task)
+  sleep 1
+  while [ -d "$task" ] && ! flock -n "$task/lock" true 2> /dev/null; do sleep 0.5; done
+}
+
+loaded() {
+  local task
+  [ "$(kept mode)" = drafting ] || return 0
+  task=$(kept task)
+  keep mode write
+  if [ -s "$task/answer.md" ] && [[ $(cat "$task/step") == *-sign ]]; then
+    cp "$task/answer.md" "$here/text"
+    touch "$here/drafted"
+    echo "show-input+transform-query(t-thread --pop)+change-prompt($(prompt $(($(lines) - 1))))+refresh-preview+change-input-label~$(footer)~"
+  else
+    echo "show-input+change-prompt($(prompt))+refresh-preview+change-input-label~${C_RED}no draft: $(last_words "$task/log/$(cat "$task/step" 2> /dev/null).log")$C_OFF~"
+  fi
+}
+
+pop() { tail -n 1 "$here/text"; head -n -1 "$here/text" > "$here/text.tmp" && mv "$here/text.tmp" "$here/text"; }
+
+delivery() {
+  local source
+  read -r source _ <<< "$(kept conv)"
+  if [ "$(env_get "$T_ROOT/pipelines/reply/env" DELIVER)" = send ]; then echo "sent as you once signed"
+  else echo "a draft in $source once signed"; fi
+}
+
+# what becomes of it and who reads it, over where you type: from $1
+signature() {
+  local n= what
+  if [ -n "$(kept task)" ]; then n="task $(task_num "$(kept task)") · "; fi
+  if [ "$(kept kind)" = comment ]; then what="${C_RED}comment$C_OFF  ${C_MID}internal, for your teammates$C_OFF$C_DIM${1:+ · $1 cannot see it}$C_OFF"
+  else what="${C_TEXT}reply$C_OFF  $C_MID${1:+to $1}$C_OFF$C_DIM · $(delivery)$C_OFF"; fi
+  case $(kept mode) in
+    write)    echo "$what" ;;
+    drafting) echo "$what"; echo "$C_DIM       ${n}an agent writes it, and it appears here for you to change$C_OFF" ;;
+    held)     echo "${C_RED}held$C_OFF  $what"; echo "$C_DIM       ${n}nothing has left: $(key release) signs it$C_OFF" ;;
+    signed)   echo "${C_MID}signed$C_OFF  $what"; echo "$C_DIM       ${n}it leaves now$C_OFF" ;;
+  esac
+}
+
+pane() {
+  local source kind mode from rule
+  read -r source _ <<< "$(kept conv)"
+  kind=$(kept kind) mode=$(kept mode) from=$(from)
+  rule=$C_FAINT$(printf '%*s' "${FZF_PREVIEW_COLUMNS:-80}" '' | sed 's/ /─/g')$C_OFF
+  echo "$C_DIM$source$C_OFF  $C_BRIGHT$(subject)$C_OFF  $C_FAINT$from$C_OFF"
+  echo "$rule"
+  if [ -f "$(thread_md)" ]; then thread_view "$(thread_md)"; else echo "${C_DIM}no thread read yet$C_OFF"; fi
+  if [ -s "$here/text" ] && { [ "$kind" = comment ] || [ "$mode" != write ]; }; then
+    echo
+    if [ "$kind" = comment ]; then                    # where a comment lands: under the thread, as the others are
+      echo "  $C_RED└ ${C_MID}you  $(yours)$C_OFF"
+      sed "s/^/    $C_TEXT/; s/\$/$C_OFF/" "$here/text"
+    else
+      echo "${C_MID}you  $(yours)$C_OFF"
+      sed "s/^/$C_DIM/; s/\$/$C_OFF/" "$here/text"
+    fi
+  fi
+  echo
+  echo "$rule"
+  signature "$from"
+  if [ -e "$here/drafted" ]; then echo "$C_FAINT       drafted by an agent · read it before you sign$C_OFF"; fi
+  if [ -s "$here/text" ] && [ "$kind" = reply ] && [ "$mode" = write ]; then
+    echo
+    sed '1s/^/> /; 2,$s/^/  /' "$here/text"
+  fi
+}
+
+yours() { case $(kept mode) in held) echo "${C_RED}unsigned" ;; signed) echo signed ;; *) echo now ;; esac; }
+
+# the keys, on the line under the prompt
+footer() {
+  local other="comment instead"
+  if [ "$(kept kind)" = comment ]; then other="reply instead"; fi
+  printf ' %s ' "$(case $(kept mode) in
+    write)    hint enter "new line" "$(key done)" done "$(key comment)" "$other" "$(key draft)" "agent draft" "^k ^j" scroll esc back ;;
+    drafting) hint esc "back: it holds on the board once written" ;;
+    held)     hint "$(key release)" sign "$(key edit)" edit "$(key draft)" redraft "$(key discard)" discard esc "leave it held" ;;
+    signed)   hint esc back ;;
+  esac)"
+}
+
+# what key $1 does, with $2 typed on the line
+act() {
+  local q=$2 mode task
+  mode=$(kept mode) task=$(kept task)
+  case $1 in
+    esc)    if [ "$mode" = write ]; then
+              if [ -n "$q" ]; then printf '%s\n' "$q" >> "$here/text"; fi
+              if written && ! unchanged; then hold_it || failed; fi
+            fi
+            echo abort; return ;;
+    bspace) if [ -n "$q" ] || [ "$mode" != write ]; then echo backward-delete-char
+            elif [ -s "$here/text" ]; then echo "transform-query(t-thread --pop)+change-prompt($(prompt $(($(lines) - 1))))+refresh-preview"; fi
+            return ;;
+  esac
+  case $(awk -v k="$1" '$2 == k { print $1; exit }' <<< "$THREAD_KEYS") in
+    line)    [ "$mode" = write ] || return 0
+             printf '%s\n' "$q" >> "$here/text"
+             echo "clear-query+change-prompt(  )+refresh-preview" ;;
+    done)    [ "$mode" = write ] || return 0
+             if [ -n "$q" ]; then printf '%s\n' "$q" >> "$here/text"; fi
+             if ! written; then echo "clear-query+change-input-label~nothing written yet: type it, then $(key done)~"; return; fi
+             hold_it || failed
+             echo "clear-query+hide-input+refresh-preview+change-input-label~$(footer)~" ;;
+    comment) [ "$mode" = write ] || return 0
+             if [ "$(kept kind)" = comment ]; then keep kind reply; keep task "$(reply_to $(kept conv))"
+             else keep kind comment; keep task ""; fi     # a task you had keeps what it had, on the board
+             echo "change-prompt($(prompt))+refresh-preview+change-input-label~$(footer)~" ;;
+    draft)   [ "$mode" = write ] || [ "$mode" = held ] || return 0
+             if [ -n "$q" ]; then printf '%s\n' "$q" >> "$here/text"; fi
+             agent_writes || failed
+             echo "clear-query+hide-input+reload(t-thread --wait)+refresh-preview+change-input-label~$(footer)~" ;;
+    release) if [ "$mode" != held ]; then echo yank; return; fi
+             t-sign "$(task_num "$task")" < /dev/null > /dev/null 2> "$here/err" || failed
+             setsid t-run "$(task_num "$task")" < /dev/null > /dev/null 2>&1 &
+             keep mode signed
+             echo "refresh-preview+change-input-label~$(footer)~" ;;
+    edit)    if [ "$mode" != held ]; then echo end-of-line; return; fi
+             keep mode write
+             echo "show-input+transform-query(t-thread --pop)+change-prompt($(prompt $(($(lines) - 1))))+refresh-preview+change-input-label~$(footer)~" ;;
+    discard) [ "$mode" = held ] || return 0
+             t-rm "$(task_num "$task")" > /dev/null 2> "$here/err" || failed
+             keep task ""
+             : > "$here/text"
+             rm -f "$here/drafted"
+             keep mode write
+             echo "show-input+clear-query+change-prompt($(prompt))+refresh-preview+change-input-label~$(footer)~" ;;
+  esac
+}
+
+case ${1:-} in
+  --pane)   pane; exit ;;
+  --key)    act "$2" "${3:-}"; exit ;;
+  --pop)    pop; exit ;;
+  --wait)   wait_for_draft; exit ;;
+  --loaded) loaded; exit ;;
+esac
+[ -n "${1:-}" ] || die "usage: t thread CONVERSATION|TASK"
+command -v fzf > /dev/null || die "t thread needs fzf (sudo apt install fzf); without it: t sign"
+export T_THREAD
+if [ -z "$here" ]; then
+  T_THREAD=$(mktemp -d) here=$T_THREAD
+  trap 'rm -rf "$here"' EXIT
+fi
+open "$1"
+
+binds=()
+while read -r _ key _; do
+  binds+=(--bind "$key:transform:CLICOLOR_FORCE=1 t-thread --key $key {q}")
+done <<< "$THREAD_KEYS"
+input=show-input
+if [ "$(kept mode)" != write ]; then input=hide-input; fi
+t-thread --wait | fzf "${BOARD_FZF[@]}" --layout default --disabled --info hidden --prompt "$(prompt)" --input-label "$(footer)" --input-label-pos 2:bottom \
+  --preview 'CLICOLOR_FORCE=1 t-thread --pane' --preview-window 'up,99%,follow,wrap,~2,noborder' \
+  --bind "start:$input" --bind 'load:transform:CLICOLOR_FORCE=1 t-thread --loaded' \
+  --bind 'esc:transform:CLICOLOR_FORCE=1 t-thread --key esc {q}' --bind 'bspace:transform:t-thread --key bspace {q}' \
+  --bind 'ctrl-k:preview-half-page-up,ctrl-j:preview-half-page-down,page-up:preview-page-up,page-down:preview-page-down' \
+  --bind 'shift-up:preview-up,shift-down:preview-down' "${binds[@]}" || true

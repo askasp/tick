@@ -10,7 +10,7 @@
 #                             move to In progress, and assigned to you
 #   create OWNER/NUMBER REPO TITLE [PARENT]
 #                             a new issue in REPO, on the project with no status, and a sub-issue of PARENT if one is named:
-#                             its line, as items writes it
+#                             its key and its item on the project: owner/repo#number PVTI_…
 # A roadmap is to a project board what a source is to mail: another one is an executable here with the same verbs.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
@@ -85,10 +85,7 @@ create() {
     gh api graphql -f parent="$(gh issue view "${parent##*#}" -R "${parent%#*}" --json id --jq .id)" -f url="$url" \
       -f query='mutation($parent: ID!, $url: String!) { addSubIssue(input: {issueId: $parent, subIssueUrl: $url}) { issue { id } } }' > /dev/null
   fi
-  jq -nc --arg repo "$repo" --arg number "${url##*/}" --arg title "$title" --arg item "$item" --arg parent "$parent" --arg url "$url" '
-    {key: "\($repo)#\($number)", item: $item, repo: $repo, number: ($number | tonumber), title: $title, state: "OPEN",
-     status: null, onboard: true, parent: (if $parent == "" then null else $parent end), done: 0, total: 0, author: "you",
-     assignees: [], labels: [], created: now | floor, updated: now | floor, url: $url, body: "", comments: []}'
+  echo "$repo#${url##*/} $item"
 }
 
 case ${1:-} in

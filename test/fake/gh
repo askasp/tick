@@ -3,7 +3,7 @@
 # pass | pending | fail (default pass), with gh's exit codes (0, 8, 1).
 # `pr view` answers with the next line of $FAKE/pr_state (default OPEN).
 # `api graphql` answers a project's items with $FAKE/gh/items, and a search for the issues off it with $FAKE/gh/offboard.
-# `issue create` numbers the issues it makes from #15.
+# `issue create` numbers the issues it makes from #15, and waits while $FAKE/gh/hold is there.
 set -eu
 pop() {
   local line=
@@ -25,7 +25,7 @@ case "$1 $2" in
   "pr view")   pop pr_state OPEN ;;
   "run view")  echo "FAIL test_widget: expected 2, got 3" ;;
   "auth status") ;;
-  "issue create") echo "https://github.com/$4/issues/$(( 14 + $(grep -c '^issue create' "$FAKE/gh.calls") ))" ;;
+  "issue create") while [ -e "$FAKE/gh/hold" ]; do sleep 0.05; done; echo "https://github.com/$4/issues/$(( 14 + $(grep -c '^issue create' "$FAKE/gh.calls") ))" ;;
   "issue view")   echo I_parent ;;
   "api graphql")
     if [[ $* == *addSubIssue* ]]; then echo '{}'

@@ -6,8 +6,10 @@
 # for the pipeline, the agent and the repo; the task made, GitHub hears in the background that the issue is In progress,
 # assigned to you. ^n asks for a title and makes a new issue on the project, a sub-issue when you are in a list of them.
 # ^s lists the project's statuses, and enter moves the issue to one. ^x takes an issue off this list.
+# What you do shows at once, and GitHub hears it in the background, which then asks fzf through its socket to --refresh.
 # fzf runs t-roadmap for what changes: --rows [PARENT], --statuses ISSUE, --pane KEY, --keys, --key KEY ROW,
-# --compose ISSUE NOTE and --made (^t), --start ISSUE (in the background)
+# --compose ISSUE NOTE and --made (^t), --refresh; the background runs --start ISSUE (^t), --send ISSUE (^n) and
+# --moved ISSUE STATUS WAS (^s)
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 shopt -s nullglob
@@ -27,7 +29,7 @@ top="${project%/*}> "
 terminal_colors
 
 issue() { jq -c --arg key "$1" 'select(.key == $key)' "$items"; }
-number() { echo "#${1##*#}"; }
+number() { if [[ $1 == *#new-* ]]; then echo "#…"; else echo "#${1##*#}"; fi; }   # #… while GitHub makes it
 not_mine() { cat "$cache/not-mine" 2> /dev/null || true; }
 
 # the task made from issue $1, if there is one
@@ -150,31 +152,96 @@ back_to() {
   echo "enable-search+clear-query+change-footer~$(footer)~+$(sub_issues "$1")"
 }
 
-# CREATE TITLE: a new issue with that title, in the repo and under the parent ^n picked, and on this list at once
-create() {
-  local repo parent line
-  read -r repo parent < "$cache/picked"
-  if [ -z "$1" ]; then echo "change-footer~$(hint enter "type its title first" esc back)~"; return; fi
-  if ! line=$("$T_ROOT/roadmaps/$roadmap" create "$project" "$repo" "$1" ${parent:+"$parent"} 2> "$cache/error"); then
-    echo "$(back_to "$parent")+change-footer~$C_RED$(sed 's/^t: //' "$cache/error" | tail -1)$C_OFF~"
-    return
-  fi
-  { jq -c --arg parent "$parent" 'if .key == $parent then .total += 1 else . end' "$items"
-    jq -c '. + {last: .updated, lift: "no status"}' <<< "$line"; } > "$items.tmp"
-  touch -r "$items" "$items.tmp"                      # its time is when the watch last polled
-  mv "$items.tmp" "$items"
-  echo "$(back_to "$parent")+change-footer~$(number "$(jq -r .key <<< "$line")") is on the project; $(key status) gives it a status~"
+# FILTER [JQ ARG…]: the list the watch keeps, through jq as one array, one writer at a time; its time stays when the
+# watch last polled
+rewrite() {
+  local filter=$1
+  shift
+  (
+    flock 9
+    jq -cs "$@" "$filter | .[]" "$items" > "$items.tmp"
+    touch -r "$items" "$items.tmp"
+    mv "$items.tmp" "$items"
+  ) 9> "$cache/lock"
 }
 
-# MOVE ISSUE STATUS: the issue to that status on the project, and on this list at once, not at the next poll
-move() {
-  local out
-  if ! out=$("$T_ROOT/roadmaps/$roadmap" move "$project" "$1" "$(issue "$1" | jq -r '.item // empty')" "$2" 2>&1); then
-    echo "$(back)+change-footer~$C_RED${out#t: }$C_OFF~"
+# [FOOTER]: from the background, the list open in fzf reloads what was just written, FOOTER under it (--refresh)
+nudge() {
+  if [ -n "${1:-}" ]; then echo "$1" > "$cache/said.tmp" && mv "$cache/said.tmp" "$cache/said"; fi
+  if [ -n "${FZF_SOCK:-}" ]; then curl -s --unix-socket "$FZF_SOCK" -d "transform(t-roadmap --refresh)" http > /dev/null || true; fi
+}
+
+# MESSAGE: what GitHub refused, on the roadmap's row on the board until its next poll, and under the list if it is open
+refused() {
+  local watch
+  watch=$(grep -lx "$T_ROADMAP" /dev/null "$T_TASKS"/*/roadmap | head -1)
+  echo "$1" > "${watch%/roadmap}/note.tmp"
+  mv "${watch%/roadmap}/note.tmp" "${watch%/roadmap}/note"
+  nudge "$C_RED$1$C_OFF"
+}
+
+# the list open in fzf, again, with what the background said under it; nothing while a prompt or the statuses are up
+refresh() {
+  local said rows="t-roadmap --rows"
+  said=$(cat "$cache/said" 2> /dev/null || true)
+  rm -f "$cache/said"
+  case ${FZF_PROMPT:-$top} in
+    *" note> " | *" status> " | *" title> ") return ;;
+    "$top") ;;
+    *) rows+=" '$(cat "$cache/parent")'" ;;
+  esac
+  echo "reload~CLICOLOR_FORCE=1 $rows~+change-footer~${said:-$(footer)}~"
+}
+
+# CREATE TITLE: a new issue with that title, in the repo and under the parent ^n picked: on this list at once as #…,
+# while GitHub makes it in the background (send)
+create() {
+  local repo parent pending
+  read -r repo parent < "$cache/picked"
+  if [ -z "$1" ]; then echo "change-footer~$(hint enter "type its title first" esc back)~"; return; fi
+  pending="$repo#new-$(date +%s%N)"
+  rewrite 'map(if .key == $parent then .total += 1 else . end)
+    + [{key: $key, item: null, repo: $repo, number: null, title: $title, state: "OPEN", status: null, onboard: true,
+        parent: (if $parent == "" then null else $parent end), done: 0, total: 0, author: "you", assignees: [], labels: [],
+        created: now | floor, updated: now | floor, last: now | floor, lift: "no status", url: "", body: "", comments: []}]' \
+    --arg key "$pending" --arg repo "$repo" --arg title "$1" --arg parent "$parent"
+  setsid t-roadmap --send "$pending" < /dev/null > /dev/null 2>&1 &
+  echo "$(back_to "$parent")+change-footer~$1: GitHub is making it~"
+}
+
+# SEND ISSUE: GitHub makes the issue ^n put on this list as #…, and there it takes its number; if GitHub can't, it leaves
+send() {
+  local line parent out key item
+  line=$(issue "$1")
+  parent=$(jq -r '.parent // ""' <<< "$line")
+  if ! out=$("$T_ROOT/roadmaps/$roadmap" create "$project" "$(jq -r .repo <<< "$line")" "$(jq -r .title <<< "$line")" \
+             ${parent:+"$parent"} 2>&1); then
+    rewrite 'map(select(.key != $pending) | if .key == $parent then .total -= 1 else . end)' --arg pending "$1" --arg parent "$parent"
+    refused "GitHub didn't make “$(jq -r .title <<< "$line")”: $(tail -1 <<< "$out" | sed 's/^t: //')"
     return
   fi
+  read -r key item <<< "$(tail -1 <<< "$out")"
+  rewrite 'map(if .key == $pending then .key = $key | .item = $item | .number = ($key | sub(".*#"; "") | tonumber) else . end)' \
+    --arg pending "$1" --arg key "$key" --arg item "$item"
+  nudge "$(number "$key") is on the project; $(key status) gives it a status"
+}
+
+# MOVE ISSUE STATUS: the issue at that status on this list at once, while GitHub hears it in the background (moved)
+move() {
+  local was
+  was=$(issue "$1")
   mark "$1" "$2"
+  setsid t-roadmap --moved "$1" "$2" "$was" < /dev/null > /dev/null 2>&1 &
   echo "$(back)+change-footer~$(number "$1") is $2 now~"
+}
+
+# MOVED ISSUE STATUS WAS: GitHub hears the move; if it can't, the issue is back as WAS, its line before it
+moved() {
+  local out
+  if ! out=$("$T_ROOT/roadmaps/$roadmap" move "$project" "$1" "$(jq -r '.item // empty' <<< "$3")" "$2" 2>&1); then
+    rewrite 'map(if .key == $key then $was else . end)' --arg key "$1" --argjson was "$3"
+    refused "GitHub didn't move $(number "$1") to $2: ${out#t: }"
+  fi
 }
 
 # COMPOSE ISSUE NOTE: t compose on the issue in its repo, its title typed, and the issue, its comments and your note as
@@ -199,24 +266,20 @@ made() { echo "$(back)+change-footer~$(cat "$cache/made" 2> /dev/null || echo "n
 # START ISSUE: GitHub hears the issue is In progress and yours. It runs in the background, so if GitHub can't be told,
 # the roadmap's row on the board says so until its next poll.
 start() {
-  local out watch
+  local out
   if out=$("$T_ROOT/roadmaps/$roadmap" start "$project" "$1" "$(issue "$1" | jq -r '.item // empty')" 2>&1); then
     mark "$1" "In progress"
+    nudge
   else
-    watch=$(grep -lx "$T_ROADMAP" /dev/null "$T_TASKS"/*/roadmap | head -1)
-    echo "GitHub didn't hear $(number "$1") is In progress: ${out#t: }" > "${watch%/roadmap}/note.tmp"
-    mv "${watch%/roadmap}/note.tmp" "${watch%/roadmap}/note"
+    refused "GitHub didn't hear $(number "$1") is In progress: ${out#t: }"
   fi
 }
 
 # MARK ISSUE STATUS: the issue at that status on this list, before the watch polls again
 mark() {
-  jq -c --arg key "$1" --arg status "$2" '
-    if .key == $key then .status = $status | .onboard = true
-      | .lift = (if .lift == "stalled" and $status == "In progress" then "stalled" else null end)
-    else . end' "$items" > "$items.tmp"
-  touch -r "$items" "$items.tmp"                      # its time is when the watch last polled
-  mv "$items.tmp" "$items"
+  rewrite 'map(if .key == $key then .status = $status | .onboard = true
+    | .lift = (if .lift == "stalled" and $status == "In progress" then "stalled" else null end) else . end)' \
+    --arg key "$1" --arg status "$2"
 }
 
 # what key $1 does to row $2, as fzf actions. ^t turns the prompt into your note and ^s the list into the statuses,
@@ -267,6 +330,7 @@ act() {
     return
   fi
   [ "$2" != - ] || return 0
+  if [[ $2 == *#new-* ]]; then echo "change-footer~GitHub is still making it~"; return; fi
   case $(awk -v k="$1" '$2 == k { print $1; exit }' <<< "$ROADMAP_KEYS") in
     open)
       if [ "$(issue "$2" | jq .total)" -gt 0 ]; then
@@ -296,16 +360,22 @@ case ${1:-} in
   --compose)  compose "$2" "${3:-}"; exit ;;
   --made)     made; exit ;;
   --start)    start "$2"; exit ;;
+  --send)     send "$2"; exit ;;
+  --moved)    moved "$2" "$3" "$4"; exit ;;
+  --refresh)  refresh; exit ;;
   --pane)     pane "$2"; exit ;;
   --keys)     keys; exit ;;
   --key)      act "$2" "$3"; exit ;;
 esac
 
 command -v fzf > /dev/null || die "the roadmap needs fzf (sudo apt install fzf); what the watch keeps is in $items"
+sock=${XDG_RUNTIME_DIR:-/tmp}/tick-roadmap-$$.sock    # a socket's path can't be longer than 107 bytes; $T_VAR may be
 binds=(--bind "esc:transform:t-roadmap --key esc {1}")
 while read -r _ key _; do
   binds+=(--bind "$key:transform:t-roadmap --key '$key' {1}")
 done <<< "$ROADMAP_KEYS"
 CLICOLOR_FORCE=1 t-roadmap --rows | fzf "${BOARD_FZF[@]}" --delimiter $'\t' --with-nth 2.. --prompt "$top" --info inline-right \
   --footer "$(footer)" --preview 'CLICOLOR_FORCE=1 t-roadmap --pane {1}' \
-  --preview-window 'right,50%,wrap,border-left,<60(down,60%,border-top)' "${PANE_SCROLL[@]}" "${binds[@]}" || true
+  --preview-window 'right,50%,wrap,border-left,<60(down,60%,border-top)' "${PANE_SCROLL[@]}" "${binds[@]}" \
+  --listen "$sock" || true
+rm -f "$sock"
