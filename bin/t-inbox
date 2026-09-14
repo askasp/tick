@@ -99,7 +99,7 @@ act() {
     archive)
       if out=$("$T_ROOT/sources/$T_INBOX" archive "$2" 2>&1); then
         rm -rf "${mail:?}/$2"
-        echo "up+reload(CLICOLOR_FORCE=1 t-inbox --rows)+change-footer~done: $archive in $T_INBOX~"   # the cursor keeps its line: the one above
+        echo "up+reload(CLICOLOR_FORCE=1 t-inbox --rows)+change-footer~done: $archive in $T_INBOX~"   # the cursor goes to the row above
       else
         echo "change-footer~$C_RED${out#t: }$C_OFF~"
       fi ;;

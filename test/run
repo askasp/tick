@@ -2788,8 +2788,14 @@ test_on_your_own_list_enter_adds_what_nothing_matches_and_ticks_off_subtasks() {
   eq "$(t later --rows "$thing" | cut -f1 | xargs)" "$thing:2 $thing:3"
   later_key enter "$thing:2" > /dev/null
   t later --rows "$thing" | grep -q $'\t✓ velge leverandør'
+  later_key "$(keyfor drop)" "$thing:3" | grep -q '^up+reload~'         # the cursor lands on the row above
+  eq "$(t later --rows "$thing" | cut -f1 | xargs)" "$thing:2"
   prompt=
-  t later --rows | grep -q 'Sette opp backup .* 1/2 '
+  t later "Rydde kabler" 2> /dev/null
+  cables=$(grep -lx 'Rydde kabler' "$T_VAR"/later/* | xargs basename)
+  later_key "$(keyfor drop)" "$cables" | grep -q '^up+.*dropped: Rydde kabler'
+  [ -f "$T_VAR/later/dropped/$cables" ]
+  t later --rows | grep -q 'Sette opp backup .* 1/1 '
   later_key "$(keyfor did)" "$thing" | grep -q 'done: Sette opp backup'
   [ -f "$T_VAR/later/done/$thing" ]                                    # one mv from undone
   t ui --rows | plain | grep -qE '^ +later +nothing yet'                # an empty list keeps its row, to write the first one down

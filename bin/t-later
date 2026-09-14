@@ -172,8 +172,8 @@ act() {
       open | did) rewrite "$thing" "NR == ${row##*:} && !sub(/^- \\[x\\] /, \"- [ ] \") { sub(/^- \\[ \\] /, \"- [x] \") } 1"
                   echo "reload~CLICOLOR_FORCE=1 t-later --rows '${thing##*/}'~" ;;
       drop)       rewrite "$thing" "NR != ${row##*:}"
-                  echo "reload~CLICOLOR_FORCE=1 t-later --rows '${thing##*/}'~" ;;
-      task)       echo "execute~t-later --compose '$row' ''~+transform~t-later --made~" ;;
+                  echo "up+reload~CLICOLOR_FORCE=1 t-later --rows '${thing##*/}'~" ;;
+      task)      echo "execute~t-later --compose '$row' ''~+transform~t-later --made~" ;;
       edit)       echo "execute~\${EDITOR:-vi} '$thing'~+reload~CLICOLOR_FORCE=1 t-later --rows '${thing##*/}'~" ;;
     esac
     return
@@ -182,7 +182,7 @@ act() {
     open) echo "$row" > "$list/open"; opened "$list/$row" ;;
     task) echo "execute~t-later --compose '$row' ''~+transform~t-later --made~" ;;
     did)  put_away "$row" done; back "done: $(head -1 "$list/done/$row" | tr -d '~')" ;;
-    drop) put_away "$row" dropped; back "dropped: $(head -1 "$list/dropped/$row" | tr -d '~')" ;;
+    drop) put_away "$row" dropped; echo "up+$(back "dropped: $(head -1 "$list/dropped/$row" | tr -d '~')")" ;;
     edit) echo "execute~\${EDITOR:-vi} '$list/$row'~+reload~CLICOLOR_FORCE=1 t-later --rows~" ;;
   esac
 }
