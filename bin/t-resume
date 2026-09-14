@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t resume [TASK] [STEP] — lift a hold and reset the run counts, optionally at another step
+# t resume [TASK] [STEP] — lift a hold and reset the run counts, optionally at another step: one it left out (+preview) it takes on
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 task=$(task_dir "${1:-}")
@@ -8,8 +8,13 @@ cd "$task"
 flock -n lock true || die "task $n is running"
 
 if [ -n "${2:-}" ]; then
-  s=$(find_step "$(cat pipeline)" "$2" "$task")
-  [ -n "$s" ] || die "no step '$2'; $(cat pipeline) has: $(steps "$(cat pipeline)" "$task" | xargs)"
+  pipeline=$(cat pipeline) want=${2#+}
+  s=$(find_step "$pipeline" "$want" "$task")
+  if [ -z "$s" ] && [[ " $(optional "$pipeline") " == *" $want "* ]]; then
+    { cat opt 2> /dev/null || true; echo "$want"; } > opt.tmp && mv opt.tmp opt
+    s=$(find_step "$pipeline" "$want" "$task")
+  fi
+  [ -n "$s" ] || die "no step '$2'; $pipeline has: $(restart_steps "$task" | xargs)"
   echo "$s" > step.tmp && mv step.tmp step
 fi
 rm -rf hold runs

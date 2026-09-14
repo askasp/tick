@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# run-tests — mono's checks in the worktree, as its CLAUDE.md lists them: every package's typecheck, then the
+# jest tests of common and functions. A worktree starts with no node_modules, so a package installs when it has
+# none, or when its lockfile changed after the install.
+set -euo pipefail
+for ws in common functions merchant subscriber; do
+  if [ ! "$ws/node_modules/.package-lock.json" -nt "$ws/package-lock.json" ]; then
+    echo "installing $ws"
+    (cd "$ws" && npm ci --prefer-offline --no-audit --no-fund --loglevel=error)
+  fi
+done
+secrets=functions/src/testSetup/secrets.ts       # gitignored, and functions' tests import it
+if [ ! -f "$secrets" ]; then cp functions/src/testSetup/secrets.example.ts "$secrets"; fi
+
+npm run --silent typecheck
+(cd common && npm test --silent)
+(cd functions && npm test --silent)

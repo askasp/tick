@@ -31,7 +31,7 @@ pad() { printf '%s%*s' "${3:-$2}" $(($1 - ${#2})) ''; }
 # Lines fold on words to $FZF_PREVIEW_COLUMNS, so a comment's text stays in its column.
 thread_view() {
   awk -v today="$(date '+%a %d %b')" -v cols="${FZF_PREVIEW_COLUMNS:-0}" -v text="$C_TEXT" -v mid="$C_MID" \
-      -v dim="$C_DIM" -v faint="$C_FAINT" -v off="$C_OFF" '
+      -v dim="$C_DIM" -v faint="$C_FAINT" -v red="$C_RED" -v off="$C_OFF" '
     function when(at) { return substr(at, 1, 10) == today ? substr(at, 12) : at }
     function header(line, by, lead,   who, at) {
       who = line; sub(by, "", who); sub(/, [^,]*$/, "", who)
@@ -54,8 +54,11 @@ thread_view() {
     function release() { if (quoting != "") body(quoting); quoting = "" }
     { sub(/[ \t\r]+$/, "") }
     NR == 1 && /^# / { next }
+    /^<!-- .* -->$/ { next }
     /^## / { release(); header(substr($0, 4), "^[^ ]* from ", mid); indent = ""; color = text; next }
-    /^### └ comment by / { release(); header(substr($0, 5), "^└ comment by ", "  " faint "└ " dim); indent = "    "; color = dim; next }
+    /^### └ (comment|reply) by / { release(); header(substr($0, 5), "^└ (comment|reply) by ", "  " faint "└ " dim); indent = "    "; color = dim; next }
+    /^_(└|◦) .*_$/ { release(); print "  " faint substr($0, 2, length($0) - 2) off; gap = 0; next }
+    /^_── .*_$/ { release(); print ""; print red substr($0, 2, length($0) - 2) off; said = 0; gap = 0; next }
     /^_[0-9]+ comments?: .*_$/ { release(); print ""; print faint substr($0, 2, length($0) - 2) off; next }
     /^On .*(wrote|skrev):$/ { next }
     quoting != "" && /(wrote|skrev):$/ { quoting = ""; next }
@@ -319,6 +322,7 @@ cancel  -       stop its agent now, and hold it
 name    -       change what the board calls it
 rm      ctrl-x  delete it and its worktree
 path    -       print its worktree
+copy    alt-c   its links on the clipboard: the pull request, and what its preview put online
 agent   ctrl-s  who solves every step from its next run: another agent, or the pipeline again
 sign    -       read the reply, change it, and sign it: then it leaves
 inbox   -       the mail it watches: read a conversation, reply to it, archive it
@@ -340,12 +344,15 @@ archive  ctrl-x  archive it, where the mail lives
 keys     ?       every key, in the pane; again: the thread'
 # t thread's: typing is fzf's query, so the keys are ctrl- ones, and ? and every letter are text
 THREAD_KEYS='line     enter   a new line; backspace on an empty one takes the line above back
-done     ctrl-d  end it: it holds on the board, and nothing leaves yet
+release  ctrl-y  send what you wrote: it leaves now
 comment  ctrl-t  a comment for your teammates instead, or a reply again; what you wrote comes along
 draft    ctrl-s  an agent writes it, from what you wrote so far; again: writes it again
-release  ctrl-y  sign what you ended: it leaves
-edit     ctrl-e  write on at the end of what you ended
-discard  ctrl-x  delete what you ended'
+edit     ctrl-e  write on at the end of what is held
+discard  ctrl-x  delete what is held
+up       ctrl-k  where a source has threads, a reply into the thread of the message above; elsewhere the pane scrolls up
+down     ctrl-j  the same for the message below, and past the last, the end again; elsewhere the pane scrolls down
+channel  ctrl-g  where a source has threads: let go of the message, and write to the whole channel
+react    ctrl-r  where a source has reactions, yours on the message, or off it again: it leaves at once'
 # t cal's: answering is the signature, so each answer is a key of its own
 CAL_KEYS='open     enter   open it in the browser
 accept   ctrl-y  accept the invite; the organizer is told
@@ -376,31 +383,50 @@ hint() {
 # fzf reads a newline in a paste as enter, which would end a form at the paste's first line. So enter in a form puts
 # a space, and a moment later runs $1 with $FZF_QUERY as it is by then: still what enter left, and it was enter;
 # else the paste went on, and the space keeps its lines apart.
-after_paste() { echo "put( )+bg-transform~sleep 0.1; echo 'transform:$1'~"; }
+after_paste() { echo "put( )+bg-transform~sleep 0.3; echo 'transform:$1'~"; }
 
-# the reply task on conversation $2 in source $1 that hasn't left yet, if there is one
+# the pipeline a reply in source $1 goes through: the one for the script it links to, if there is one (sources/slack-amino
+# links to slack, so slack-reply), else reply
+reply_pipeline() {
+  local script
+  script=$(basename "$(readlink -f "$T_ROOT/sources/$1")")
+  if [ -d "$T_ROOT/pipelines/$script-reply" ]; then echo "$script-reply"; else echo reply; fi
+}
+
+# the reply task on conversation $2 in source $1 that hasn't left yet, if there is one: to the conversation, or into a
+# thread in it (conversation: slack-amino C123/TS)
 reply_to() {
-  local found
-  for found in $(grep -lx "conversation: $1 $2" /dev/null "$T_TASKS"/*/task.md 2> /dev/null || true); do
+  local found pipeline
+  pipeline=$(reply_pipeline "$1")
+  for found in $(grep -lE "^conversation: $1 $2(/[0-9.]+)?$" /dev/null "$T_TASKS"/*/task.md 2> /dev/null || true); do
     found=${found%/task.md}
-    if [ "$(cat "$found/pipeline")" = reply ] && [ "$(cat "$found/step")" != done ]; then echo "$found"; return; fi
+    if [ "$(cat "$found/pipeline")" = "$pipeline" ] && [ "$(cat "$found/step")" != done ]; then echo "$found"; return; fi
   done
 }
 
 # the actions worth offering for a task now; Enter does the first. A watch offers its mail, and a reply
 # held for your signature the signing.
 offers() {
+  local screen
+  screen=$(watch_screen "$1")
   case $(state "$1") in
-    running) echo log diff cancel hold rm ;;
-    ready)   if [ -f "$1/inbox" ]; then echo inbox log
-             elif [ -f "$1/calendar" ]; then echo cal log
-             elif [ -f "$1/roadmap" ]; then echo roadmap log
+    running) if [ -n "$screen" ]; then echo "$screen log"; else echo log diff cancel hold rm; fi ;;   # a watch polling is still its screen
+    ready)   if [ -n "$screen" ]; then echo "$screen log"
              elif [ -s "$1/log/$(cat "$1/step").log" ]; then echo log run hold
              else echo run hold rm; fi ;;
     after*)  echo log rm ;;
     HOLD)    if [[ $(cat "$1/step") == *-sign ]]; then echo sign say rm; else echo say log attach hold; fi ;;
-    *)       if [ -f "$1/answer.md" ]; then echo say stack rm; else echo diff stack say rm; fi ;;
+    *)       if [ -f "$1/answer.md" ]; then echo say stack rm
+             elif [ -s "$1/pr" ] || [ -s "$1/preview" ]; then echo diff copy stack say rm
+             else echo diff stack say rm; fi ;;
   esac
+}
+
+# the screen a watch opens: inbox, cal or roadmap; nothing for a task that watches nothing
+watch_screen() {
+  if [ -f "$1/inbox" ]; then echo inbox
+  elif [ -f "$1/calendar" ]; then echo cal
+  elif [ -f "$1/roadmap" ]; then echo roadmap; fi
 }
 
 # what t ui's pane shows for a task: $2 once you picked one with tab, else the log while it runs

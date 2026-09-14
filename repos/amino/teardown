@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# teardown — remove this worktree's amino containers and their volume. No .env means run-tests never
-# ran here, and compose would have to guess which project to take down.
+# teardown — remove this worktree's amino containers, their volume, and the tunnels a preview opened. No .env
+# means run-tests never ran here, and compose would have to guess which project to take down.
 [ -f .env ] || exit 0
+. ./.env
+docker rm -f "${COMPOSE_PROJECT_NAME}"_tunnel_{app,backoffice,api} > /dev/null 2>&1
 exec docker compose -f docker-compose.dev.yml down -v --remove-orphans

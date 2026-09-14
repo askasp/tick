@@ -1,0 +1,7 @@
+# slack-reply: a message you write in t thread, to a channel or into a thread (conversation: slack C123, or C123/TS).
+# Nothing is posted until you sign it. Slack keeps no draft a token can write, so signing sends it, as you, and only
+# while the channel is the one you read: else it holds again, with what was said since.
+REPO=none
+OPTIONAL=draft
+CLI_draft=claude
+DELIVER=send

@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # post — the comment you signed goes up on the conversation, where it lives: for your teammates, and nobody outside.
+# The inbox's copy of the thread catches up at once, not at the watch's next poll.
 set -euo pipefail
 [ -f signed ] || { echo "the comment isn't signed; sign it with: t sign $((10#${PWD##*/}))" >&2; exit 1; }
 read -r source id <<< "$(sed -n '/^conversation: /{s/^conversation: //p;q}' task.md)"
 "$T_ROOT/sources/$source" comment "$id" < answer.md > comment_id.tmp
 mv comment_id.tmp comment_id
+dir=$T_VAR/mail/$source/$id
+if [ -d "$dir" ] && "$T_ROOT/sources/$source" thread "$id" > "$dir/thread.tmp"; then mv "$dir/thread.tmp" "$dir/thread.md"
+else rm -f "$dir/thread.tmp"; fi
 rm signed

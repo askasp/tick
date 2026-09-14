@@ -9,9 +9,14 @@
 #   archive ID         archives conversation ID
 #   sent SINCE         the mail you sent since SINCE, a JSON line each: id, to, subject, sent_at, text without quotes
 #   comment ID         the text on stdin as your comment on conversation ID: internal, only your teammates see it
+#   gone ID…           those of the conversations given that are closed in Front (archived, deleted, spam): the watch drops them
+#   can VERB           what VERB is called here, if Front has it (t inbox and t thread offer only what a source can do)
 # A source is to mail what a driver is to an AI CLI: another one is an executable here with the same verbs.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
+if [ "${1:-}" = can ]; then
+  case ${2:-} in poll | thread | draft | send | archive | sent | comment | gone) echo "$2"; exit 0 ;; *) exit 1 ;; esac
+fi
 conf=${XDG_CONFIG_HOME:-$HOME/.config}/front/env
 [ -r "$conf" ] || die "no $conf; log in with: t front login"
 . "$conf"
@@ -137,7 +142,14 @@ comment() {
   call POST "/conversations/$id/comments" <<< "$body" | jq -r .id
 }
 
+gone() {
+  local id
+  for id; do
+    call GET "/conversations/$id" 2> /dev/null | jq -r --arg id "$id" 'select(.status | test("archived|deleted|spam|trashed")) | $id' || true
+  done
+}
+
 case ${1:-} in
-  poll | thread | draft | send | archive | sent | comment) verb=$1; shift; "$verb" "$@" ;;
+  poll | thread | draft | send | archive | sent | comment | gone) verb=$1; shift; "$verb" "$@" ;;
   *) die "usage: sources/front poll SINCE | thread ID | draft ID [DRAFT] < reply | send ID < reply | archive ID | sent SINCE | comment ID < text" ;;
 esac

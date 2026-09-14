@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A stand-in for gh. `pr checks` answers with the next line of $FAKE/checks:
 # pass | pending | fail (default pass), with gh's exit codes (0, 8, 1).
-# `pr view` answers with the next line of $FAKE/pr_state (default OPEN).
+# `pr view` answers with the next line of $FAKE/pr_state (default OPEN). `pr comment` adds its body to $FAKE/comments.
 # `api graphql` answers a project's items with $FAKE/gh/items, and a search for the issues off it with $FAKE/gh/offboard.
 # `issue create` numbers the issues it makes from #15, and waits while $FAKE/gh/hold is there.
 set -eu
@@ -23,6 +23,7 @@ case "$1 $2" in
       fail)    printf 'build\tfail\t1m2s\t%s\n' $link; exit 1 ;;
     esac ;;
   "pr view")   pop pr_state OPEN ;;
+  "pr comment") cat >> "$FAKE/comments" ;;
   "run view")  echo "FAIL test_widget: expected 2, got 3" ;;
   "auth status") ;;
   "issue create") while [ -e "$FAKE/gh/hold" ]; do sleep 0.05; done; echo "https://github.com/$4/issues/$(( 14 + $(grep -c '^issue create' "$FAKE/gh.calls") ))" ;;

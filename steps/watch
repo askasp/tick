@@ -28,15 +28,26 @@ while read -r conv; do
   mkdir -p "$dir"
   printf '%s\n' "$conv" > "$dir/conv.tmp"
   mv "$dir/conv.tmp" "$dir/conv.json"
+  rm -f "$dir/gist"                                       # it was about the thread before this
+  if [ "$(jq -r .why <<< "$conv")" = channel ]; then       # a count on the list: t thread reads it when you open it
+    rm -f "$dir/thread.md"
+    continue
+  fi
   "$T_ROOT/sources/$SOURCE" thread "${dir##*/}" > "$dir/thread.tmp"
   mv "$dir/thread.tmp" "$dir/thread.md"
-  rm -f "$dir/gist"                                       # it was about the thread before this
 done < poll.tmp
 rm poll.tmp
 touch -d "@$started" "$polled"
 
+if "$T_ROOT/sources/$SOURCE" can gone > /dev/null 2>&1; then   # closed where it lives (archived in Front): off the list here
+  kept=("$cache"/*/conv.json)
+  kept=("${kept[@]%/conv.json}")
+  for id in $("$T_ROOT/sources/$SOURCE" gone "${kept[@]##*/}" || true); do rm -rf "${cache:?}/$id"; done
+fi
+
 for dir in "$cache"/*/; do
   if [ -f "$dir/gist" ]; then continue; fi
+  if [ ! -f "$dir/thread.md" ]; then continue; fi          # a count on the list (or no conversation at all): no agent reads it
   code=0
   (cd / && agent gist) < "$dir/thread.md" > "$dir/gist.tmp" || code=$?
   if [ "$code" = 75 ]; then rm -f "$dir/gist.tmp"; break; fi   # every agent slot is busy: the rest on the next poll
@@ -44,7 +55,10 @@ for dir in "$cache"/*/; do
   rm -f "$dir/gist.tmp"
 done
 
-today=$(cat /dev/null "$cache"/*/conv.json | jq -s --argjson midnight "$(date -d 00:00 +%s)" 'map(select(.updated_at >= $midnight)) | length')
-echo "$today today" > note.tmp && mv note.tmp note
-echo "$SOURCE: $today today"
+today=$(cat /dev/null "$cache"/*/conv.json | jq -rs --argjson midnight "$(date -d 00:00 +%s)" '
+  map(select(.updated_at >= $midnight and .why != "channel"))       # a channel that involves you not is no work
+  | "\(length) today" + (map(select(.why // "" | test("mention"))) | length
+                         | if . == 0 then "" elif . == 1 then " · 1 mention" else " · \(.) mentions" end)')
+echo "$today" > note.tmp && mv note.tmp note
+echo "$SOURCE: $today"
 exit 75

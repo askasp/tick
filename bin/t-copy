@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# t copy [TASK] — put its links on the clipboard, a "NAME URL" line each: its pull request, then what its preview put online
+# Wayland's wl-copy, X's xclip or macOS's pbcopy, else the terminal's own clipboard (OSC 52), which reaches over ssh.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+task=$(task_dir "${1:-}") || exit 1
+n=$(task_num "$task")
+
+links() {
+  if [ -s "$task/pr" ]; then echo "PR $(cat "$task/pr")"; fi
+  if [ -s "$task/preview" ]; then cat "$task/preview"; fi
+}
+text=$(links)
+[ -n "$text" ] || die "task $n has no links yet: a pull request, or a preview (t resume $n preview)"
+
+# a clipboard program stays behind to serve what it holds: with our stdout, t ui's key would wait for it
+if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy > /dev/null; then printf %s "$text" | wl-copy > /dev/null 2>&1
+elif [ -n "${DISPLAY:-}" ] && command -v xclip > /dev/null; then printf %s "$text" | xclip -selection clipboard > /dev/null 2>&1
+elif command -v pbcopy > /dev/null; then printf %s "$text" | pbcopy
+elif { : > /dev/tty; } 2> /dev/null; then printf '\e]52;c;%s\a' "$(printf %s "$text" | base64 -w0)" > /dev/tty
+else die "no clipboard here, and no terminal to hand the links to; t show $n prints them"
+fi
+echo "copied $(wc -l <<< "$text") links of task $n"

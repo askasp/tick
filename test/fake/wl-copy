@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# A stand-in for wl-copy: the clipboard is $FAKE/clipboard.
+cat > "$FAKE/clipboard"

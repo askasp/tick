@@ -2,7 +2,8 @@
 # sources/gmail VERB … — the mail of one Google account, as a source. Link it under the account's name
 # (ln -s gmail sources/work) and it is that account's (~/.config/google/work/, t google login work). sources/front's verbs:
 #   poll SINCE         inbox threads with mail since SINCE (epoch seconds), newest first, a JSON line each: id, subject,
-#                      from (who wrote last, not you), updated_at, why (inbox, unread)
+#                      from (who wrote last, not you), updated_at, why (inbox, unread); SEARCH= in the watch's pipeline
+#                      env narrows it, in Gmail's search words: SEARCH='("native app" OR aksel)'
 #   thread ID          the thread as markdown: its subject, then each message oldest first, without quoted lines or drafts
 #   draft ID [DRAFT]   the reply on stdin as a draft in the thread (a Gmail draft is yours alone), or into draft DRAFT
 #   send ID            the reply on stdin, sent as you in the thread
@@ -11,6 +12,9 @@
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 . "$T_ROOT/lib/google.sh"
 set -euo pipefail
+if [ "${1:-}" = can ]; then                              # what a verb is called here, as sources/front says
+  case ${2:-} in poll | thread | draft | send | archive | sent) echo "$2"; exit 0 ;; *) exit 1 ;; esac
+fi
 account=${0##*/}
 [ "$account" != gmail ] || die "sources/gmail is one account's mail, linked under its name: ln -s gmail $T_ROOT/sources/NAME, then: t google login NAME"
 google_account "$account"
@@ -41,7 +45,7 @@ me() { google GET "$api/profile" | jq -r '.emailAddress | ascii_downcase'; }
 poll() {
   local since=${1:?usage: sources/$account poll SINCE} me id
   me=$(me)
-  listing "$api/threads?maxResults=100&q=$(uri "in:inbox after:$since")" threads | jq -r .id | while read -r id; do
+  listing "$api/threads?maxResults=100&q=$(uri "in:inbox after:$since ${SEARCH:-}")" threads | jq -r .id | while read -r id; do
     google GET "$api/threads/$id?format=metadata&metadataHeaders=Subject&metadataHeaders=From" | jq -c --arg me "$me" "$defs"'
       [.messages[] | select(drafted | not)] as $mail
       | {id, subject: ($mail[0] | header("subject")), updated_at: ($mail[-1] | when),

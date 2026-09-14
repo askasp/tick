@@ -1,17 +1,81 @@
 #!/usr/bin/env bash
-# t google login NAME — log a Google account in, once, for what is linked under its name: sources/NAME (mail), calendars/NAME
+# t google login NAME [mail] [calendar] — log a Google account in under a name of your own: its OAuth client, a login link, and its rows on the board
 #
-# ~/.config/google/NAME/env holds the OAuth client to log in with (GOOGLE_CLIENT_ID=, GOOGLE_CLIENT_SECRET=): a Desktop
-# app in Google Cloud. Google asks you in the browser, sends the answer to a one-time listener on 127.0.0.1, and the
-# refresh token lands beside the env. It may do what the links need: gmail.modify for mail, calendar.events for a calendar.
+# The account needs an OAuth client of its own, a Desktop app in its Google Cloud. The first login says where to make it
+# and asks for its id and secret (~/.config/google/NAME/env). Then it prints the link to log in with, and opens it:
+# Google sends the answer to a one-time listener on 127.0.0.1, or, with the browser on another machine, you paste the
+# address its page ended on. Only once the refresh token is kept does the account get what it logged in for: mail (the
+# default) links sources/NAME → gmail and makes pipelines/NAME-mail; calendar links calendars/NAME → gcal and makes
+# pipelines/NAME-cal. It may do only what those need: gmail.modify for mail, calendar.events for a calendar.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 . "$T_ROOT/lib/google.sh"
 set -euo pipefail
-[ "${1:-}" = login ] && [ -n "${2:-}" ] || die "usage: t google login NAME"
-account=$2 scopes=
-if [ -L "$T_ROOT/sources/$account" ]; then scopes+=" https://www.googleapis.com/auth/gmail.modify"; fi
-if [ -L "$T_ROOT/calendars/$account" ]; then scopes+=" https://www.googleapis.com/auth/calendar.events"; fi
-[ -n "$scopes" ] || die "$account has no mail or calendar to log in for; link one first: ln -s gmail $T_ROOT/sources/$account, or: ln -s gcal $T_ROOT/calendars/$account"
+[ "${1:-}" = login ] && [ -n "${2:-}" ] || die "usage: t google login NAME [mail] [calendar]"
+account=$2 wants=("${@:3}") scopes=
+[[ $account =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "an account's name is lowercase letters, digits and dashes, like periode"
+[[ $account != @(gmail|gcal) ]] || die "$account is the script every account links to; name this one, like periode"
+
+# what logging in for $1 (mail or calendar) makes: the link, what it links to, the pipeline, its step, and what it watches by
+parts() {
+  case $1 in
+    mail)     link=sources/$account target=gmail pipeline=$account-mail step=watch setting=SOURCE watched=inbox
+              scope=https://www.googleapis.com/auth/gmail.modify ;;
+    calendar) link=calendars/$account target=gcal pipeline=$account-cal step=agenda setting=CALENDAR watched=calendar
+              scope=https://www.googleapis.com/auth/calendar.events ;;
+    *)        die "an account logs in for mail or calendar, not $1" ;;
+  esac
+}
+
+ask() {   # PROMPT [hidden]: a line from you; in a terminal, a secret isn't echoed
+  local line
+  if [ -t 0 ]; then
+    read -r ${2:+-s} -p "$1" line
+    if [ -n "${2:-}" ]; then echo >&2; fi
+  else
+    read -r line || true
+  fi
+  printf %s "$line"
+}
+
+code_in() { sed -n 's/.*[?&]code=\([^& ]*\).*/\1/p' <<< "$1"; }
+
+if [ ${#wants[@]} -eq 0 ]; then                        # what it has linked already, else its mail
+  if [ -L "$T_ROOT/sources/$account" ]; then wants+=(mail); fi
+  if [ -L "$T_ROOT/calendars/$account" ]; then wants+=(calendar); fi
+  if [ ${#wants[@]} -eq 0 ]; then wants=(mail); fi
+fi
+for want in "${wants[@]}"; do
+  parts "$want"
+  scopes+=" $scope"
+  if [ -e "$T_ROOT/$link" ] && [ "$(readlink "$T_ROOT/$link")" != "$target" ]; then die "$link is something else already; pick another name"; fi
+  if [ -e "$T_ROOT/pipelines/$pipeline" ] && ! grep -qx "$setting=$account" "$T_ROOT/pipelines/$pipeline/env" 2> /dev/null; then
+    die "pipelines/$pipeline is another pipeline already; pick another name"
+  fi
+done
+
+dir=$(google_dir "$account")
+if [ ! -r "$dir/env" ]; then
+  cat >&2 << EOF
+$account has no OAuth client yet. Make one, once, in its Google Cloud, signed in as that account (the menu top right
+switches), with the project tick picked at the top of each page after the first:
+
+  1. https://console.cloud.google.com/projectcreate
+     Project name tick, Location the account's organization, Create
+  2. https://console.cloud.google.com/apis/library/gmail.googleapis.com
+     Enable; for a calendar, also https://console.cloud.google.com/apis/library/calendar-json.googleapis.com
+  3. https://console.cloud.google.com/auth/overview
+     Get started: App name tick, your email, Audience Internal (an External one logs out every 7 days), your email, Create
+  4. https://console.cloud.google.com/auth/clients/create
+     Application type Desktop app, Name tick, Create; copy the Client ID and the Client secret it shows
+
+EOF
+  id=$(ask "client id: ")
+  secret=$(ask "client secret: " hidden)
+  [ -n "$id" ] && [ -n "$secret" ] || die "no client id and secret, so nothing changed; once you have them: t google login $account"
+  mkdir -p "$dir"
+  (umask 077 && printf 'GOOGLE_CLIENT_ID=%q\nGOOGLE_CLIENT_SECRET=%q\n' "$id" "$secret" > "$dir/env.tmp")
+  mv "$dir/env.tmp" "$dir/env"
+fi
 google_client "$account"
 
 port=$((20000 + RANDOM % 20000))
@@ -19,19 +83,46 @@ redirect=http://127.0.0.1:$port
 url="https://accounts.google.com/o/oauth2/v2/auth?client_id=$(uri "$GOOGLE_CLIENT_ID")&redirect_uri=$(uri "$redirect")"
 url+="&response_type=code&access_type=offline&prompt=consent&scope=$(uri "${scopes# }")"
 echo "t: log $account in, in your browser: $url" >&2
+echo "t: pick $account's Google account and allow it. If the page it lands on won't load (the browser is on another machine), paste that page's address here." >&2
 if [ -t 1 ]; then xdg-open "$url" > /dev/null 2>&1 || true; fi
 
-request=$(printf 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\ntick has the login for %s; close this tab.\r\n' "$account" |
-  nc -l -N 127.0.0.1 "$port" | head -1) || true   # head exits on the first line; the code check below is the guard
-code=$(sed -n 's/^GET [^ ]*[?&]code=\([^& ]*\).*/\1/p' <<< "$request")
-[ -n "$code" ] || die "Google sent no login back (${request:-nothing}); try again: t google login $account"
+answer=$(mktemp -d)
+printf 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\ntick has the login for %s; close this tab.\r\n' "$account" > "$answer/page"
+nc -l -N 127.0.0.1 "$port" < "$answer/page" > "$answer/request" 2> /dev/null &
+listener=$!
+trap 'kill "$listener" 2> /dev/null || true; rm -rf "$answer"' EXIT   # the listener may be gone already
+code=
+for ((tries = 0; tries < 1200; tries++)); do             # ten minutes: the browser's answer, or the address you paste
+  code=$(code_in "$(head -1 "$answer/request")")
+  if [ -n "$code" ]; then break; fi
+  if [ -t 0 ]; then
+    if read -rt 0.5 pasted; then code=$(code_in "$pasted"); fi
+    if [ -n "$code" ]; then break; fi
+  elif kill -0 "$listener" 2> /dev/null; then sleep 0.5
+  else code=$(code_in "$(head -1 "$answer/request")"); break; fi
+done
+[ -n "$code" ] || die "Google sent no login back; try again: t google login $account"
 
 refresh=$(printf 'code=%s&client_id=%s&client_secret=%s&redirect_uri=%s&grant_type=authorization_code' \
     "$code" "$(uri "$GOOGLE_CLIENT_ID")" "$(uri "$GOOGLE_CLIENT_SECRET")" "$(uri "$redirect")" |
   curl -sfS --data-binary @- https://oauth2.googleapis.com/token | jq -r '.refresh_token // empty') || true
 [ -n "$refresh" ] || die "Google gave no refresh token for $account; try again: t google login $account"
-
-dir=$(google_dir "$account")
 (umask 077 && printf '%s\n' "$refresh" > "$dir/refresh_token.tmp")
 mv "$dir/refresh_token.tmp" "$dir/refresh_token"
 echo "t: $account is logged in for:${scopes//https:\/\/www.googleapis.com\/auth\//}" >&2
+
+for want in "${wants[@]}"; do
+  parts "$want"
+  if [ ! -e "$T_ROOT/$link" ]; then ln -s "$target" "$T_ROOT/$link"; fi
+  if [ ! -e "$T_ROOT/pipelines/$pipeline" ]; then
+    mkdir "$T_ROOT/pipelines/$pipeline"
+    ln -s "../../steps/$step" "$T_ROOT/pipelines/$pipeline/10-$step"
+    printf '# %s: the %s of the Google account %s, as one row on the board (t google login %s)\nREPO=none\n%s=%s\n' \
+      "$pipeline" "$want" "$account" "$account" "$setting" "$account" > "$T_ROOT/pipelines/$pipeline/env"
+    if [ "$want" = mail ]; then
+      printf 'POLL=300\nCLI_watch=opencode\n# only the mail that matters to you, in Gmail'"'"'s search words:\n# SEARCH='"'"'("native app" OR aksel)'"'"'\n' \
+        >> "$T_ROOT/pipelines/$pipeline/env"
+    fi
+  fi
+  if ! grep -qsx "$account" "$T_TASKS"/*/"$watched"; then echo "t: put its $want on the board once: t new -p $pipeline \"${pipeline//-/ }\"" >&2; fi
+done

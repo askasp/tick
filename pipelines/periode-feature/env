@@ -1,0 +1,20 @@
+# periode-feature: a change to Periode's monorepo (repos/mono) from any directory: implement, test and review,
+# then a pull request. The agents follow the repo's CLAUDE.md files and skills, and the house-rules review pass
+# holds the diff to them. With +plan, a planner first decides whether it is one pull request or a stack of
+# small ones; with +ci, the task waits for the PR's checks and fixes them.
+REPO=mono
+OPTIONAL="plan ci"
+# Who solves each agent step (claude or opencode). MODEL_<step>= pins a model for it, and
+# EFFORT_<step>= how hard claude thinks; every other step thinks at T_EFFORT (etc/tick.conf).
+CLI_plan=claude                        # the planner gets the latest Opus, thinking as hard as it can
+MODEL_plan=opus
+EFFORT_plan=max
+CLI_implement=opencode
+CLI_review=opencode
+CLI_sync=opencode                      # the merger, when the base moved on
+
+# The review reads the diff once per mindset named here, each time for one thing only (mindsets/).
+# data and trust are left to jobs/idle-review.
+MINDSETS="intent house-rules defects blast-radius tests craft"
+# From the third round on, only these may still send the task back: a broken house rule still does.
+LATE_MINDSETS="intent house-rules defects"

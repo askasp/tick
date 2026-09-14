@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# preview — bring the branch up where people can click through it. PREVIEW, run in the worktree, starts it
+# and prints one "NAME URL" line per surface. The links go to ./preview, and on the PR whenever they change.
+# The task finishes with the preview still up: TEARDOWN, which `t rm` runs, takes it down.
+set -uo pipefail
+task=$PWD
+if [ -z "${PREVIEW:-}" ]; then
+  echo "+preview needs PREVIEW= in the repo's env: a command that starts the app and prints its links" > hold
+  exit 1
+fi
+cd -P work || exit 1
+
+echo "\$ $PREVIEW"
+bash -c "$PREVIEW" > "$task/preview.out" || exit 1
+grep -E '^[^ ]+ https?://[^ ]+$' "$task/preview.out" > "$task/preview.tmp"
+if [ ! -s "$task/preview.tmp" ]; then
+  echo "$PREVIEW printed no \"NAME URL\" lines"
+  exit 1
+fi
+cat "$task/preview.tmp"
+if cmp -s "$task/preview.tmp" "$task/preview"; then rm "$task/preview.tmp"; exit 0; fi
+mv "$task/preview.tmp" "$task/preview"
+
+if [ -s "$task/pr" ]; then
+  { echo "Preview of $(git rev-parse --short HEAD):"; echo; awk '{ print "- " $1 ": " $2 }' "$task/preview"; } |
+    gh pr comment "$(cat "$task/pr")" --body-file -
+fi
