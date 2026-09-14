@@ -77,16 +77,17 @@ without its diff.
 The keys are all ctrl-, so typing still searches, and they reach the board
 over ssh from any terminal. `^l` turns the pane to the log (again: the raw
 log), `^r` holds the task (the prompt asks why) or resumes it, `^t` stacks a
-task on it, `^n` starts a new one, and `^x` deletes one. `^g` deletes every
+task on it, `^n` starts a new one, and `^x` deletes one at once, worktree
+and all (the branch stays). `^g` deletes every
 task done, answered or held for 12 hours, once the pane has listed them and you
 press Enter. `^o` attaches to its
 agent, the one key that leaves the board, for the agent's own screen. Everything
 else is a word away: `?` lists every action in the pane, with the agent's
 session id, and you type the one you want, or its first letters, and press
 Enter. `cancel` stops a running agent now and holds the task, `run` runs it
-in the background with the pane following it, and `rm` deletes it once the
-pane has said what that removes and you press Enter again. `^x` on a running
-task stops its agent first. `^w` widens the pane. Without fzf, `t`
+in the background with the pane following it, and `rm` deletes it like `^x`.
+`^x` on a running task stops its agent first. In a prompt that takes words,
+esc clears what you typed, and esc again goes back. `^w` widens the pane. Without fzf, `t`
 prints `t ls`.
 
 `t log` tells a task's story in one text column, with the time in the gutter:

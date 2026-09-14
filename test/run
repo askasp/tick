@@ -594,12 +594,30 @@ test_ctrl_x_deletes_a_task_in_place() {
   new "add the widget" > /dev/null
   new "fix the gadget" > /dev/null
   eq "$(keyfor rm)" ctrl-x
-  t ui --key "$(keyfor rm)" 1 '' | grep -q 'delete 1?'
-  t ui --pane 1 '' | grep -q 'Deletes its directory'
-  [ -d "$(dir 0001)" ]
-  t ui --key enter 1 '' > /dev/null
+  t ui --key "$(keyfor rm)" 1 '' | grep -q 'change-prompt(task> )'   # no asking: gone, and still on the board
   [ ! -e "$(dir 0001)" ]
   eq "$(cat "$T_UI/new")" 2
+  eq "$(cat "$T_UI/mode")" board
+}
+
+test_the_board_says_why_ctrl_x_could_not_delete() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  parent=$(new "parent work")
+  new "child work" --on $parent > /dev/null
+  t ui --key "$(keyfor rm)" 1 '' | grep -q 'change-footer~.*stacked on'
+  [ -d "$(dir $parent)" ]
+}
+
+test_esc_in_a_form_clears_the_words_before_going_back() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  t ui --key "$(keyfor new)" '' '' > /dev/null
+  t ui --key enter local '' > /dev/null                   # the pipeline, then the title
+  eq "$(t ui --key esc '' 'add the wid')" clear-query
+  eq "$(cat "$T_UI/mode")" "new -"
+  t ui --key esc '' '' > /dev/null
+  eq "$(cat "$T_UI/mode")" board
 }
 
 test_clean_deletes_what_is_done_answered_or_held_for_12_hours() {
@@ -1248,10 +1266,7 @@ test_the_board_holds_renames_and_deletes_in_place() {
   t ui --key enter 1 'Widget' > /dev/null
   eq "$(cat "$(dir 0001)/name")" Widget
   t ui --key "$(keyfor keys)" 1 '' > /dev/null
-  t ui --key enter 1 rm > /dev/null
-  t ui --pane 1 '' | grep -q 'Deletes its directory'   # the pane says what goes before Enter does it
-  [ -d "$(dir 0001)" ]
-  t ui --key enter 1 '' > /dev/null
+  t ui --key enter 1 rm | grep -q 'change-prompt(task> )'
   [ ! -e "$(dir 0001)" ]
   eq "$(cat "$T_UI/new")" 2                              # the cursor goes to the next task
   t ui --key "$(keyfor log)" 2 '' > /dev/null
