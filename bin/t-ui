@@ -128,6 +128,12 @@ if [ "${1:-}" = --pane ]; then
           echo "${C_RED}Task $(task_num "${child%/after}") is stacked on it: delete that one first.$C_OFF"
         fi
       done ;;
+    clean)
+      echo "${C_RED}delete$C_OFF  ${C_DIM}every task done, answered or held for 12 hours, and its worktree$C_OFF"
+      echo
+      t-clean -n
+      echo
+      echo "${C_DIM}The branches stay.$C_OFF" ;;
     do)
       echo "${C_BRIGHT}task $target$C_OFF  ${C_DIM}$(name "$task")$C_OFF"
       echo
@@ -137,7 +143,7 @@ if [ "${1:-}" = --pane ]; then
         echo "$C_MID$(pad 7 "$(keyname "$key")")$C_OFF$(pad 8 "$action")$C_DIM$what$C_OFF"
       done <<< "$ACTIONS"
       echo
-      for pair in "$(key new)|new task" "tab|the pane: show, steps, log, diff" "^d ^u|scroll the pane" "^w|a wide pane, and back" \
+      for pair in "$(key new)|new task" "$(key clean)|delete what is done, answered or held for 12h" "tab|the pane: show, steps, log, diff" "^d ^u|scroll the pane" "^w|a wide pane, and back" \
                   "$(key keys) esc|back to the board"; do
         echo "$C_MID$(pad 7 "${pair%%|*}")$C_OFF$C_DIM${pair#*|}$C_OFF"
       done
@@ -188,10 +194,19 @@ if [ "${1:-}" = --key ]; then
     default_pipeline > "$T_UI/def"
     form new - "new> " "$(cat "$T_UI/def")" "nofollow,~2" "$(keys new)"
   }
-  stack_form() {
-    printf -- '--on\n%s\n' "$1" > "$T_UI/args"; : > "$T_UI/repo"; : > "$T_UI/cli"
-    cat "$(tdir "$1")/pipeline" > "$T_UI/def"
-    form stack "$1" "stack on $1> " "$(cat "$T_UI/def")" "nofollow,~2" "$(keys stack)"
+  stack_form() {   # on an answer, a task made from it: in its repo's pipeline
+    local task
+    task=$(tdir "$1")
+    : > "$T_UI/repo"; : > "$T_UI/cli"
+    if [ -f "$task/answer.md" ]; then
+      printf -- '--from\n%s\n' "$1" > "$T_UI/args"
+      default_pipeline "$(cat "$task/repo" 2> /dev/null)" > "$T_UI/def"
+      form stack "$1" "task from $1> " "$(cat "$T_UI/def")" "nofollow,~2" "$(keys stack)"
+    else
+      printf -- '--on\n%s\n' "$1" > "$T_UI/args"
+      cat "$task/pipeline" > "$T_UI/def"
+      form stack "$1" "stack on $1> " "$(cat "$T_UI/def")" "nofollow,~2" "$(keys stack)"
+    fi
   }
   say_form() {
     local task first
@@ -238,6 +253,9 @@ if [ "${1:-}" = --key ]; then
       attach) echo "execute(t-attach $id)+reload-sync~t-ui --rows~" ;;      # the agent's own screen: the one that leaves
       path)   echo "change-footer~$(t-path "$id" 2>&1 | sed 's/^t: //')~" ;;
       agent)  echo "refresh-preview+change-footer~$(t-agent "$id" 2>&1 | sed 's/^t: //')   $(key agent):another~" ;;
+      inbox)  echo "execute(t-inbox $id)+reload-sync~t-ui --rows~+refresh-preview" ;;   # its own screen, like diff
+      cal)    echo "execute(t-cal $id)+reload-sync~t-ui --rows~+refresh-preview" ;;
+      sign)   echo "execute~t-sign $id || read -rp 'Enter: back to the board ' _~+reload-sync~t-ui --rows~+refresh-preview" ;;
     esac
   }
   submit() {   # what the prompt's words were for, sent with enter or (new, stack) with details
@@ -269,6 +287,9 @@ if [ "${1:-}" = --key ]; then
             t-rm $force "$target" 2> "$T_UI/err" || failed
             if [ -n "$cursor" ]; then echo "$cursor" > "$T_UI/new"; fi
             back "$cursor" ;;
+      clean) [ "$how" = enter ] || exit 0
+            t-clean 2>&1 > /dev/null | grep -v '^t: removed ' > "$T_UI/err" || true
+            if [ -s "$T_UI/err" ]; then echo "refresh-preview+$(failed)"; else back ""; fi ;;
       say)  [ "$how" = enter ] && [ -n "$q" ] || exit 0
             t-agent "$target" "$(cat "$T_UI/cli")" > /dev/null   # the agent picked here solves it from now on
             t-say "$target" "$q" "$pick" > /dev/null 2> "$T_UI/err" || failed
@@ -301,6 +322,7 @@ if [ "${1:-}" = --key ]; then
       enter)  if [ -z "$id" ]; then new_form; else act_on "$(offers "$(tdir "$id")" | cut -d' ' -f1)"; fi ;;
       *)      name=$(named "$BOARD_KEYS" "$ACTIONS")
               if [ "$name" = new ]; then new_form
+              elif [ "$name" = clean ]; then form clean - "delete these? " "" "nofollow,~2" "$(hint enter delete esc back)"
               elif [ -z "$id" ]; then exit 0
               elif [ "$name" = keys ]; then form do "$id" "do to $id> " "" "nofollow,~2" "$(hint enter do "$(key keys) esc" back)"
               else act_on "$name"
@@ -356,7 +378,7 @@ if [ $# -gt 0 ]; then
     log)    if [[ $st == after* ]]; then id=$(cat "$task/after"); fi       # queued: what it waits for
             t-log "$id" -f; exit ;;
     say)    t-say "$id" "" ;;                # no notes yet: its screen asks for them
-    stack)  t-new --on "$id" ;;              # no title yet: t compose
+    stack)  t-stack "$id" ;;                 # no title yet: t compose
     hold)   if [ "$st" = HOLD ]; then t-resume "$id"; else t-hold "$id" "$(ask "why? (Enter: held by hand)")"; fi ;;
     cancel) t-hold -f "$id" cancelled ;;
     name)   t-name "$id" "$(ask "new name? (Enter: an agent picks one)")" ;;

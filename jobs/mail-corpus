@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# jobs/mail-corpus — the mail you sent, kept as files a draft reads to write the way you do: $T_VAR/corpus/SOURCE/ID.md,
+# headers (to:, subject:, date:), a blank line, the text, and the file's mtime when it was sent. Each source named in
+# CORPUS_SOURCES (etc/tick.conf) is read from where the last run stopped; the first goes back CORPUS_SINCE. From cron:
+#   0 3 * * * $HOME/git/tick/jobs/mail-corpus >> $HOME/.tick/corpus.log 2>&1
+# Nothing reads it but lib/corpus.sh, and a draft without it is still a draft: rm -r ~/.tick/corpus undoes it.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+mkdir -p "$T_VAR/corpus"
+exec 9> "$T_VAR/corpus/lock"
+flock -n 9 || exit 0                                      # a first run reads years of mail; cron comes round sooner
+
+for source in $CORPUS_SOURCES; do
+  dir=$T_VAR/corpus/$source
+  stamp=$dir.since
+  mkdir -p "$dir"
+  started=$(date +%s)
+  since=$(cat "$stamp" 2> /dev/null || date -d "$CORPUS_SINCE ago" +%s)
+  "$T_ROOT/sources/$source" sent "$since" > "$dir.new"    # all of it before the stamp moves, or a failure loses mail
+  while read -r mail; do
+    id=$(jq -r .id <<< "$mail")
+    jq -r '"to: \(.to)\nsubject: \(.subject)\ndate: \(.sent_at | strflocaltime("%F %H:%M"))\n\n\(.text)"' <<< "$mail" > "$dir/$id.tmp"
+    touch -d "@$(jq -r '.sent_at | floor' <<< "$mail")" "$dir/$id.tmp"
+    mv "$dir/$id.tmp" "$dir/$id.md"
+  done < "$dir.new"
+  rm "$dir.new"
+  echo "$started" > "$stamp.tmp" && mv "$stamp.tmp" "$stamp"
+  echo "$(date '+%F %T') $source: $(ls "$dir" | wc -l) mails you wrote" >&2
+done

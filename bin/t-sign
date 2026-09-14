@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# t sign [TASK] — sign a reply, and it leaves on the next tick; in a terminal, $EDITOR shows it first, with its thread
+#
+# What you save is what leaves, and saving an empty reply signs nothing. Where it goes is its pipeline's DELIVER=:
+# draft saves it as a private draft where the conversation is, to send from there; send sends it as you.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+task=$(task_dir "${1:-}")
+n=$(task_num "$task") step=$(cat "$task/step")
+[ "${step#*-}" = sign ] || die "task $n waits for no signature; it is at ${step#*-} (t show $n)"
+flock -n "$task/lock" true || die "task $n is running; sign it when it stops: t log $n -f"
+
+without_trailing_blanks() { tac | sed '/[^[:space:]]/,$!d' | tac; }
+
+if [ -t 0 ] && [ -t 1 ]; then
+  f=$(mktemp --suffix=.md)
+  {
+    cat "$task/answer.md" 2> /dev/null || true
+    printf '\n# tick: your reply goes above. Lines like these are dropped, and an empty reply signs nothing.\n'
+    sed 's/^/# tick: /' "$task/thread.md"
+  } > "$f"
+  "${EDITOR:-vi}" "$f"
+  reply=$(grep -v '^# tick:' "$f" | without_trailing_blanks || true)
+  rm -f "$f"
+  grep -q '[^[:space:]]' <<< "$reply" || die "an empty reply signs nothing; task $n still waits for you: t sign $n"
+  printf '%s\n' "$reply" > "$task/answer.tmp" && mv "$task/answer.tmp" "$task/answer.md"
+fi
+grep -qs '[^[:space:]]' "$task/answer.md" || die "task $n has no reply to sign; write it in a terminal: t sign $n"
+
+source=$(sed -n 's/^conversation: \([^ ]*\).*/\1/p' "$task/task.md" | head -1)
+deliver=$(load_env "$task" > /dev/null 2>&1; echo "${DELIVER:-draft}")
+if [ "$deliver" = send ] && [ -t 0 ]; then
+  read -rp "send it as you, now? [y/N] " yes
+  [ "$yes" = y ] || die "nothing signed; task $n still waits for you: t sign $n"
+fi
+touch "$task/signed"
+"$T_ROOT/bin/t-resume" "$n" 2> /dev/null
+if [ "$deliver" = send ]; then echo "t: task $n is signed, and is sent as you on the next tick (or now: t run $n)" >&2
+else echo "t: task $n is signed, and is saved as a draft in $source on the next tick (or now: t run $n)" >&2
+fi

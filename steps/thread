@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# thread — the conversation a reply is to, from task.md's line "conversation: SOURCE ID", into thread.md, as
+# sources/SOURCE tells it. It runs first, so a reply that starts over reads what was said since.
+set -euo pipefail
+read -r source id <<< "$(sed -n 's/^conversation: //p' task.md | head -1)"
+if [ -z "${id:-}" ] || [ ! -x "$T_ROOT/sources/$source" ]; then
+  echo "task.md needs a line like: conversation: front cnv_123 (sources: $(ls "$T_ROOT/sources" | xargs))" >&2
+  exit 1
+fi
+"$T_ROOT/sources/$source" thread "$id" > thread.tmp
+mv thread.tmp thread.md

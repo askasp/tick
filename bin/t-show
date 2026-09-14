@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # t show [TASK] [--pane] — one task: its title, where it is in its pipeline, its state, what you can do next,
-# and its answer. In a terminal it pages through less, like git, and glow renders the answer's markdown.
+# and its answer; a reply's comes with the thread it answers under it. In a terminal it pages through less, like
+# git, and glow renders the markdown.
 # --pane: as t ui's pane shows it, whose top line says the state and whose board has the keys: without
 # those, and a long title cut to two lines.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
@@ -16,9 +17,9 @@ glow= width=${FZF_PREVIEW_COLUMNS:-$(tput cols 2> /dev/null || echo 80)}
 if { [ -t 1 ] || [ -n "${CLICOLOR_FORCE:-}" ]; } && command -v glow > /dev/null; then glow=1; fi   # t ui's pane forces it
 if [ "$width" -gt 100 ]; then width=100; fi
 
-answer() {   # glow writes into less, not a terminal: force its style and color, and hush its terminal queries
-  if [ -n "$glow" ]; then CLICOLOR_FORCE=1 glow -s "${GLAMOUR_STYLE:-dark}" -w "$((width - 4))" - < "$task/answer.md" 2> /dev/null
-  else cat "$task/answer.md"; fi
+rendered() {   # glow writes into less, not a terminal: force its style and color, and hush its terminal queries
+  if [ -n "$glow" ]; then CLICOLOR_FORCE=1 glow -s "${GLAMOUR_STYLE:-dark}" -w "$((width - 4))" - < "$1" 2> /dev/null
+  else cat "$1"; fi
 }
 
 field() { printf '%s%-10s%s%s\n' "$C_FAINT" "$1" "$C_OFF" "$2"; }
@@ -89,11 +90,22 @@ next_steps() {
     ready)   echo "  t run $n            start it now, in this terminal" ;;
     running) echo "  t log $n -f         watch it" ;;
     after*)  echo "  t show $waits_for            the task it waits for" ;;
-    HOLD)    echo "  t log $n            see why"
-             echo "  t say $n \"...\"      tell it what to do; it starts over from its first step"
-             echo "  t attach $n         take over the agent yourself, then: t resume $n" ;;
-    done)    if [ -f "$task/answer.md" ]; then
+    HOLD)    if [ "${step#*-}" = sign ]; then
+               echo "  t sign $n           read the reply, change it, and sign it: then it leaves"
+               if [ -n "$(find_step "$pipeline" draft "$task")" ]; then
+                 echo "  t say $n \"...\" draft  the agent writes it again, with your notes"
+               fi
+               echo "  t rm $n             drop it; nothing has left"
+             else
+               echo "  t log $n            see why"
+               echo "  t say $n \"...\"      tell it what to do; it starts over from its first step"
+               echo "  t attach $n         take over the agent yourself, then: t resume $n"
+             fi ;;
+    done)    if [ -f "$task/thread.md" ]; then
+               echo "  t say $n \"...\"      reply again, to the thread as it is by then"
+             elif [ -f "$task/answer.md" ]; then
                echo "  t say $n \"...\"      ask a follow-up"
+               echo "  t stack $n \"...\"    make it a task: the question and answer are its details"
              elif [ -f "$task/pr" ]; then
                echo "  review and merge   $(cat "$task/pr")"
                echo "  t say $n \"...\"      ask for more changes"
@@ -102,7 +114,7 @@ next_steps() {
                echo "  git -C $(cat "$task/repo") merge $(cat "$task/branch")"
                echo "  t say $n \"...\"      ask for more changes"
              fi
-             echo "  t stack $n          start a task stacked on this one"
+             if [ ! -f "$task/answer.md" ]; then echo "  t stack $n          start a task stacked on this one"; fi
              echo "  t rm $n             delete the task" ;;
   esac
 }
@@ -132,7 +144,12 @@ show() {
   fi
   if [ -s "$task/history" ]; then echo; echo "${C_FAINT}history$C_OFF"; moves; fi
   if [ -z "$in_pane" ]; then echo; echo "${C_FAINT}next$C_OFF"; next_steps; fi
-  if [ -s "$task/answer.md" ]; then echo; echo "${C_FAINT}answer$C_OFF"; answer; fi
+  if [ -f "$task/thread.md" ]; then                  # a reply: what you sign, then what it answers
+    if [ -s "$task/answer.md" ]; then echo; echo "${C_FAINT}reply$C_OFF"; rendered "$task/answer.md"; fi
+    echo; echo "${C_FAINT}thread$C_OFF"; rendered "$task/thread.md"
+  elif [ -s "$task/answer.md" ]; then
+    echo; echo "${C_FAINT}answer$C_OFF"; rendered "$task/answer.md"
+  fi
 }
 
 if [ -t 1 ]; then show | LESS=${LESS-FRX} ${PAGER:-less}; else show; fi

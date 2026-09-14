@@ -1,5 +1,5 @@
 # lib/new.sh — where a new task goes, and what t new --dry shows of it. Sourced by bin/t-new,
-# whose flags ($repo, $pipeline, $base, $on, $cli, $now, $title) these read and fill in.
+# whose flags ($repo, $pipeline, $base, $on, $from, $cli, $now, $title) these read and fill in.
 
 # the branch a repo's tasks start from: origin's copy first, since a local main may be behind
 trunk() {
@@ -23,6 +23,18 @@ last_task_num() {
   local last
   last=$(ls "$T_TASKS" 2> /dev/null | grep -x '[0-9]*' | sort -n | tail -1 || true)   # tasks/ may hold a stray file
   echo $((10#${last:-0}))
+}
+
+# what an answered task $1 asked, its follow-ups, and its answer: the details of a task made from it
+question_and_answer() {
+  local followup
+  echo "## The question (task $(task_num "$1"))"
+  sed '1s/^# //' "$1/task.md"
+  for followup in "$1"/log/feedback.*.md; do
+    if [ -f "$followup" ]; then printf '\n## Its follow-up\n\n'; cat "$followup"; fi
+  done
+  printf '\n## Its answer\n\n'
+  cat "$1/answer.md"
 }
 
 has_cron_tick() { crontab -l 2> /dev/null | grep -q 'bin/t tick'; }
@@ -58,12 +70,9 @@ row() { printf '%s%-10s%s%s\n' "$C_DIM" "$1" "$C_OFF" "$2"; }
 
 # t new --dry: the task it would make, while you can still change it (t compose's preview)
 preview() {
-  local n first who source profile def cmd="t new" flags= short sibling want
+  local n profile def cmd="t new" flags= short sibling want
   terminal_colors
   n=$(( $(last_task_num) + 1 ))
-  first=$(steps "$pipeline" "$opt" | head -1)
-  first=${first#*-}
-  who=${cli:-$(solver "$pipeline" "$first")}
 
   if [ -n "$repo" ]; then
     profile=$(profile_of "$repo")
@@ -75,9 +84,7 @@ preview() {
     row pipeline "$pipeline"
     row repo "${C_DIM}none needed$C_OFF"
   fi
-  if [ -n "$(optional "$pipeline")" ]; then row steps "$(flow "$pipeline" "$opt" | sed 's/ ([^)]*)//g')"; fi
-  if [ -n "$cli" ]; then source=--cli; else source=CLI_$first; fi
-  if [ -n "$who" ]; then row cli "$who$C_DIM  ($source)$C_OFF"; fi
+  row steps "$(AGENT_CLI=$cli flow "$pipeline" "$opt")"
   if [ -n "$now" ]; then row starts "${C_BRIGHT}now, here$C_OFF"
   elif [ -n "$on" ]; then row starts "when task $(task_num "$parent") is done"
   elif has_cron_tick; then row starts "${C_BRIGHT}next tick, < 60s$C_OFF"
@@ -91,7 +98,8 @@ preview() {
       fi
     done
   fi
-  if [ "${#title}" -gt 40 ]; then printf '\n%sname      an agent will pick a short one (title > 40)%s\n' "$C_BRIGHT" "$C_OFF"; fi
+  if [ -n "$from" ]; then row details "task $(task_num "$asked")'s question and answer"; fi
+  if [ "${#title}" -gt 40 ]; then printf '\n%sname     an agent will pick a short one (title > 40)%s\n' "$C_BRIGHT" "$C_OFF"; fi
   if [ -z "$repo" ] && [ -z "$now" ]; then printf '\n%sthe answer lands in the pane%s\n' "$C_DIM" "$C_OFF"; fi
 
   def=$(profile_get "$(profile_of "$repo")" PIPELINE)
@@ -99,6 +107,7 @@ preview() {
   elif [ "$pipeline" != "${def:-$T_PIPELINE}" ]; then
     if [ -e "$T_ROOT/bin/t-$pipeline" ]; then flags+=" -p $pipeline"; else cmd="t $pipeline"; fi
   fi
+  if [ -n "$from" ]; then flags+=" --from $(task_num "$asked")"; fi
   for want in $opt; do flags+=" +$want"; done
   if [ -n "$repo_arg" ]; then flags+=" -r $repo_arg"; fi
   if [ -n "$cli" ]; then flags+=" --cli $cli"; fi

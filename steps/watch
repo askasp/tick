@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# watch — an inbox as one row that never ends. Every POLL seconds (the pipeline's env) it asks sources/$SOURCE what
+# changed, keeps each conversation in $T_VAR/mail/$SOURCE/ID/ (conv.json, thread.md, and gist: one line an agent
+# wrote), and puts how many had something today on the board. Between polls and after one it exits 75: not yet.
+set -euo pipefail
+shopt -s nullglob
+: "${SOURCE:?needs SOURCE= in the pipeline env: the name of a file in sources/}"
+cache=$T_VAR/mail/$SOURCE
+polled=$cache/polled
+mkdir -p "$cache"
+echo "$SOURCE" > inbox.tmp && mv inbox.tmp inbox          # what the board opens on Enter
+
+if [ -f "$polled" ] && [ $(( $(date +%s) - $(stat -c %Y "$polled") )) -lt "${POLL:-300}" ]; then exit 75; fi
+
+# it runs every minute for as long as it lives, so its log keeps only the latest runs: cat, not mv, since the
+# runner is still appending to this file
+log=log/$(cat step).log
+if [ "$(wc -l < "$log")" -gt 1000 ]; then tail -n 200 "$log" > log.tmp; cat log.tmp > "$log"; rm log.tmp; fi
+
+rm -f note                                                # a poll that fails says so on the board, not the last count
+started=$(date +%s)
+since=$(stat -c %Y "$polled" 2> /dev/null || date -d '7 days ago' +%s)
+"$T_ROOT/sources/$SOURCE" poll "$((since - 60))" > poll.tmp
+while read -r conv; do
+  dir=$cache/$(jq -r .id <<< "$conv")
+  mkdir -p "$dir"
+  printf '%s\n' "$conv" > "$dir/conv.tmp"
+  mv "$dir/conv.tmp" "$dir/conv.json"
+  "$T_ROOT/sources/$SOURCE" thread "${dir##*/}" > "$dir/thread.tmp"
+  mv "$dir/thread.tmp" "$dir/thread.md"
+  rm -f "$dir/gist"                                       # it was about the thread before this
+done < poll.tmp
+rm poll.tmp
+touch -d "@$started" "$polled"
+
+for dir in "$cache"/*/; do
+  if [ -f "$dir/gist" ]; then continue; fi
+  code=0
+  (cd / && agent gist) < "$dir/thread.md" > "$dir/gist.tmp" || code=$?
+  if [ "$code" = 75 ]; then rm -f "$dir/gist.tmp"; break; fi   # every agent slot is busy: the rest on the next poll
+  if [ "$code" = 0 ]; then grep -m1 . "$dir/gist.tmp" > "$dir/gist" || true; fi
+  rm -f "$dir/gist.tmp"
+done
+
+today=$(cat /dev/null "$cache"/*/conv.json | jq -s --argjson midnight "$(date -d 00:00 +%s)" 'map(select(.updated_at >= $midnight)) | length')
+echo "$today today" > note.tmp && mv note.tmp note
+echo "$SOURCE: $today today"
+exit 75

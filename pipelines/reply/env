@@ -1,0 +1,8 @@
+# reply: a reply to one conversation in your mail; task.md names it (conversation: front cnv_123). Nothing leaves
+# until you sign it (t sign). With +draft an agent writes it first; without, you write it when you sign.
+REPO=none
+OPTIONAL=draft
+CLI_draft=claude
+# what signing does: draft saves it as a private draft where the conversation is, to send from there;
+# send sends it as you
+DELIVER=draft

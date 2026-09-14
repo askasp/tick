@@ -13,12 +13,13 @@ if [ "${1:-}" = --dry ]; then           # the preview: pipeline $2, what you typ
 fi
 command -v fzf > /dev/null || die "t compose needs fzf (sudo apt install fzf); without it: t new \"what to do\""
 
-repo= pick= on= extra=()
+repo= pick= on= from= extra=()
 while [ $# -gt 0 ]; do
   case $1 in
     -r) repo=$2; shift ;;
     -p) pick=$2; shift ;;
     --on) on=$2; extra+=("$1" "$2"); shift ;;
+    --from) from=$2; extra+=("$1" "$2"); shift ;;
     --cli | --test | --base) extra+=("$1" "$2"); shift ;;
     *)  extra+=("$1") ;;
   esac
@@ -36,6 +37,9 @@ def=$(default_pipeline "$repo") prompt="new> "
 if [ -n "$on" ]; then                   # a stack: its parent's pipeline, unless you pick another
   parent=$(task_dir "$on") || exit 1
   def=$(cat "$parent/pipeline") prompt="stack on $(task_num "$parent")> "
+elif [ -n "$from" ]; then               # a task made from an answer: its repo's pipeline
+  asked=$(task_dir "$from") || exit 1
+  def=$(default_pipeline "${repo:-$(cat "$asked/repo" 2> /dev/null)}") prompt="task from $(task_num "$asked")> "
 fi
 pick=${pick:-$def}
 

@@ -10,11 +10,13 @@ if [ "${1:-}" = --resume ]; then exec claude --resume "$2"; fi
 sid=$(uuidgen)
 args=(-p --session-id "$sid" --output-format stream-json --verbose)
 case ${AGENT_MODE:-read} in
-  # without a permission mode claude -p edits nothing, and still exits 0
-  edit) args+=(--permission-mode "${CLAUDE_EDIT_MODE:-acceptEdits}") ;;
+  # without a permission mode claude -p edits nothing, and still exits 0; acceptEdits alone
+  # denies every command but a few that only read, test runs included, since -p can't ask
+  edit) args+=(--permission-mode "${CLAUDE_EDIT_MODE:-acceptEdits}" --allowedTools Bash) ;;
   web)  args+=(--tools Read,Grep,Glob,WebSearch,WebFetch --allowedTools WebSearch,WebFetch) ;;
   *)    args+=(--tools Read,Grep,Glob) ;;
 esac
+if [ -n "${T_TASKS:-}" ]; then args+=(--add-dir "$T_TASKS"); fi   # the task directories, outside the worktree
 if [ -n "${AGENT_MODEL:-}" ]; then args+=(--model "$AGENT_MODEL"); fi
 if [ -n "${AGENT_EFFORT:-}" ]; then args+=(--effort "$AGENT_EFFORT"); fi
 

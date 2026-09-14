@@ -77,7 +77,9 @@ without its diff.
 The keys are all ctrl-, so typing still searches, and they reach the board
 over ssh from any terminal. `^l` turns the pane to the log (again: the raw
 log), `^r` holds the task (the prompt asks why) or resumes it, `^t` stacks a
-task on it, `^n` starts a new one, and `^x` deletes one. `^o` attaches to its
+task on it, `^n` starts a new one, and `^x` deletes one. `^g` deletes every
+task done, answered or held for 12 hours, once the pane has listed them and you
+press Enter. `^o` attaches to its
 agent, the one key that leaves the board, for the agent's own screen. Everything
 else is a word away: `?` lists every action in the pane, with the agent's
 session id, and you type the one you want, or its first letters, and press
@@ -114,7 +116,8 @@ back. `^a`, `^e` and `^u` edit the line as in a shell. With cron installed the
 task starts at once; without it, `? run` on its row runs it. Flags typed with
 the title work too: `Add proration -r amino`.
 
-`^t` stacks a task on the one you're on the same way (`stack on 7>`), and
+`^t` stacks a task on the one you're on the same way (`stack on 7>`; on an
+answered question, `task from 7>` makes a task of it), and
 `? say` says something to it (`say to 7>`, and Enter on a held task): what you
 type goes to `feedback.md`, `tab` picks the step it restarts at, `^s` who
 solves it from then on, and the pane shows what will happen and its latest log.
@@ -170,7 +173,11 @@ t ask --now -r amino "How does checkout compute tax?"          # reads amino, ch
 t research --now "What changed in Postgres 18 upgrades?"       # searches the web, from anywhere
 t say 7 "and where is that tested?"                            # a follow-up
 t show 7                                                       # the question, the answer, the history
+t new --from 7 "Test the tax rounding"                         # make it a task (t stack 7, ^t on the board)
 ```
+
+A task made from a question works in its repo, with its repo's pipeline, and
+its details are the question, the follow-ups and the answer.
 
 These are ordinary pipelines with one step, `answer`. The step pipes the
 question to `agents/answerer.md` and writes `answer.md`, which `t show`
@@ -480,6 +487,101 @@ a step to end, so it lands on a later tick, and the missing reaction says so
 without a word. 👀 is also the only thing the job remembers, so nothing it has
 already taken can run twice.
 
+## Mail: an inbox on the board, and replies you sign
+
+Front comes into tick the way everything else does, as tasks and files. Mail
+arriving is not work: a thousand conversations cost the board one row, and only
+you add more. With `~/.config/front/env` written (the digest's), start the watch
+once:
+
+```sh
+t new -p front "front inbox"
+```
+
+It is a task that never ends. Its one step, `watch`, asks Front what changed
+every `POLL` seconds (300), keeps each conversation in `~/.tick/mail/front/`,
+has an agent write it a one-line gist, and puts how many had something today on
+its row. Between polls it exits 75, so a tick costs nothing, and a poll that
+fails holds it in red like any other step.
+
+Enter on its row is `t inbox`: the conversations, newest first, with the thread
+beside the one you are on.
+
+| key | does |
+| --- | --- |
+| enter | an agent drafts a reply: a task on pipeline `reply`, with `+draft` |
+| ^o | a reply you write: the thread is read, and `$EDITOR` opens on it |
+| ^x | archives the conversation in Front |
+
+A reply is `thread → +draft → sign → send`, and nothing leaves until you sign
+it. The task holds at `sign`, in red (`draft ready`, or `write your reply`), and
+Enter on it, or `t sign N`, opens the reply in `$EDITOR` with the thread under
+it. What you save is what leaves. `t say N "shorter" draft` has the agent write
+it again. `DELIVER=` in `pipelines/reply/env` says what leaving is:
+
+- `draft`, the default: a private draft on the conversation in Front, to read
+  once more and send from there. Signing again edits the same draft.
+- `send`: sent as you, and only while the thread is the one you read. If
+  someone wrote since, the reply holds again, with the thread as it is now.
+
+A draft writes the way you do because of `jobs/mail-corpus`, which keeps the
+mail you sent as files in `~/.tick/corpus/` (its first run goes back
+`CORPUS_SINCE`, 2 years). A draft gets what you wrote to the same person first,
+then to anyone at their domain, then your newest, up to `CORPUS_MAX` bytes:
+
+```sh
+(crontab -l; echo '0 3 * * * $HOME/git/tick/jobs/mail-corpus >> $HOME/.tick/corpus.log 2>&1') | crontab -
+```
+
+`sources/front` is the only file that knows Front's API. Another source, Gmail
+or Slack's DMs, is a file beside it with the same verbs (`poll`, `thread`,
+`draft`, `send`, `archive`, `sent`), a pipeline like `front` with its own
+`SOURCE=`, and a word in `CORPUS_SOURCES`.
+
+## Google: mail and calendars, one account or many
+
+A Google account is a name, and what it has is a link under that name:
+`sources/NAME → gmail` for its mail, `calendars/NAME → gcal` for its calendar,
+or both. Each account keeps its login in `~/.config/google/NAME/`, so a second
+Workspace is a second name, and it shares nothing with the first, or with Front.
+
+1. In the account's Google Cloud console, turn on the Gmail and Calendar APIs
+   and make an OAuth client of type *Desktop app*. In a Workspace, make the
+   consent screen *Internal*: an *External* app still in testing loses its
+   login every 7 days.
+2. Write the client's id and secret, and link what the account has:
+
+   ```sh
+   mkdir -p ~/.config/google/work
+   printf 'GOOGLE_CLIENT_ID=…\nGOOGLE_CLIENT_SECRET=…\n' > ~/.config/google/work/env
+   chmod 600 ~/.config/google/work/env
+   ln -s gmail ~/git/tick/sources/work
+   ln -s gcal ~/git/tick/calendars/work
+   ```
+
+3. `t google login work` opens Google's consent page and keeps the refresh
+   token. It asks only for what the links need: `gmail.modify` for mail,
+   `calendar.events` for a calendar.
+4. Put it on the board, a pipeline for each:
+
+   ```sh
+   cd ~/git/tick/pipelines
+   mkdir work-mail work-cal
+   ln -s ../../steps/watch work-mail/10-watch && printf 'REPO=none\nSOURCE=work\n' > work-mail/env
+   ln -s ../../steps/agenda work-cal/10-agenda && printf 'REPO=none\nCALENDAR=work\n' > work-cal/env
+   t new -p work-mail "work inbox"
+   t new -p work-cal "work calendar"
+   ```
+
+The mail is a source like Front: its inbox, the replies you sign, `DELIVER=`,
+and the corpus (`CORPUS_SOURCES="front work"`) all work the same way.
+
+The calendar's row says the day (`2 left today · next 13:00 Standup · 1 to
+answer`), and Enter on it is `t cal`: the next 7 days (`DAYS=`), with the event
+you are on beside them. enter opens it in the browser; ^y accepts, ^t says
+maybe, ^x declines. An answer is the one thing there another person sees, so
+the key is the signature, and the organizer is told at once.
+
 ## How it works
 
 | idea | here | Linux equivalent |
@@ -528,6 +630,10 @@ t show [TASK]              where it is, and what you can do next
 t log [TASK] [-f] [--raw]  every run in order, rendered in one column; -f follows it, --raw is the file itself
 t diff [TASK]              the files it changed, with the diff of each beside them
 t say [TASK] "notes"       back to implement, with your notes
+t sign [TASK]              read a reply in $EDITOR and sign it: then it leaves
+t inbox [TASK]             the mail a watch keeps: enter drafts a reply, ^o you write one, ^x archives
+t cal [TASK]               the week a calendar watch keeps: ^y accepts an invite, ^t maybe, ^x declines
+t google login NAME        log a Google account in, for its linked mail and calendar
 t attach [TASK]            resume the agent's conversation yourself
 t run [TASK]               run it now, in this terminal
 t hold [-f] [TASK] [why]   pause it after the running step; -f cancels that step now, agent and all
@@ -536,6 +642,7 @@ t name [TASK] ["name"]     what the board calls it; left out, an agent picks a s
 t agent [TASK] [CLI]       who solves every step from its next run; left out, the next one
 t path [TASK]              its worktree:  cd "$(t path discount)"
 t rm [-f] [TASK]           delete the task and its worktree (the branch stays); -f stops its run first
+t clean [-n] [HOURS]       delete every task done, answered or held for 12 hours (or HOURS); -n lists them
 t doctor                   what's missing, and the pipelines
 t tick                     what cron runs
 ```
@@ -583,10 +690,10 @@ the crontab line and `rm -r ~/.tick/tasks/*/idle`, and tick is exactly as it was
 ## Not covered yet
 
 - The `pr` and `ci` steps are tested only against a fake `gh`.
-- `jobs/front-digest` is tested only against a fake `curl`, whose answers
-  follow Front's API docs rather than recorded responses.
+- `jobs/front-digest` and `sources/front` are tested only against a fake
+  `curl`, whose answers follow Front's API docs rather than recorded
+  responses: drafting, sending and archiving have not met the real Front yet.
+- So are `sources/gmail`, `calendars/gcal` and `t google login`, against a
+  fake `curl` and `nc` shaped by Google's API docs.
 - A stack merges, and doesn't rebase: the `sync` step brings the task below
   into the branch as a merge commit, so a stacked PR shows that merge.
-- claude's `acceptEdits` lets the implementer edit files, but not run every
-  command. Set `CLAUDE_EDIT_MODE=bypassPermissions` in `etc/tick.conf` if your
-  worktrees are safe to let it loose in.

@@ -26,7 +26,9 @@ wait_done() {
     [ -z "$all" ] || return 0
     sleep 0.2
   done
-  echo "timed out waiting for $*" >&2; t ls -a >&2; return 1
+  echo "timed out waiting for $*" >&2; t ls -a >&2
+  for id; do tail -n 20 "$(dir "$id")"/history "$(dir "$id")"/log/*.log >&2 2> /dev/null || true; done
+  return 1
 }
 
 setup() {
@@ -73,7 +75,15 @@ said() {   # what conversations.history or replies ($2) answers: said '[{"ts": "
 calls() { grep -c "^$1\$" "$FAKE/slack.calls" 2> /dev/null || true; }
 
 test_scripts_parse() {
-  for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/jobs/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
+  for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/sources/* "$root"/calendars/* "$root"/jobs/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
+}
+
+test_run_runs_only_the_tests_its_pattern_names() {
+  out=$(bash "$tmp/tick/test/run" 'new_dry')
+  grep -q 'ok    test_new_dry_shows_the_task_it_would_make' <<< "$out"
+  grep -q '1 passed, 0 failed' <<< "$out"
+  not bash "$tmp/tick/test/run" 'no_such_test' 2> "$tmp/err"
+  grep -q 'no test matches no_such_test' "$tmp/err"
 }
 
 test_help_shows_how_to_start_a_task() {
@@ -427,9 +437,9 @@ test_a_pipelines_optional_step_is_left_out_unless_the_task_asks() {
   t ls | grep -qE '^ +2 .* 0/7 +next tick$'
   t complete steps gadget | grep -qx plan
   t new --dry -p feature +plan "add the gizmo" > "$tmp/out"
-  grep -q '^steps *plan → implement → test → review → sync → pr$' "$tmp/out"
+  grep -q '^steps *plan (claude) → implement (opencode) → test → review (opencode) → sync (opencode) → pr$' "$tmp/out"
   grep -q '^t feature +plan \\$' "$tmp/out"             # the command, to type next time
-  t new --dry -p feature +ci "add the gizmo" | grep -q '^steps *implement → test → review → sync → pr → ci$'
+  t new --dry -p feature +ci "add the gizmo" | grep -q '^steps *implement (opencode) → test → review (opencode) → sync (opencode) → pr → ci$'
   not new "fix the thing" -p feature +nosuch
   not new "fix the thing" -p local +plan                  # local has no optional steps at all
 }
@@ -446,6 +456,16 @@ test_opencode_codes_by_default_and_claude_on_request() {
   eq "$(step $id)" done
   grep -q '^session: claude ' "$(dir $id)/log/10-implement.log"
   grep -q -- '--tools Read,Grep,Glob' "$FAKE/claude.calls" # its reviewer only reads too
+  grep -q -- '--permission-mode acceptEdits --allowedTools Bash' "$FAKE/claude.calls"   # its implementer runs the tests
+}
+
+test_agents_may_read_the_task_directories_outside_their_worktree() {
+  id=$(new "add the widget")
+  t run $id
+  jq -e --arg tasks "$T_VAR/tasks/*" '.permission.external_directory[$tasks] == "allow"' "$FAKE/opencode.config" > /dev/null
+  id=$(new "add the gadget" --cli claude)
+  t run $id
+  grep -qF -- "--add-dir $T_VAR/tasks" "$FAKE/claude.calls"
 }
 
 test_each_step_runs_on_the_cli_its_pipeline_names() {
@@ -569,6 +589,53 @@ test_ctrl_x_deletes_a_task_in_place() {
   eq "$(cat "$T_UI/new")" 2
 }
 
+test_clean_deletes_what_is_done_answered_or_held_for_12_hours() {
+  old=$(new "old done")
+  t run $old
+  answered=$(new "old answer")
+  echo done > "$(dir $answered)/step"; touch "$(dir $answered)/answer.md"
+  held=$(new "old hold")
+  t hold $held waiting
+  fresh=$(new "fresh hold")
+  t hold $fresh waiting
+  stuck=$(new "never ran")
+  touch -d '13 hours ago' "$(dir $old)/step" "$(dir $answered)/step" "$(dir $held)/hold" "$(dir $stuck)/step"
+  t clean -n | grep -q "old answer  answered$"
+  eq "$(t clean -n | wc -l)" 3
+  t clean 2> /dev/null
+  [ ! -e "$(dir $old)" ] && [ ! -e "$(dir $answered)" ] && [ ! -e "$(dir $held)" ]
+  [ -d "$(dir $fresh)" ] && [ -d "$(dir $stuck)" ]
+  t clean 1 | grep -q 'no task done, answered or held for 1h'
+}
+
+test_the_board_cleans_after_listing_what_goes() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  id=$(new "old done")
+  t run $id
+  touch -d '2 days ago' "$(dir $id)/step"
+  t ui --key "$(keyfor clean)" 1 '' | grep -q 'change-prompt(delete these? )'
+  t ui --pane 1 '' | grep -q '1  old done  done'
+  [ -d "$(dir $id)" ]
+  t ui --key enter 1 '' | grep -q 'change-prompt(task> )'
+  [ ! -e "$(dir $id)" ]
+}
+
+test_the_board_stays_on_clean_and_says_what_it_could_not_delete() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  parent=$(new "parent work")
+  t run $parent
+  child=$(new "child work" --on $parent)
+  touch -d '2 days ago' "$(dir $parent)/step"
+  t ui --key "$(keyfor clean)" 1 '' > /dev/null
+  out=$(t ui --key enter 1 '')
+  not grep -q 'change-prompt(task> )' <<< "$out"
+  grep -q "change-footer~.*task $((10#$child)) is stacked on $((10#$parent))" <<< "$out"
+  eq "$(cat "$T_UI/mode")" "clean -"
+  [ -d "$(dir $parent)" ]
+}
+
 test_ctrl_x_is_offered_for_a_running_task() {
   id=$(new "add the widget")
   ( exec 9> "$(dir $id)/lock"; flock 9; sleep 30 ) &
@@ -602,6 +669,22 @@ test_main_waits_while_your_uncommitted_work_is_in_the_way() {
   eq "$(step $id)" done
   eq "$(cat impl.txt)" change
   eq "$(cat notes.txt)" mine                               # the rest of your work stays
+}
+
+test_main_lands_past_your_uncommitted_edits_unless_they_clash() {
+  seq 5 > impl.txt && git add impl.txt && git commit -q -m numbers
+  echo mine >> impl.txt                                    # where the task appends its line
+  id=$(new "fix the widget" -p main)
+  t run $id
+  eq "$(step $id)" 40-merge
+  eq "$(tail -1 impl.txt)" mine
+  eq "$(git stash list)" ""
+  sed -i '$d; 1s/.*/mine/' impl.txt                        # the same file, somewhere else
+  t run $id
+  eq "$(step $id)" done
+  eq "$(head -1 impl.txt),$(tail -1 impl.txt)" "mine,change"
+  eq "$(git diff --name-only)" impl.txt                    # still yours to commit
+  eq "$(git stash list)" ""
 }
 
 test_main_resolves_conflicts_with_a_moved_main_and_tests_again() {
@@ -758,13 +841,15 @@ test_new_dry_shows_the_task_it_would_make() {
   t new --dry "Add proration. It must handle upgrades too." |
     grep -q '^branch *t/0001-add-proration$'              # the branch stops at the first sentence
   grep -q '^base *origin/main$' <<< "$out"
-  grep -q '^cli *opencode  (CLI_implement)$' <<< "$out"
+  grep -q '^steps *implement (opencode) → test → review (opencode)$' <<< "$out"
+  t new --dry --cli claude "add the widget" |
+    grep -q '^steps *implement (claude) → test → review (claude)$'   # --cli, on every agent step
   grep -q '^starts *only when you run it' <<< "$out"      # no cron tick here
   grep -q '^t new \\$' <<< "$out"
   [ ! -e "$T_VAR/tasks/0001" ]                            # it made nothing
   out=$(t new --dry -p research "what changed in bash 5.3?")
   grep -q '^repo *none needed$' <<< "$out"
-  grep -q '^cli *claude  (CLI_answer)$' <<< "$out"
+  grep -q '^steps *answer (claude)$' <<< "$out"
   grep -q '^t research \\$' <<< "$out"
   echo "* * * * * $tmp/tick/bin/t tick" > "$FAKE/crontab"
   t new --dry "$(printf 'x%.0s' {1..41})" > "$tmp/out"
@@ -830,6 +915,29 @@ test_say_on_a_question_asks_a_follow_up() {
   eq "$(step $id)" done
   grep -q 'Your earlier answer' "$FAKE/read.prompts"
   grep -q 'and how do I run just one?' "$FAKE/read.prompts"
+}
+
+test_an_answered_question_becomes_a_task_with_the_question_and_answer_as_details() {
+  ask=$(new -p ask "how do the tests run?")
+  t run $ask
+  t say $ask "and how do I run just one?" 2> /dev/null
+  t run $ask
+  cd /                                                    # the question's repo, not the one you're in
+  t new --dry --from $ask "run one test" | grep -q "^details *task $((10#$ask))'s question and answer$"
+  id=$(new --from $ask "run one test")
+  eq "$(cat "$(dir $id)/repo")" "$(cat "$(dir $ask)/repo")"
+  [ "$(cat "$(dir $id)/pipeline")" != ask ]               # the repo's pipeline, which changes code
+  [ ! -e "$(dir $id)/after" ]                             # nothing to wait for
+  eq "$(head -1 "$(dir $id)/task.md")" "# run one test"
+  grep -q '^how do the tests run?$' "$(dir $id)/task.md"
+  grep -q 'and how do I run just one?' "$(dir $id)/task.md"
+  grep -qF "$(grep -m1 . "$(dir $ask)/answer.md")" "$(dir $id)/task.md"
+  eq "$(cat "$(dir "$(t stack $ask "again" < /dev/null 2> /dev/null)")/pipeline")" "$(cat "$(dir $id)/pipeline")"
+  not new --from $id "no answer here" 2> /dev/null
+  t keys $ask | grep -q ':stack '
+  export T_UI=$tmp/ui T_NEW=$tmp/ui                        # on the board, the stack key makes the task
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  t ui --key "$(keyfor stack)" $((10#$ask)) '' | grep -q "change-prompt(task from $((10#$ask))> )"
 }
 
 test_new_now_runs_the_task_at_once() {
@@ -1056,7 +1164,7 @@ test_the_board_starts_a_task_and_says_to_one_in_place() {
   eq "$(cat "$T_UI/pick")" feature
   t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *feature'   # in color
   t ui --key "$(keyfor agent)" '' '' > /dev/null          # another agent than the pipeline's
-  t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^cli *claude  (--cli)'
+  t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^steps *implement (claude) → test → review (claude) → sync (claude) → pr$'
   t ui --key enter '' 'add the widget' | grep -q 'reload-sync'   # made; the reload's end puts the cursor on it
   eq "$(cat "$T_UI/new")" 1
   eq "$(cat "$(dir 0001)/pipeline")" feature
@@ -1326,6 +1434,366 @@ test_the_front_digest_fails_with_the_fix_when_front_refuses() {
   grep -q 'check FRONT_TOKEN' "$tmp/err"
   [ ! -s "$tmp/out" ]
   [ ! -e "$FAKE/claude.calls" ]
+}
+
+front_source() { "$tmp/tick/sources/front" "$@"; }
+
+test_front_polls_each_conversation_that_involves_you_once_with_why() {
+  front
+  page '[{"id": "cnv_a", "subject": "A", "updated_at": 300}]' > "$FAKE/front/conversations_search_mention"
+  page '[{"id": "cnv_a", "subject": "A", "updated_at": 300}, {"id": "cnv_b", "subject": "B", "updated_at": 400}]' > "$FAKE/front/conversations_search_assignee"
+  page '[{"id": "cnv_c", "subject": "C", "updated_at": 200}]' > "$FAKE/front/conversations_search_participant"
+  out=$(front_source poll 100)
+  eq "$(wc -l <<< "$out")" 3
+  eq "$(head -1 <<< "$out" | jq -r .id)" cnv_b                      # newest first
+  eq "$(jq -r 'select(.id == "cnv_a") | .why' <<< "$out")" "mention assigned"
+  eq "$(jq -r 'select(.id == "cnv_c") | .why' <<< "$out")" participant   # one you only replied in
+  grep -q 'after%3A100' "$FAKE/curl.calls"
+}
+
+test_a_front_thread_reads_oldest_first_without_quotes_or_drafts() {
+  front
+  echo '{"id": "cnv_x", "subject": "Invoice question"}' > "$FAKE/front/conversations_cnv_x"
+  page '[{"type": "email", "created_at": 300, "draft_mode": "private", "text": "half a thought"},
+         {"type": "email", "created_at": 200, "draft_mode": null, "recipients": [{"role": "from", "handle": "me@example.com"}], "text": "We are on it.\n> Can you resend the invoice?"},
+         {"type": "email", "created_at": 100, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob", "handle": "bob@shop.example"}], "text": "Can you resend the invoice?"}]' \
+    > "$FAKE/front/conversations_cnv_x_messages"
+  page '[{"posted_at": 150, "author": {"first_name": "Kari", "last_name": "N"}, "body": "ask finance"}]' > "$FAKE/front/conversations_cnv_x_comments"
+  front_source thread cnv_x > "$tmp/thread.md"
+  eq "$(head -1 "$tmp/thread.md")" "# Invoice question"
+  eq "$(grep '^## ' "$tmp/thread.md" | cut -d, -f1)" "$(printf '## email from Bob\n## comment by Kari N\n## email from me@example.com')"
+  not grep -q '^> ' "$tmp/thread.md"
+  not grep -q 'half a thought' "$tmp/thread.md"                     # your unsent draft is not the thread
+}
+
+test_a_front_draft_is_private_and_a_second_one_edits_the_first() {
+  front
+  page '[{"id": "inb_1"}]' > "$FAKE/front/conversations_cnv_x_inboxes"
+  page '[{"id": "cha_1"}]' > "$FAKE/front/inboxes_inb_1_channels"
+  echo '{"id": "msg_d1"}' > "$FAKE/front/conversations_cnv_x_drafts"
+  eq "$(printf 'Hi Bob,\n\nsent again <today>.\n' | front_source draft cnv_x)" msg_d1
+  body=$(grep -A1 '^POST /conversations/cnv_x/drafts$' "$FAKE/front.calls" | tail -1)
+  eq "$(jq -r .mode <<< "$body")" private                           # nobody else sees it until you send it
+  eq "$(jq -r .channel_id <<< "$body")" cha_1
+  eq "$(jq -r .author_id <<< "$body")" tea_me
+  eq "$(jq -r .body <<< "$body")" 'Hi Bob,<br><br>sent again &lt;today&gt;.'
+  echo '{"id": "msg_d1"}' > "$FAKE/front/drafts_msg_d1"
+  printf 'shorter\n' | front_source draft cnv_x msg_d1 > /dev/null
+  grep -q '^PATCH /drafts/msg_d1/$' "$FAKE/front.calls"
+  eq "$(grep -c '^POST ' "$FAKE/front.calls")" 1                    # one draft, edited, not two
+  not front_source draft cnv_x < /dev/null 2> "$tmp/err"
+  grep -q 'the reply is empty' "$tmp/err"
+}
+
+conversation() {   # Front's conversation cnv_x, where Bob asks for his invoice, to reply to
+  front
+  echo '{"id": "cnv_x", "subject": "Invoice question"}' > "$FAKE/front/conversations_cnv_x"
+  asks '[{"type": "email", "created_at": 100, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob"}], "text": "Can you resend the invoice?"}]'
+  page '[]' > "$FAKE/front/conversations_cnv_x_comments"
+  page '[{"id": "inb_1"}]' > "$FAKE/front/conversations_cnv_x_inboxes"
+  page '[{"id": "cha_1"}]' > "$FAKE/front/inboxes_inb_1_channels"
+  echo '{"id": "msg_d1"}' > "$FAKE/front/conversations_cnv_x_drafts"
+}
+asks() { page "$1" > "$FAKE/front/conversations_cnv_x_messages"; }   # the messages in cnv_x from now on
+reply() { printf 'conversation: front cnv_x\n%s' "${2:-}" | t new -p reply $1 "Re: Invoice question" - 2> /dev/null; }
+sign() { t sign "$1" < /dev/null 2> /dev/null; }
+
+test_a_reply_you_write_holds_until_you_sign_it_then_lands_as_a_front_draft() {
+  conversation
+  id=$(reply)
+  t run $id
+  eq "$(step $id)" 30-sign
+  eq "$(cat "$(dir $id)/hold")" "write your reply"                  # held: it waits for you, in red
+  grep -q 'Can you resend the invoice?' "$(dir $id)/thread.md"
+  [ ! -e "$FAKE/front.calls" ]                                      # and nothing has left
+  not t sign $id < /dev/null 2> "$tmp/err"
+  grep -q 'no reply to sign' "$tmp/err"
+  printf 'Sent it again just now.\n' > "$(dir $id)/answer.md"
+  sign $id
+  t run $id
+  eq "$(step $id)" done
+  grep -q '^POST /conversations/cnv_x/drafts$' "$FAKE/front.calls"
+  eq "$(cat "$(dir $id)/draft_id")" msg_d1
+  not grep -q '/messages$' "$FAKE/front.calls"                      # a draft: you send it from Front
+}
+
+test_an_agent_drafts_a_reply_from_the_thread_and_redrafts_it_from_your_notes() {
+  conversation
+  id=$(reply +draft 'say it goes out today')
+  t run $id
+  eq "$(cat "$(dir $id)/hold")" "draft ready"
+  grep -q 'Can you resend the invoice?' "$FAKE/read.prompts"
+  grep -q 'say it goes out today' "$FAKE/read.prompts"
+  [ -s "$(dir $id)/answer.md" ]
+  sign $id
+  t run $id
+  eq "$(step $id)" done
+  t say $id "shorter" draft 2> /dev/null
+  t run $id
+  eq "$(step $id)" 30-sign                                          # a new draft waits to be read again
+  grep -q '^## Your earlier draft' "$FAKE/read.prompts"
+  grep -q '^shorter$' "$FAKE/read.prompts"
+  sign $id
+  t run $id
+  grep -q '^PATCH /drafts/msg_d1/$' "$FAKE/front.calls"             # into the draft it made before
+  eq "$(grep -c '^POST ' "$FAKE/front.calls")" 1
+}
+
+test_a_reply_is_sent_only_while_the_thread_is_the_one_you_read() {
+  conversation
+  echo 'DELIVER=send' >> "$tmp/tick/pipelines/reply/env"
+  echo '{"status": "accepted", "message_uid": "uid_1"}' > "$FAKE/front/POST_conversations_cnv_x_messages"
+  id=$(reply)
+  t run $id
+  printf 'Sent it again just now.\n' > "$(dir $id)/answer.md"
+  asks '[{"type": "email", "created_at": 200, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob"}], "text": "Never mind, found it."},
+         {"type": "email", "created_at": 100, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob"}], "text": "Can you resend the invoice?"}]'
+  sign $id
+  t run $id
+  eq "$(step $id)" 30-sign
+  grep -q 'the thread moved' "$(dir $id)/hold"
+  grep -q 'Never mind, found it.' "$(dir $id)/thread.md"
+  not grep -qs '^POST ' "$FAKE/front.calls"                         # Bob wrote since: nothing went
+  sign $id
+  t run $id
+  eq "$(step $id)" done
+  body=$(grep -A1 '^POST /conversations/cnv_x/messages$' "$FAKE/front.calls" | tail -1)
+  eq "$(jq .options.archive <<< "$body")" false
+  eq "$(cat "$(dir $id)/sent")" uid_1
+}
+
+test_show_puts_a_reply_above_the_thread_it_answers_and_says_how_to_sign_it() {
+  conversation
+  id=$(reply)
+  t run $id
+  t show $id > "$tmp/out"
+  grep -q "^  t sign $((10#$id)) " "$tmp/out"
+  not grep -q 't attach' "$tmp/out"                                 # no agent wrote it, so none to take over
+  printf 'Sent it again just now.\n' > "$(dir $id)/answer.md"
+  t show $id > "$tmp/out"
+  eq "$(grep '^reply$\|^thread$\|^Sent it again\|^Can you resend' "$tmp/out")" \
+     "$(printf 'reply\nSent it again just now.\nthread\nCan you resend the invoice?')"
+}
+
+test_the_front_watch_keeps_what_changed_and_says_how_much_on_its_one_row() {
+  conversation
+  page "[{\"id\": \"cnv_x\", \"subject\": \"Invoice question\", \"updated_at\": $(date +%s)}]" > "$FAKE/front/conversations_search_mention"
+  id=$(new -p front "front inbox")
+  t run $id
+  eq "$(step $id)" 10-watch                                         # a watch never ends
+  mail=$T_VAR/mail/front/cnv_x
+  grep -q 'Can you resend the invoice?' "$mail/thread.md"
+  grep -q 'Can you resend the invoice?' "$FAKE/read.prompts"        # the gist is an agent's, of the thread
+  [ -s "$mail/gist" ]
+  eq "$(cat "$(dir $id)/inbox")" front
+  t ls | grep "^ *$((10#$id)) " | grep -q '  1 today$'
+  asked=$(wc -l < "$FAKE/curl.calls")
+  t run $id
+  eq "$(wc -l < "$FAKE/curl.calls")" "$asked"                       # within POLL, Front isn't asked again
+  touch -d '1 hour ago' "$T_VAR/mail/front/polled"
+  touch "$FAKE/front/401"
+  t run $id
+  t ls | grep "^ *$((10#$id)) " > "$tmp/row"
+  not grep -q today "$tmp/row"                                      # a poll that failed says so, not the last count
+}
+
+watched() {   # a front watch that has read cnv_x once (after conversation); prints its task id
+  page "[{\"id\": \"cnv_x\", \"subject\": \"Invoice question\", \"updated_at\": $(date +%s)}]" > "$FAKE/front/conversations_search_mention"
+  new -p front "front inbox"
+  t run 1 > /dev/null 2>&1
+}
+inbox() { T_INBOX=front "$tmp/tick/bin/t-inbox" "$@"; }
+offered() { (. "$tmp/tick/lib/tick.sh"; offers "$(dir "$1")"); }
+
+test_the_inbox_lists_what_the_watch_keeps_and_enter_drafts_one_reply_to_a_conversation() {
+  conversation
+  watch=$(watched)
+  eq "$(offered $watch)" "inbox log"                               # enter on the watch's row opens its mail
+  inbox --rows | grep -q $'^cnv_x\t.*Invoice question'
+  inbox --pane cnv_x | grep -q 'Can you resend the invoice?'
+  inbox --key enter cnv_x > /dev/null
+  id=$(ls "$T_VAR/tasks" | tail -1)
+  eq "$(cat "$(dir $id)/pipeline")" reply
+  eq "$(cat "$(dir $id)/opt")" draft
+  grep -qx 'conversation: front cnv_x' "$(dir $id)/task.md"
+  inbox --rows | grep -q "task $((10#$id))"
+  inbox --key enter cnv_x | grep -q 'already replies'
+  eq "$(ls "$T_VAR/tasks" | wc -l)" 2                               # one reply to a conversation, not one a press
+  t run $id
+  eq "$(offered $id)" "sign say rm"                                 # and enter on the held reply signs it
+}
+
+test_archiving_in_the_inbox_archives_in_front_and_takes_the_row() {
+  conversation
+  watched > /dev/null
+  inbox --key "$(keyfor archive)" cnv_x > /dev/null
+  grep -A1 '^PATCH /conversations/cnv_x$' "$FAKE/front.calls" | tail -1 | grep -q '"status":"archived"'
+  eq "$(inbox --rows)" ""
+}
+
+searched_since() { grep -o 'participant%3Atea_me%20after%3A[0-9-]*' "$FAKE/curl.calls" | tail -1 | grep -o '[0-9-]*$'; }
+
+test_the_corpus_keeps_only_what_you_sent_and_goes_on_from_where_it_stopped() {
+  front
+  now=$(date +%s)
+  page '[{"id": "cnv_s", "subject": "Invoice question", "updated_at": 1}]' > "$FAKE/front/conversations_search_participant"
+  page "$(jq -nc --argjson t "$now" '[
+    {id: "msg_in", is_inbound: true, created_at: $t, draft_mode: null, author: null, recipients: [], text: "Can you resend it?"},
+    {id: "msg_out", is_inbound: false, created_at: $t, draft_mode: null, author: {id: "tea_me"},
+     recipients: [{role: "to", handle: "bob@shop.example"}], subject: "Re: Invoice question", text: "Sent it again.\n> Can you resend it?"},
+    {id: "msg_unsent", is_inbound: false, created_at: $t, draft_mode: "private", author: {id: "tea_me"}, recipients: [], text: "half a thought"},
+    {id: "msg_kari", is_inbound: false, created_at: $t, draft_mode: null, author: {id: "tea_kari"}, recipients: [], text: "Kari wrote this"}]')" \
+    > "$FAKE/front/conversations_cnv_s_messages"
+  "$tmp/tick/jobs/mail-corpus" 2> /dev/null
+  corpus=$T_VAR/corpus/front
+  eq "$(ls "$corpus")" msg_out.md                                   # not theirs, not a draft, not a teammate's
+  eq "$(head -2 "$corpus/msg_out.md")" "$(printf 'to: bob@shop.example\nsubject: Re: Invoice question')"
+  grep -qx 'Sent it again.' "$corpus/msg_out.md"
+  not grep -q '^> ' "$corpus/msg_out.md"
+  [ "$(searched_since)" -lt "$((now - 86400))" ]                    # the first run goes back CORPUS_SINCE
+  "$tmp/tick/jobs/mail-corpus" 2> /dev/null
+  [ "$(searched_since)" -ge "$now" ]                                # and the next one from where it stopped
+}
+
+test_a_draft_reads_what_you_wrote_to_the_same_person_before_anyone_else() {
+  conversation
+  mkdir -p "$T_VAR/corpus/front" "$T_VAR/mail/front/cnv_x"
+  echo '{"id": "cnv_x", "from": "bob@shop.example"}' > "$T_VAR/mail/front/cnv_x/conv.json"
+  printf 'to: bob@shop.example\nsubject: Old news\n\nHei Bob, as always.\n' > "$T_VAR/corpus/front/msg_bob.md"
+  touch -d '2 days ago' "$T_VAR/corpus/front/msg_bob.md"
+  printf 'to: ann@elsewhere.example\nsubject: Newer\n\nDear Ann, newer.\n' > "$T_VAR/corpus/front/msg_ann.md"
+  export CORPUS_MAX=100                                             # room for one of the two
+  id=$(reply +draft)
+  t run $id
+  grep -q '^## Mail you wrote before, to bob@shop.example first' "$FAKE/read.prompts"
+  grep -q 'Hei Bob, as always.' "$FAKE/read.prompts"
+  not grep -q 'Dear Ann, newer.' "$FAKE/read.prompts"               # the newest, but to someone else
+}
+
+workspace() {   # Google account "work", logged in, its mail linked as sources/work and its calendar as calendars/work
+  export XDG_CONFIG_HOME=$tmp/config
+  mkdir -p "$tmp/config/google/work" "$FAKE/google"
+  printf 'GOOGLE_CLIENT_ID=id.apps\nGOOGLE_CLIENT_SECRET=secret\n' > "$tmp/config/google/work/env"
+  echo refresh-old > "$tmp/config/google/work/refresh_token"
+  echo '{"access_token": "tok", "refresh_token": "refresh-new", "expires_in": 3599}' > "$FAKE/google/token"
+  echo '{"emailAddress": "Me@work.example"}' > "$FAKE/google/gmail_v1_users_me_profile"
+  ln -s gmail "$tmp/tick/sources/work"
+  ln -s gcal "$tmp/tick/calendars/work"
+}
+gmail_message() {   # ID FROM TO SUBJECT EPOCH TEXT [LABELS]: one message, as Gmail's API gives it
+  jq -nc --arg id "$1" --arg from "$2" --arg to "$3" --arg subject "$4" --argjson at "$5" --arg text "$6" --arg labels "${7:-INBOX}" '
+    {id: $id, labelIds: ($labels | split(",")), internalDate: ($at * 1000 | tostring),
+     payload: {mimeType: "multipart/alternative",
+       headers: [{name: "From", value: $from}, {name: "To", value: $to}, {name: "Subject", value: $subject},
+                 {name: "Message-ID", value: "<\($id)@mail>"}],
+       parts: [{mimeType: "text/plain", body: {data: ($text | @base64 | gsub("\\+"; "-") | gsub("/"; "_") | gsub("="; ""))}},
+               {mimeType: "text/html", body: {data: "PGI-"}}]}}'
+}
+gmail_thread() {   # th_1: you wrote Bob, Bob answered, and a draft of yours sits under it
+  now=$(date +%s)
+  jq -nc '{threads: [{id: "th_1"}]}' > "$FAKE/google/gmail_v1_users_me_threads"
+  jq -nc --argjson m "[$(gmail_message m1 'Me <me@work.example>' bob@shop.example Invoice $((now - 120)) 'Here is the invoice.'),
+      $(gmail_message m2 'Bob <bob@shop.example>' me@work.example 'Re: Invoice' $((now - 60)) $'Can you resend it?\r\n> Here is the invoice.' INBOX,UNREAD),
+      $(gmail_message m3 'Me <me@work.example>' bob@shop.example 'Re: Invoice' "$now" 'half a thought' DRAFT)]" \
+    '{id: "th_1", messages: $m}' > "$FAKE/google/gmail_v1_users_me_threads_th_1"
+}
+unbase64url() { local s; s=$(tr -- '-_' '+/'); while [ $((${#s} % 4)) -ne 0 ]; do s+='='; done; base64 -d <<< "$s"; }
+
+test_gmail_reads_one_accounts_threads_the_way_front_does() {
+  workspace
+  gmail_thread
+  out=$("$tmp/tick/sources/work" poll $((now - 3600)))
+  eq "$(jq -r .from <<< "$out")" bob@shop.example                   # who wrote last that isn't you
+  eq "$(jq -r .updated_at <<< "$out")" $((now - 60))                # your draft is not news
+  eq "$(jq -r .why <<< "$out")" "inbox unread"
+  grep -q "in%3Ainbox%20after%3A$((now - 3600))" "$FAKE/curl.calls"
+  "$tmp/tick/sources/work" thread th_1 > "$tmp/thread.md"
+  eq "$(head -1 "$tmp/thread.md")" "# Invoice"
+  eq "$(grep '^## ' "$tmp/thread.md" | cut -d, -f1)" "$(printf '## email from Me <me@work.example>\n## email from Bob <bob@shop.example>')"
+  grep -qx 'Can you resend it?' "$tmp/thread.md"
+  not grep -q '^> \|half a thought' "$tmp/thread.md"
+  not "$tmp/tick/sources/gmail" poll 1 2> "$tmp/err"               # gmail itself is no account
+  grep -q 'ln -s gmail' "$tmp/err"
+}
+
+test_a_gmail_reply_is_a_draft_in_its_thread_to_whoever_wrote_last() {
+  workspace
+  gmail_thread
+  printf 'Sent it again.\n' | "$tmp/tick/sources/work" draft th_1 > /dev/null
+  body=$(grep -A1 '^POST /gmail/v1/users/me/drafts$' "$FAKE/google.calls" | tail -1)
+  eq "$(jq -r .message.threadId <<< "$body")" th_1
+  jq -r .message.raw <<< "$body" | unbase64url | tr -d '\r' > "$tmp/mail"
+  grep -qx 'To: Bob <bob@shop.example>' "$tmp/mail"
+  grep -qx "Subject: =?UTF-8?B?$(printf 'Re: Invoice' | base64 -w0)?=" "$tmp/mail"
+  grep -qx 'In-Reply-To: <m2@mail>' "$tmp/mail"                    # so it lands in the thread, for Bob too
+  grep -qx 'Sent it again.' "$tmp/mail"
+  printf 'Sent it again, really.\n' | "$tmp/tick/sources/work" draft th_1 d_1 > /dev/null
+  grep -q '^PUT /gmail/v1/users/me/drafts/d_1$' "$FAKE/google.calls"   # the same draft, rewritten
+  not grep -q '/messages/send' "$FAKE/google.calls"
+  printf 'Sent.\n' | "$tmp/tick/sources/work" send th_1 > /dev/null
+  grep -q '^POST /gmail/v1/users/me/messages/send$' "$FAKE/google.calls"
+}
+
+test_a_reply_to_a_gmail_thread_takes_the_same_road_as_one_to_front() {
+  workspace
+  gmail_thread
+  id=$(printf 'conversation: work th_1\n' | t new -p reply "Re: Invoice" - 2> /dev/null)
+  t run $id
+  grep -q 'Can you resend it?' "$(dir $id)/thread.md"
+  printf 'Sent it again.\n' > "$(dir $id)/answer.md"
+  sign $id
+  t run $id
+  eq "$(step $id)" done
+  grep -q '^POST /gmail/v1/users/me/drafts$' "$FAKE/google.calls"
+}
+
+calendar_event() {   # ID SUMMARY EPOCH MINUTES YOUR-ANSWER: an event Anna organizes, and you are invited to
+  jq -nc --arg id "$1" --arg summary "$2" --argjson at "$3" --argjson minutes "$4" --arg answer "$5" '
+    {id: $id, status: "confirmed", summary: $summary, htmlLink: "https://calendar.google.com/event?eid=\($id)",
+     start: {dateTime: ($at | todate)}, end: {dateTime: ($at + $minutes * 60 | todate)},
+     organizer: {email: "anna@work.example", displayName: "Anna"},
+     attendees: [{email: "anna@work.example", displayName: "Anna", responseStatus: "accepted", organizer: true},
+                 {email: "me@work.example", self: true, responseStatus: $answer}]}'
+}
+calendar_screen() { T_CALENDAR=work "$tmp/tick/bin/t-cal" "$@"; }
+
+test_a_calendar_says_its_day_on_one_row_and_an_answer_reaches_the_organizer() {
+  workspace
+  now=$(date +%s)
+  jq -nc --argjson items "[$(calendar_event ev_1 Standup $((now + 120)) 15 accepted), $(calendar_event ev_2 'RFC review' $((now + 7200)) 30 needsAction)]" \
+    '{items: $items}' > "$FAKE/google/calendar_v3_calendars_primary_events"
+  calendar_event ev_2 'RFC review' $((now + 7200)) 30 needsAction > "$FAKE/google/calendar_v3_calendars_primary_events_ev_2"
+  mkdir "$tmp/tick/pipelines/work-cal"
+  ln -s ../../steps/agenda "$tmp/tick/pipelines/work-cal/10-agenda"
+  printf 'REPO=none\nCALENDAR=work\n' > "$tmp/tick/pipelines/work-cal/env"
+  id=$(new -p work-cal "work calendar")
+  t run $id
+  eq "$(step $id)" 10-agenda                                        # a watch never ends
+  t ls | grep "^ *$((10#$id)) " | grep -q ' · next .*Standup · 1 to answer$'
+  eq "$(offered $id)" "cal log"                                     # enter on its row opens the week
+  calendar_screen --rows | grep -q $'^ev_2\t.*RFC review .*to answer'
+  calendar_screen --pane ev_2 | grep -q 'Anna: accepted'
+  calendar_screen --key "$(keyfor accept)" ev_2 > /dev/null
+  body=$(grep -A1 '^PATCH /calendar/v3/calendars/primary/events/ev_2$' "$FAKE/google.calls" | tail -1)
+  eq "$(jq -r '.attendees[] | select(.self) | .responseStatus' <<< "$body")" accepted
+  eq "$(jq -r '.attendees[] | select(.self | not) | .responseStatus' <<< "$body")" accepted   # Anna's own answer, untouched
+  grep -q 'events/ev_2?sendUpdates=all' "$FAKE/curl.calls"          # and she is told
+  calendar_screen --rows | grep $'^ev_2\t' > "$tmp/row"
+  not grep -q 'to answer' "$tmp/row"
+}
+
+test_logging_a_google_account_in_asks_only_for_what_its_links_need() {
+  workspace
+  rm "$tmp/tick/calendars/work" "$tmp/config/google/work/refresh_token"   # mail only, and never logged in
+  not "$tmp/tick/sources/work" poll 1 2> "$tmp/err"
+  grep -q 't google login work' "$tmp/err"
+  t google login work 2> "$tmp/err"
+  grep -q 'gmail.modify' "$tmp/err"
+  not grep -q 'calendar' "$tmp/err"
+  eq "$(cat "$tmp/config/google/work/refresh_token")" refresh-new
+  eq "$(stat -c %a "$tmp/config/google/work/refresh_token")" 600
+  not t google login home 2> "$tmp/err"                             # another account is another name
+  grep -q 'ln -s gmail' "$tmp/err"
 }
 
 test_slack_posts_a_task_once_and_edits_that_message_after_that() {
@@ -1607,6 +2075,7 @@ test_board_shows_token_rate_in_footer_not_in_row() {
 }
 
 names=$(declare -F | awk '{ print $3 }' | grep '^test_' | grep -- "${1:-.}")
+[ -n "$names" ] || { echo "no test matches ${1:-.}; run test/run with no pattern for all of them" >&2; exit 1; }
 logs=$(mktemp -d)
 for name in $names; do
   while [ "$(jobs -rp | wc -l)" -ge "$(nproc)" ]; do wait -n; done
@@ -1619,7 +2088,7 @@ for name in $names; do
   if [ "$(cat "$logs/$name.exit")" -eq 0 ]; then
     pass=$((pass + 1)); echo "ok    $name"
   else
-    failed+=("$name"); echo "FAIL  $name"; tail -40 "$logs/$name" | sed 's/^/      /'
+    failed+=("$name"); echo "FAIL  $name"; cat "$logs/$name" | sed 's/^/      /'
   fi
 done
 rm -rf "$logs"

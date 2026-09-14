@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# t cal [TASK] — the week a calendar watch keeps, an event a line, its details beside it: ^y accepts, ^t maybe, ^x declines
+#
+# The watch is a task whose one step is agenda (CALENDAR= in its pipeline's env), and Enter on its row opens this.
+# An answer is the one thing here another person sees: the key is your signature, and the organizer is told at once.
+# Enter opens the event in the browser. fzf runs t-cal for what changes: --rows, --pane ID, --key KEY ID
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+shopt -s nullglob
+
+if [ -z "${T_CALENDAR:-}" ]; then                    # the watch you named, else the first there is
+  watches=("$T_TASKS"/*/calendar)
+  watch=${watches[0]:-}
+  if [ -n "${1:-}" ]; then watch=$(task_dir "$1")/calendar; fi
+  [ -f "$watch" ] || die "no calendar is watched${1:+ by task $1}; see README.md, Google: mail and calendars"
+  export T_CALENDAR
+  T_CALENDAR=$(cat "$watch")
+fi
+events=$T_VAR/cal/$T_CALENDAR/events
+terminal_colors
+
+event() { jq -c --arg id "$1" 'select(.id == $id)' "$events"; }
+
+# an event a line, the id first for fzf and hidden: Tue 14  13:00    Standup  to answer
+rows() {
+  local id day time summary answer
+  [ -f "$events" ] || return 0
+  jq -r '[.id, (.start | strflocaltime("%a %d")), (if .all_day then "all day" else (.start | strflocaltime("%H:%M")) end),
+          .summary, .answer] | join("\u001f")' "$events" |
+    while IFS=$'\x1f' read -r id day time summary answer; do
+      case $answer in
+        needsAction) answer="${C_RED}to answer$C_OFF" ;;   # the one here that waits for you
+        tentative)   answer="${C_DIM}maybe$C_OFF" ;;
+        declined)    answer="${C_FAINT}declined$C_OFF" ;;
+        organizer)   answer="${C_FAINT}yours$C_OFF" ;;
+        *)           answer= ;;
+      esac
+      if [ "${#summary}" -gt 40 ]; then summary=${summary:0:39}…; fi
+      printf '%s\t%s%s  %-7s%s  %s  %s\n' "$id" "$C_DIM" "$day" "$time" "$C_OFF" "$(pad 40 "$summary")" "$answer"
+    done
+}
+
+pane() {
+  [ -f "$events" ] || return 0
+  event "$1" | jq -r --arg dim "$C_DIM" --arg bright "$C_BRIGHT" --arg off "$C_OFF" '
+    "\($bright)\(.summary)\($off)",
+    (if .all_day then (.start | strflocaltime("%a %d %b")) + ", all day"
+     else "\(.start | strflocaltime("%a %d %b %H:%M")) – \(.end | strflocaltime("%H:%M"))" end),
+    "",
+    (if .where != "" then "\($dim)where\($off)  \(.where)" else empty end),
+    (if .meet != "" then "\($dim)meet\($off)   \(.meet)" else empty end),
+    "\($dim)by\($off)     \(.organizer)",
+    "\($dim)you\($off)    \(.answer)",
+    (if (.attendees | length) > 0 then "", (.attendees[] | "  \(.)") else empty end),
+    (if .notes != "" then "", .notes else empty end)'
+}
+
+# what key $1 does to event $2, as fzf actions
+act() {
+  local answer out
+  case $(awk -v k="$1" '$2 == k { print $1; exit }' <<< "$CAL_KEYS") in
+    open)    echo "execute-silent~xdg-open '$(event "$2" | jq -r .link)'~"; return ;;
+    accept)  answer=accepted ;;
+    maybe)   answer=tentative ;;
+    decline) answer=declined ;;
+    *)       return ;;
+  esac
+  if out=$("$T_ROOT/calendars/$T_CALENDAR" answer "$2" "$answer" 2>&1); then
+    jq -c --arg id "$2" --arg answer "$answer" 'if .id == $id then .answer = $answer else . end' "$events" > "$events.tmp"
+    mv "$events.tmp" "$events"
+    echo "reload(CLICOLOR_FORCE=1 t-cal --rows)+refresh-preview+change-footer~$answer, and the organizer is told~"
+  else
+    echo "change-footer~$C_RED${out#t: }$C_OFF~"
+  fi
+}
+
+case ${1:-} in
+  --rows) rows; exit ;;
+  --pane) pane "$2"; exit ;;
+  --key)  act "$2" "$3"; exit ;;
+esac
+
+command -v fzf > /dev/null || die "the calendar needs fzf (sudo apt install fzf); what the watch keeps is in $events"
+binds=()
+while read -r _ key _; do
+  binds+=(--bind "$key:transform:t-cal --key '$key' {1}")
+done <<< "$CAL_KEYS"
+CLICOLOR_FORCE=1 t-cal --rows | fzf "${BOARD_FZF[@]}" --delimiter $'\t' --with-nth 2.. --prompt "$T_CALENDAR> " \
+  --info inline-right --footer "$(hint enter open "$(key accept)" accept "$(key maybe)" maybe "$(key decline)" decline esc back)" \
+  --preview 'CLICOLOR_FORCE=1 t-cal --pane {1}' --preview-window 'right,50%,wrap,border-left,<60(down,60%,border-top)' \
+  "${binds[@]}" || true

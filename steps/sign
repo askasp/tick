@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# sign — nothing leaves until you have read it. Until `t sign` marks the reply signed, the task holds: "draft
+# ready" when there is one to read, else "write your reply".
+set -euo pipefail
+if [ -f signed ] && [ -s answer.md ]; then exit 0; fi
+if [ -s answer.md ]; then echo "draft ready" > hold; else echo "write your reply" > hold; fi
+exit 75

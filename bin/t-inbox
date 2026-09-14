@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# t inbox [TASK] — the mail a watch keeps, newest first, its thread beside it: enter drafts a reply, ^o you write one, ^x archives
+#
+# The watch is a task on pipeline front (t new -p front "front inbox"), and Enter on its row opens this. A reply is a
+# task on pipeline reply, which holds on the board until you sign it: nothing leaves before that. The list is what the
+# watch last read, and archiving archives where the mail lives.
+# fzf runs t-inbox for what changes: --rows, --pane ID, --key KEY ID (what KEY does to it), --write ID
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+shopt -s nullglob
+
+if [ -z "${T_INBOX:-}" ]; then                       # the watch you named, else the first there is
+  watches=("$T_TASKS"/*/inbox)
+  watch=${watches[0]:-}
+  if [ -n "${1:-}" ]; then watch=$(task_dir "$1")/inbox; fi
+  [ -f "$watch" ] || die "no inbox is watched${1:+ by task $1}; start one: t new -p front \"front inbox\""
+  export T_INBOX
+  T_INBOX=$(cat "$watch")
+fi
+mail=$T_VAR/mail/$T_INBOX
+terminal_colors
+
+subject_of() { jq -r '.subject // "(no subject)"' "$mail/$1/conv.json"; }
+
+# the task that replies to conversation $1, if one does
+replying() {
+  local found
+  found=$(grep -lx "conversation: $T_INBOX $1" /dev/null "$T_TASKS"/*/task.md | head -1 || true)
+  if [ -n "$found" ]; then dirname "$found"; fi
+}
+
+# a conversation a line, the id first for fzf and hidden: 11:02  anna@stadler.no  Q3 invoice discrepancy  task 14
+rows() {
+  local id when from subject task
+  cat /dev/null "$mail"/*/conv.json | jq -rs --argjson midnight "$(date -d 00:00 +%s)" '
+    sort_by(-.updated_at)[]
+    | [.id, (.updated_at | strflocaltime(if . >= $midnight then "%H:%M" else "%d %b" end)), .from, .subject // "(no subject)"]
+    | join("\u001f")' |
+    while IFS=$'\x1f' read -r id when from subject; do
+      task=$(replying "$id")
+      if [ "${#from}" -gt 24 ]; then from=${from:0:23}…; fi
+      if [ "${#subject}" -gt 44 ]; then subject=${subject:0:43}…; fi
+      printf '%s\t%s%-6s%s  %s  %s%s\n' "$id" "$C_DIM" "$when" "$C_OFF" "$(pad 24 "$from")" "$(pad 44 "$subject")" \
+        "${task:+  ${C_DIM}task $(task_num "$task")$C_OFF}"
+    done
+}
+
+pane() {
+  local task
+  [ -f "$mail/$1/conv.json" ] || return 0
+  echo "$C_BRIGHT$(subject_of "$1")$C_OFF"
+  echo "$C_DIM$(jq -r '"\(.from) · \(.why)"' "$mail/$1/conv.json")$C_OFF"
+  if [ -s "$mail/$1/gist" ]; then echo; cat "$mail/$1/gist"; fi
+  task=$(replying "$1")
+  if [ -n "$task" ]; then echo; echo "${C_DIM}task $(task_num "$task")$C_OFF  $(standing "$task")"; fi
+  echo
+  tail -n +2 "$mail/$1/thread.md"                     # its first line is the subject, above
+}
+
+# what key $1 does to conversation $2, as fzf actions
+act() {
+  local task id out
+  task=$(replying "$2")
+  case $(awk -v k="$1" '$2 == k { print $1; exit }' <<< "$INBOX_KEYS") in
+    draft | write)
+      if [ -n "$task" ]; then
+        echo "change-footer~task $(task_num "$task") already replies to this one; it is on the board~"
+      elif [ "$1" = "$(key_of write)" ]; then
+        echo "execute(t-inbox --write $2)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
+      elif id=$(t-new -p reply +draft "Re: $(subject_of "$2")" - <<< "conversation: $T_INBOX $2" 2> "$mail/err"); then
+        echo "reload(CLICOLOR_FORCE=1 t-inbox --rows)+change-footer~task $(task_num "$id") drafts a reply, and holds on the board for you to sign it~"
+      else
+        echo "change-footer~$C_RED$(head -1 "$mail/err")$C_OFF~"
+      fi ;;
+    archive)
+      if out=$("$T_ROOT/sources/$T_INBOX" archive "$2" 2>&1); then
+        rm -rf "${mail:?}/$2"
+        echo "reload(CLICOLOR_FORCE=1 t-inbox --rows)+change-footer~archived in $T_INBOX~"
+      else
+        echo "change-footer~$C_RED${out#t: }$C_OFF~"
+      fi ;;
+  esac
+}
+
+# a reply you write: its thread read now, then $EDITOR on it, where you sign it
+write() {
+  local id
+  id=$(t-new -p reply "Re: $(subject_of "$1")" - <<< "conversation: $T_INBOX $1") || return 0
+  t-run "$id" > /dev/null 2>&1 || true
+  flock -w 60 "$(tdir "$id")/lock" true               # a tick may have started it first
+  t-sign "$id" || read -rp "(Enter: back to the inbox) " _ < /dev/tty
+}
+
+case ${1:-} in
+  --rows)  rows; exit ;;
+  --pane)  pane "$2"; exit ;;
+  --key)   act "$2" "$3"; exit ;;
+  --write) write "$2"; exit ;;
+esac
+
+command -v fzf > /dev/null || die "the inbox needs fzf (sudo apt install fzf); what the watch keeps is in $mail"
+binds=()
+while read -r _ key _; do
+  binds+=(--bind "$key:transform:t-inbox --key '$key' {1}")
+done <<< "$INBOX_KEYS"
+CLICOLOR_FORCE=1 t-inbox --rows | fzf "${BOARD_FZF[@]}" --delimiter $'\t' --with-nth 2.. --prompt "$T_INBOX> " \
+  --info inline-right --footer "$(hint enter draft "$(key write)" write "$(key archive)" archive esc back)" \
+  --preview 'CLICOLOR_FORCE=1 t-inbox --pane {1}' --preview-window 'right,50%,wrap,border-left,<60(down,60%,border-top)' \
+  "${binds[@]}" || true

@@ -10,6 +10,11 @@ if [ "${1:-}" = --resume ]; then exec opencode -s "$2"; fi
 args=(run --format json)
 if [ "${AGENT_MODE:-}" != edit ]; then args+=(--agent plan); fi
 if [ -n "${AGENT_MODEL:-}" ]; then args+=(-m "$AGENT_MODEL"); fi
+# the task directories lie outside the worktree, and opencode run answers every question it would ask with no
+if [ -n "${T_TASKS:-}" ]; then
+  OPENCODE_CONFIG_CONTENT=$(jq -nc --arg tasks "$T_TASKS/*" '{permission: {external_directory: {($tasks): "allow"}}}')
+  export OPENCODE_CONFIG_CONTENT
+fi
 
 raw=$(mktemp)
 trap 'rm -f "$raw"' EXIT
