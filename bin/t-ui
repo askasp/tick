@@ -13,7 +13,7 @@ ask() { local answer; read -rp "$1 " answer < /dev/tty; echo "$answer"; }
 #   --pane ID QUERY      the pane
 #   --key KEY ID QUERY   what KEY does now (ID is empty on an empty board); the keys are in lib/board.sh
 # $T_UI/mode is "board", or "MODE ID" while the prompt takes words for new, stack, say, hold, name or the
-# action to do (? asks), or waits on rm; $T_UI/pick is the pipeline (new, stack) or the step (say) chosen,
+# action to do (? asks), or waits on clean; $T_UI/pick is the pipeline (new, stack) or the step (say) chosen,
 # and $T_UI/list the list behind the prompt: the tasks, or the pipelines that new opens on and ^p brings up.
 
 # how wide a row can be: fzf's columns less the list's borders and pointer, less the pane beside them
@@ -135,21 +135,6 @@ if [ "${1:-}" = --pane ]; then
       echo "${C_DIM}now$C_OFF    $(name "$task")"
       echo
       echo "${C_DIM}The board shows the name, and t show the whole title. Empty: an agent picks a short one.$C_OFF" ;;
-    rm)
-      echo "${C_RED}delete$C_OFF  ${C_DIM}task $target · $(name "$task")$C_OFF"
-      echo
-      work=$(readlink -f "$task/work" 2> /dev/null || true)
-      if [ -n "$work" ] && [[ $work == "$(readlink -f "$task")"/* ]]; then echo "Deletes its directory and its worktree, $work"
-      elif [ -n "$work" ]; then echo "Deletes its directory. The worktree isn't its own, so it stays: $work"
-      else echo "Deletes its directory."
-      fi
-      if [ -f "$task/branch" ]; then echo "The branch $(cat "$task/branch") stays."; fi
-      if [ "$(state "$task")" = running ]; then echo "${C_BRIGHT}It is running: this stops it first.$C_OFF"; fi
-      for child in "$T_TASKS"/*/after; do
-        if [ "$(cat "$child" 2> /dev/null)" = "${task##*/}" ]; then
-          echo "${C_RED}Task $(task_num "${child%/after}") is stacked on it: delete that one first.$C_OFF"
-        fi
-      done ;;
     clean)
       echo "${C_RED}delete$C_OFF  ${C_DIM}every task done, answered or held for 12 hours, and its worktree$C_OFF"
       echo
@@ -282,7 +267,14 @@ if [ "${1:-}" = --key ]; then
                 form hold "$id" "hold $id because> " "" "nofollow,~2" "$(hint enter hold empty "held by hand" esc back)"
               fi ;;
       name)   form name "$id" "name $id> " "" "nofollow,~2" "$(hint enter rename empty "an agent picks one" esc back)" "$(name "$task")" ;;
-      rm)     form rm "$id" "delete $id? " "" "nofollow,~2" "$(hint enter delete esc back)" ;;
+      rm)     cursor=$(neighbour "$id")        # no asking: the branch stays, and a task stacked on it stops it
+              force=
+              if [ "$(state "$task")" = running ]; then force=-f; fi
+              setsid -w t-rm $force "$id" < /dev/null > /dev/null 2> "$T_UI/err" &
+              while [ -f "$task/step" ] && kill -0 $! 2> /dev/null; do sleep 0.05; done   # gone from the board, or refused
+              if [ -f "$task/step" ]; then failed; fi
+              if [ -n "$cursor" ]; then echo "$cursor" > "$T_UI/new"; fi
+              back "$cursor" ;;
       say)    say_form "$id" ;;
       stack)  stack_form "$id" ;;
       attach) echo "execute(t-attach $id)+reload-sync~t-ui --rows~" ;;      # the agent's own screen: the one that leaves
@@ -290,6 +282,7 @@ if [ "${1:-}" = --key ]; then
       agent)  echo "refresh-preview+change-footer~$(t-agent "$id" 2>&1 | sed 's/^t: //')   $(key agent):another~" ;;
       inbox)  echo "execute(t-inbox $id)+reload-sync~t-ui --rows~+refresh-preview" ;;   # its own screen, like diff
       cal)    echo "execute(t-cal $id)+reload-sync~t-ui --rows~+refresh-preview" ;;
+      roadmap) echo "execute(t-roadmap $id)+reload-sync~t-ui --rows~+refresh-preview" ;;
       sign)   echo "execute~t-sign $id || read -rp 'Enter: back to the board ' _~+reload-sync~t-ui --rows~+refresh-preview" ;;
     esac
   }
@@ -305,6 +298,7 @@ if [ "${1:-}" = --key ]; then
               *) echo "change-footer~'$q' could be: $(xargs <<< "$act")~"; exit ;;
             esac
             id=$target
+            if [ "$act" = rm ]; then act_on rm; exit; fi   # it goes back to the board itself
             board=$(back)                     # the board first: the action may take the prompt again
             did=$(act_on "$act")
             echo "$board${did:++$did}" ;;
@@ -315,13 +309,6 @@ if [ "${1:-}" = --key ]; then
             if [ -n "$q" ]; then t-name "$target" "$q" > /dev/null 2>&1
             else setsid t-name "$target" < /dev/null > /dev/null 2>&1 & fi
             back "$target" ;;
-      rm)   [ "$how" = enter ] || exit 0
-            cursor=$(neighbour "$target")
-            force=
-            if [ "$(state "$task")" = running ]; then force=-f; fi
-            t-rm $force "$target" 2> "$T_UI/err" || failed
-            if [ -n "$cursor" ]; then echo "$cursor" > "$T_UI/new"; fi
-            back "$cursor" ;;
       clean) [ "$how" = enter ] || exit 0
             t-clean 2>&1 > /dev/null | grep -v '^t: removed ' > "$T_UI/err" || true
             if [ -s "$T_UI/err" ]; then echo "refresh-preview+$(failed)"; else back ""; fi ;;
@@ -376,7 +363,8 @@ if [ "${1:-}" = --key ]; then
             esac
             next_choice "$pick" $choices > "$T_UI/pick"
             echo refresh-preview ;;
-    esc)    if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ] && [ -e "$T_UI/title" ]; then pipeline_done
+    esc)    if [ -n "$q" ]; then echo clear-query    # what you typed goes first, then the form
+            elif [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ] && [ -e "$T_UI/title" ]; then pipeline_done
             else echo tasks > "$T_UI/list"; back; fi ;;
     ctrl-u) echo unix-line-discard ;;   # in a prompt, ^u clears what you typed
     enter)  if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ]; then pipeline_done "$id"
@@ -424,7 +412,6 @@ if [ $# -gt 0 ]; then
     hold)   if [ "$st" = HOLD ]; then t-resume "$id"; else t-hold "$id" "$(ask "why? (Enter: held by hand)")"; fi ;;
     cancel) t-hold -f "$id" cancelled ;;
     name)   t-name "$id" "$(ask "new name? (Enter: an agent picks one)")" ;;
-    rm)     if [ "$(ask "delete task $n and its worktree? [y/N]")" = y ]; then t-rm "$id"; fi ;;
     *)      "t-$act" "$id" ;;
   esac
   result=$?

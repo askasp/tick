@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # t sign [TASK] — sign a reply or a comment, and it leaves on the next tick; in a terminal, $EDITOR shows it first, with its thread
 #
-# What you save is what leaves, and saving an empty one signs nothing. A reply goes where its pipeline's DELIVER= says:
+# With none written yet, you type it under the thread instead, ctrl-d ending it. What you save or type is what leaves,
+# and an empty one signs nothing. A reply goes where its pipeline's DELIVER= says:
 # draft saves it as a private draft where the conversation is, to send from there; send sends it as you. A comment
 # (KIND=comment) is posted on the conversation, for your teammates only.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
@@ -21,15 +22,23 @@ esac
 without_trailing_blanks() { tac | sed '/[^[:space:]]/,$!d' | tac; }
 
 if [ -t 0 ] && [ -t 1 ]; then
-  f=$(mktemp --suffix=.md)
-  {
-    cat "$task/answer.md" 2> /dev/null || true
-    printf '\n# tick: your %s goes above%s. Lines like these are dropped, and an empty %s signs nothing.\n' "$kind" "$about" "$kind"
-    sed 's/^/# tick: /' "$task/thread.md"
-  } > "$f"
-  "${EDITOR:-vi}" "$f"
-  text=$(grep -v '^# tick:' "$f" | without_trailing_blanks || true)
-  rm -f "$f"
+  if [ -s "$task/answer.md" ]; then
+    f=$(mktemp --suffix=.md)
+    {
+      cat "$task/answer.md"
+      printf '\n# tick: your %s goes above%s. Lines like these are dropped, and an empty %s signs nothing.\n' "$kind" "$about" "$kind"
+      sed 's/^/# tick: /' "$task/thread.md"
+    } > "$f"
+    "${EDITOR:-vi}" "$f"
+    text=$(grep -v '^# tick:' "$f" | without_trailing_blanks || true)
+    rm -f "$f"
+  else                                  # nothing written yet: the thread, and what you type under it
+    clear 2> /dev/null || true
+    echo "$C_BRIGHT$(sed -n '1s/^# //p' "$task/thread.md")$C_OFF"
+    FZF_PREVIEW_COLUMNS=$(stty size 2> /dev/null | cut -d' ' -f2) thread_view "$task/thread.md"
+    printf '\n%sYour %s, under it%s. Ctrl-d on a line of its own ends it; an empty %s signs nothing.%s\n' "$C_DIM" "$kind" "$about" "$kind" "$C_OFF"
+    text=$(without_trailing_blanks || true)
+  fi
   grep -q '[^[:space:]]' <<< "$text" || die "an empty $kind signs nothing; task $n still waits for you: t sign $n"
   printf '%s\n' "$text" > "$task/answer.tmp" && mv "$task/answer.tmp" "$task/answer.md"
 fi
