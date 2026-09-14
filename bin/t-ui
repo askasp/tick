@@ -14,7 +14,7 @@ ask() { local answer; read -rp "$1 " answer < /dev/tty; echo "$answer"; }
 #   --key KEY ID QUERY   what KEY does now (ID is empty on an empty board); the keys are in lib/board.sh
 # $T_UI/mode is "board", or "MODE ID" while the prompt takes words for new, stack, say, hold, name or the
 # action to do (? asks), or waits on rm; $T_UI/pick is the pipeline (new, stack) or the step (say) chosen,
-# and $T_UI/list the list behind the prompt: the tasks, or the pipelines ^p brings up in new and stack.
+# and $T_UI/list the list behind the prompt: the tasks, or the pipelines that new opens on and ^p brings up.
 
 # how wide a row can be: fzf's columns less the list's borders and pointer, less the pane beside them
 list_width() {
@@ -115,6 +115,7 @@ if [ "${1:-}" = --pane ]; then
       echo "${C_DIM}task $target$C_OFF  $(name "$task")"
       status "$task"
       echo "${C_DIM}goes to feedback.md; the task restarts at$C_OFF $pick ${C_DIM}on the next tick$C_OFF"
+      if [ "$(state "$task")" = running ]; then echo "${C_BRIGHT}It is running: enter stops it first.$C_OFF"; fi
       who=$(cat "$T_UI/cli")
       who=${who:-$(solver "$(cat "$task/pipeline")" "$pick" "$task")}
       if [ -n "$who" ]; then echo "${C_DIM}solved by$C_OFF $who  ${C_FAINT}$(key agent):another$C_OFF"; else echo; fi
@@ -210,27 +211,27 @@ if [ "${1:-}" = --key ]; then
     local agent
     agent=$(cat "$T_UI/cli")
     agent="agent ${agent:-default}"
+    if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ]; then hint enter "this pipeline" "$(key agent)" "$agent" esc back; return; fi
     case $1 in
       new)   hint enter create "$(key pipeline)" pipeline "$(key agent)" "$agent" "$(key details)" details "$(key repo)" repo esc back ;;
       stack) hint enter create "$(key pipeline)" pipeline "$(key agent)" "$agent" "$(key details)" details esc back ;;
       say)   hint enter say tab "restart step" "$(key agent)" "$agent" esc back ;;
     esac
   }
-  pipeline_list() {   # ^p: the list becomes the pipelines, the default first; the title waits in $T_UI/title
+  pipeline_list() {   # the list becomes the pipelines, the default first; a title typed before ^p waits in $T_UI/title
     echo pipelines > "$T_UI/list"
-    printf '%s' "$q" > "$T_UI/title"
-    echo "change-prompt(pipeline> )+enable-search+change-query()+change-footer~$(keys "$mode")~+reload-sync~t-ui --pipelines~+pos(1)+refresh-preview"
+    echo "change-prompt(pipeline> )+enable-search+change-query()+change-footer~$(keys "$1")~+reload-sync~t-ui --pipelines~+pos(1)+refresh-preview"
   }
-  pipeline_done() {   # from the pipelines: enter on one ($1) picks it; esc and ^p only go back to the tasks
+  pipeline_done() {   # from the pipelines: enter on one ($1) picks it; esc and ^p go back to the title
     if [ -n "$1" ]; then printf '%s\n' "$1" > "$T_UI/pick"; fi
     echo tasks > "$T_UI/list"
     case $mode in new) prompt="new> " ;; stack) prompt="stack on $target> " ;; esac
     echo "change-prompt($prompt)+disable-search+change-query~$(cat "$T_UI/title" 2> /dev/null)~+change-footer~$(keys "$mode")~+reload-sync~t-ui --rows~+refresh-preview"
   }
-  new_form() {
-    : > "$T_UI/args"; : > "$T_UI/repo"; : > "$T_UI/cli"
+  new_form() {   # the pipeline first, then the title
+    : > "$T_UI/args"; : > "$T_UI/repo"; : > "$T_UI/cli"; rm -f "$T_UI/title"
     default_pipeline > "$T_UI/def"
-    form new - "new> " "$(cat "$T_UI/def")" "nofollow,~2" "$(keys new)"
+    echo "$(form new - "new> " "$(cat "$T_UI/def")" "nofollow,~2" "$(keys new)")+$(pipeline_list new)"
   }
   stack_form() {   # on an answer, a task made from it: in its repo's pipeline
     local task
@@ -250,10 +251,6 @@ if [ "${1:-}" = --key ]; then
     local task first
     task=$(tdir "$1")
     first=$(steps "$(cat "$task/pipeline")" "$task" | head -1)
-    if ! flock -n "$task/lock" true; then
-      echo "change-footer~${C_RED}task $1 is running; say it when it stops, or cancel it: $(key keys) cancel$C_OFF~"
-      return
-    fi
     env_get "$task/env" AGENT_CLI > "$T_UI/cli"
     form say "$1" "say to $1> " "${first#*-}" "follow,~6" "$(keys say)"
   }
@@ -329,6 +326,7 @@ if [ "${1:-}" = --key ]; then
             t-clean 2>&1 > /dev/null | grep -v '^t: removed ' > "$T_UI/err" || true
             if [ -s "$T_UI/err" ]; then echo "refresh-preview+$(failed)"; else back ""; fi ;;
       say)  [ "$how" = enter ] && [ -n "$q" ] || exit 0
+            if [ "$(state "$task")" = running ]; then t-hold -f "$target" "said to" 2> /dev/null; fi   # t say resumes it
             t-agent "$target" "$(cat "$T_UI/cli")" > /dev/null   # the agent picked here solves it from now on
             t-say "$target" "$q" "$pick" > /dev/null 2> "$T_UI/err" || failed
             back "$target" ;;
@@ -378,8 +376,8 @@ if [ "${1:-}" = --key ]; then
             esac
             next_choice "$pick" $choices > "$T_UI/pick"
             echo refresh-preview ;;
-    esc)    if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ]; then pipeline_done
-            else back; fi ;;
+    esc)    if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ] && [ -e "$T_UI/title" ]; then pipeline_done
+            else echo tasks > "$T_UI/list"; back; fi ;;
     ctrl-u) echo unix-line-discard ;;   # in a prompt, ^u clears what you typed
     enter)  if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ]; then pipeline_done "$id"
             else submit enter; fi ;;
@@ -394,7 +392,7 @@ if [ "${1:-}" = --key ]; then
               pipeline) case $mode in
                           new | stack) if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ]
                                        then pipeline_done
-                                       else pipeline_list; fi ;;
+                                       else printf '%s' "$q" > "$T_UI/title"; pipeline_list "$mode"; fi ;;
                         esac ;;
               keys)    if [ "$mode" = do ]; then back; else echo "put($key)"; fi ;;   # typed in a title, it is the title's
             esac ;;
