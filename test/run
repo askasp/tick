@@ -2407,7 +2407,7 @@ test_promoting_a_roadmap_issue_composes_a_task_and_tells_github_in_the_backgroun
   roadmap_ui --key "$(keyfor task)" example/shop#12 | grep -q 'task 2 already works on #12'
   touch "$FAKE/gh/offline"
   composed example/shop#14 ""
-  grep -q '^project item-add 1 --owner AminoNordics --url https://github.com/example/shop/issues/14' "$FAKE/gh.calls"   # onto the project first
+  eventually grep -q '^project item-add 1 --owner AminoNordics --url https://github.com/example/shop/issues/14' "$FAKE/gh.calls"   # onto the project first
   eventually grep -q "GitHub didn't hear #14 is In progress: error connecting to api.github.com" "$(dir 0001)/note"
   row_of_the_roadmap | grep -q "GitHub didn't hear #14"
   rm "$FAKE/gh/offline"
