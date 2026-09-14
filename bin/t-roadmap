@@ -39,15 +39,6 @@ working_on() {
   if [ -n "$found" ]; then echo "${found%/task.md}"; fi
 }
 
-# how long ago epoch $1 was: 40m, 5h, 6d, 3w
-ago() {
-  local s=$(( $(date +%s) - $1 ))
-  if [ "$s" -lt 3600 ]; then echo "$((s / 60))m"
-  elif [ "$s" -lt 86400 ]; then echo "$((s / 3600))h"
-  elif [ "$s" -lt 1209600 ]; then echo "$((s / 86400))d"
-  else echo "$((s / 604800))w"; fi
-}
-
 # the repo in repos/ that has a git remote on GitHub as $1 (owner/name)
 repo_for() {
   local env name

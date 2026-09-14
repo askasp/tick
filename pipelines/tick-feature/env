@@ -1,4 +1,4 @@
-# main: local's steps in tick's own worktrees, from any directory, then merge onto tick's local main.
+# tick-feature: local's steps in tick's own worktrees, from any directory, then merge onto tick's local main.
 # TRUNK is the branch tasks start from and merge lands on; the merger agent resolves conflicts with it.
 REPO=tick
 TRUNK=main

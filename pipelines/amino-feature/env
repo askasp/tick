@@ -1,4 +1,4 @@
-# amino: implement, test and review, then a pull request. With +plan, a planner first decides whether it is one
+# amino-feature: implement, test and review, then a pull request. With +plan, a planner first decides whether it is one
 # pull request or a stack of small ones; with +preview, the repo's PREVIEW puts the branch online and
 # its links on the PR; with +ci, the task waits for the PR's checks and fixes them.
 OPTIONAL="plan preview ci"

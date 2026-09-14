@@ -72,6 +72,8 @@ pane() {
   echo
   if [ -f "$mail/$1/thread.md" ]; then thread_view "$mail/$1/thread.md"
   else echo "${C_DIM}Nothing here involves you, so only its count was read. Enter reads it.$C_OFF"; fi
+  echo
+  echo                                                            # room under the last message, so it reads as the end
 }
 
 # every key the inbox binds, and what it does
@@ -124,5 +126,5 @@ while read -r _ key _; do
 done <<< "$INBOX_KEYS"
 CLICOLOR_FORCE=1 t-inbox --rows | fzf "${BOARD_FZF[@]}" --delimiter $'\t' --with-nth 2.. --prompt "$T_INBOX> " --info inline-right \
   --footer "$(hint enter open "$(key archive)" "$archive" "$(key keys)" keys esc back)" \
-  --preview 'CLICOLOR_FORCE=1 t-inbox --pane {1}' --preview-window 'right,50%,wrap,border-left,<60(down,60%,border-top)' \
+  --preview 'CLICOLOR_FORCE=1 t-inbox --pane {1}' --preview-window 'right,50%,follow,wrap,~2,border-left,<60(down,60%,border-top)' \
   "${PANE_SCROLL[@]}" "${binds[@]}" || true

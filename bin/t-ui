@@ -25,7 +25,13 @@ list_width() {
   echo "$cols"
 }
 
-board_rows() { T_COLOR=1 T_COLS=$(list_width) board -a; }
+# the tasks, then your own list as one row under them
+board_rows() {
+  local cols
+  cols=$(list_width)
+  T_COLOR=1 T_COLS=$cols board -a
+  T_COLS=$cols CLICOLOR_FORCE=1 t-later --row
+}
 
 # the step task $1 starts over at, by name
 first_step() { local s; s=$(steps "$(cat "$1/pipeline")" "$1" | head -1); echo "${s#*-}"; }
@@ -48,16 +54,29 @@ neighbour() {
 
 if [ "${1:-}" = --rows ]; then board_rows; exit; fi
 
-# ^p in the new and stack forms: the tasks give way to the pipelines, the default first, to be
-# scrolled and searched as the tasks are; enter on one picks it
+# the repo whose PIPELINE= is pipeline $1
+repo_naming() {
+  local d
+  for d in "$T_ROOT"/repos/*/; do
+    d=${d%/}
+    if [ "$(profile_get "${d##*/}" PIPELINE)" = "$1" ]; then echo "${d##*/}"; return; fi
+  done
+}
+
+# ^p in the new and stack forms: the tasks give way to the pipelines you start by hand, the default first,
+# to be scrolled and searched as the tasks are; enter on one picks it. A row is the name, its kind, and
+# what it works on: the repo for code, the agent for a question. A pipeline with no repo that doesn't
+# answer (a reply, a watch) starts from elsewhere, and t new -p still reaches it.
 if [ "${1:-}" = --pipelines ]; then
   def=$(cat "$T_UI/def" 2> /dev/null)
   for p in $(pipelines "${def:-$T_PIPELINE}"); do
-    f=$(flow "$p") note=
-    if [[ $f == *→* ]]; then f=$(sed 's/ ([^)]*)//g' <<< "$f"); fi     # who solves each step, the preview says
-    if [ "$p" = "$def" ]; then note=default; fi
-    if no_repo "$p"; then note="no repo"; fi
-    printf '%-9s ' "$p"; pad 36 "$f"; printf ' %s%s%s\n' "$C_DIM" "$note" "$C_OFF"
+    if [[ $(steps "$p") == [0-9]*-answer ]]; then kind=answer target=$(solver "$p" answer)
+    elif no_repo "$p"; then continue
+    else
+      kind=code target=$(env_get "$T_ROOT/pipelines/$p/env" REPO)
+      target=${target:-$(repo_naming "$p")}
+    fi
+    printf '%-17s%s%-9s%s%s%s%s\n' "$p" "$C_DIM" "$kind" "$C_OFF" "$C_MID" "${target##*/}" "$C_OFF"
   done
   exit
 fi
@@ -73,14 +92,14 @@ if [ "${1:-}" = --changed ]; then
     done
   }
   put_stats() { [ -n "${T_UI:-}" ] && echo "$1" > "$T_UI/stats.tmp" && mv "$T_UI/stats.tmp" "$T_UI/stats"; }
-  was=$(moves) all=$(board -a) i=0
+  was=$(moves) all=$(board -a; t-later --row) i=0
   stats=$(board_stats); put_stats "$stats"
   while sleep 2; do
     i=$((i + 1))
     if [ "$(moves)" != "$was" ]; then break; fi
     if [ $((i % 7)) -ne 0 ]; then continue; fi
     fresh=$(board_stats); put_stats "$fresh"
-    [ "$(board -a)" = "$all" ] && [ "$fresh" = "$stats" ] || break
+    [ "$(board -a; t-later --row)" = "$all" ] && [ "$fresh" = "$stats" ] || break
   done
   board_rows
   exit
@@ -175,6 +194,7 @@ if [ "${1:-}" = --pane ]; then
       fi ;;
     *)
       if [ -z "$id" ]; then echo "no tasks yet: $(key new) starts one"
+      elif [ "$id" = later ]; then CLICOLOR_FORCE=1 exec t-later --pane
       else CLICOLOR_FORCE=1 exec t-peek "$id" "$(cat "$T_UI/pane")"
       fi ;;
   esac
@@ -187,7 +207,9 @@ if [ "${1:-}" = --key ]; then
   named() { printf '%s\n' "$@" | awk -v k="$key" '$2 == k { print $1; exit }'; }   # what $key is in tables $@
   footer() {   # the board's bottom line: the keys for task $1, and the board's stats, if available
     local f stats
-    if [ -z "$1" ]; then f=$(hint "$(key new)" new); else f=$(t-keys "$1" 2> /dev/null); fi
+    if [ -z "$1" ]; then f=$(hint "$(key new)" new)
+    elif [ "$1" = later ]; then f=$(hint enter "your own list" "$(key new)" new)
+    else f=$(t-keys "$1" 2> /dev/null); fi
     stats=$(cat "$T_UI/stats" 2> /dev/null || board_stats)   # --changed keeps it warm; a cold start computes
     if [ -n "$stats" ]; then f="${f:+$f  }$stats"; fi
     echo "$f"
@@ -350,19 +372,21 @@ if [ "${1:-}" = --key ]; then
 
   if [ "$mode" = board ]; then
     case $key in
-      focus)  if [ -z "$id" ]; then echo "change-footer~$(footer "")~"; exit; fi
+      focus)  if [ -z "$id" ] || [ "$id" = later ]; then echo "change-footer~$(footer "$id")~"; exit; fi
               shown=$(pane "$(tdir "$id")" "$(cat "$T_UI/pane")")
               echo "change-preview-window($(follow_if_log "$shown"))+change-footer~$(footer "$id")~" ;;
-      tab)    [ -n "$id" ] || exit 0
+      tab)    [ -n "$id" ] && [ "$id" != later ] || exit 0
               task=$(tdir "$id")
               show "$(pane_next "$task" "$(pane "$task" "$(cat "$T_UI/pane")")")" ;;
       esc)    echo abort ;;
       ctrl-u) echo preview-half-page-up ;;
-      enter)  if [ -z "$id" ]; then new_form; else act_on "$(offers "$(tdir "$id")" | cut -d' ' -f1)"; fi ;;
+      enter)  if [ -z "$id" ]; then new_form
+              elif [ "$id" = later ]; then echo "execute(t-later)+reload-sync~t-ui --rows~+refresh-preview"   # its own screen
+              else act_on "$(offers "$(tdir "$id")" | cut -d' ' -f1)"; fi ;;
       *)      name=$(named "$BOARD_KEYS" "$ACTIONS")
               if [ "$name" = new ]; then new_form
               elif [ "$name" = clean ]; then form clean - "delete these? " "" "nofollow,~2" "$(hint enter delete esc back)"
-              elif [ -z "$id" ]; then exit 0
+              elif [ -z "$id" ] || [ "$id" = later ]; then exit 0     # a task's keys mean nothing on a pile
               elif [ "$name" = keys ]; then form do "$id" "do to $id> " "" "nofollow,~2" "$(hint enter do "$(key keys) esc" back)"
               else act_on "$name"
               fi ;;
