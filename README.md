@@ -124,7 +124,8 @@ answered question, `task from 7>` makes a task of it), and
 type goes to `feedback.md` (a running task is stopped first), `tab` picks the step it restarts at, `^s` who
 solves it from then on, and the pane shows what will happen and its latest log.
 `^s` on a task's row does that without saying anything (`t agent`): claude,
-opencode, then its pipeline's agents again, from its next run on.
+opencode, then its pipeline's agents again, from its next run on. A step stuck on
+opencode moves to claude now with `t agent -f 7 claude`.
 
 Outside the board, `t new` without a title opens the same form as a screen of
 its own (`t compose`).
@@ -663,7 +664,7 @@ t run [TASK]               run it now, in this terminal
 t hold [-f] [TASK] [why]   pause it after the running step; -f cancels that step now, agent and all
 t resume [TASK] [STEP]     unpause it, optionally at another step
 t name [TASK] ["name"]     what the board calls it; left out, an agent picks a short one
-t agent [TASK] [CLI]       who solves every step from its next run; left out, the next one
+t agent [-f] [TASK] [CLI]  who solves every step from its next run; left out, the next one; -f switches the running step too
 t path [TASK]              its worktree:  cd "$(t path discount)"
 t rm [-f] [TASK]           delete the task and its worktree (the branch stays); -f stops its run first
 t clean [-n] [HOURS]       delete every task done, answered or held for 12 hours (or HOURS); -n lists them

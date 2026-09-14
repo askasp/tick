@@ -543,6 +543,21 @@ test_rm_f_stops_the_run_and_its_agent_first() {
   not wait $pid                                            # killed, not finished
 }
 
+test_agent_f_moves_a_step_stuck_on_opencode_to_claude() {
+  id=$(new "add the widget")
+  FAKE_SLEEP=30 t run $id > /dev/null 2>&1 &
+  pid=$!
+  for i in $(seq 50); do [ ! -s "$FAKE/opencode.calls" ] || break; sleep 0.1; done   # opencode is stuck on it
+  t agent $id claude | grep -q "t agent -f 1$"                # without -f, the running step keeps its agent
+  t agent -f $id claude | grep -q 'implement runs again'
+  not wait $pid
+  flock -n "$(dir $id)/lock" true
+  [ ! -e "$(dir $id)/hold" ]
+  eq "$(cat "$(dir $id)/runs/10-implement")" 0                # the cancelled run doesn't count
+  t run $id
+  grep -q '^session: claude ' "$(dir $id)/log/10-implement.log"
+}
+
 test_hold_f_cancels_the_running_agent_and_holds_the_task() {
   id=$(new "add the widget")
   FAKE_SLEEP=30 t run $id > /dev/null 2>&1 &
