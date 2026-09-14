@@ -7,6 +7,7 @@
 # first, then as a GET would, else an id of its own.
 set -eu
 url=${!#}
+if [ "$url" = http ]; then echo "${@: -2:1}" >> "$FAKE/fzf.calls"; exit 0; fi   # -d ACTION to fzf's --listen socket
 echo "$url" >> "$FAKE/curl.calls"
 verb=GET
 for ((i = 1; i < $#; i++)); do

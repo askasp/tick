@@ -334,11 +334,17 @@ FORM_KEYS='details  ctrl-o  the details, in $EDITOR
 repo     ctrl-r  another repo
 pipeline ctrl-p  the pipelines, to pick one'
 # t inbox's keys, on a screen of its own; ? lists them in its pane
-INBOX_KEYS='write    enter   a reply you type under the thread, and sign
-draft    ctrl-s  an agent drafts a reply, for you to read and sign
-comment  ctrl-t  a comment you type under the thread, for your teammates only
+INBOX_KEYS='open     enter   the thread, the width of the screen, with a reply or a comment typed under it
 archive  ctrl-x  archive it, where the mail lives
 keys     ?       every key, in the pane; again: the thread'
+# t thread's: typing is fzf's query, so the keys are ctrl- ones, and ? and every letter are text
+THREAD_KEYS='line     enter   a new line; backspace on an empty one takes the line above back
+done     ctrl-d  end it: it holds on the board, and nothing leaves yet
+comment  ctrl-t  a comment for your teammates instead, or a reply again; what you wrote comes along
+draft    ctrl-s  an agent writes it, from what you wrote so far; again: writes it again
+release  ctrl-y  sign what you ended: it leaves
+edit     ctrl-e  write on at the end of what you ended
+discard  ctrl-x  delete what you ended'
 # t cal's: answering is the signature, so each answer is a key of its own
 CAL_KEYS='open     enter   open it in the browser
 accept   ctrl-y  accept the invite; the organizer is told
@@ -353,7 +359,7 @@ drop     ctrl-x  not mine: off this list, and nothing changes on GitHub
 keys     ?       every key, in the pane; again: the issue'
 
 # the key for $1 as fzf binds it (key_of agent → ctrl-s), and as the screens write it (key agent → ^s)
-key_of() { printf '%s\n' "$ACTIONS" "$BOARD_KEYS" "$FORM_KEYS" "$INBOX_KEYS" "$CAL_KEYS" "$ROADMAP_KEYS" | awk -v n="$1" '$1 == n { print $2; exit }'; }
+key_of() { printf '%s\n' "$ACTIONS" "$BOARD_KEYS" "$FORM_KEYS" "$INBOX_KEYS" "$THREAD_KEYS" "$CAL_KEYS" "$ROADMAP_KEYS" | awk -v n="$1" '$1 == n { print $2; exit }'; }
 key() { keyname "$(key_of "$1")"; }
 
 # how t ui writes a key: ctrl-l as ^l, and a key an action hasn't (-) as nothing
@@ -364,6 +370,20 @@ hint() {
   local out=
   while [ $# -ge 2 ]; do out+="$1:$2   "; shift 2; done
   printf %s "${out%   }"
+}
+
+# fzf reads a newline in a paste as enter, which would end a form at the paste's first line. So enter in a form puts
+# a space, and a moment later runs $1 with $FZF_QUERY as it is by then: still what enter left, and it was enter;
+# else the paste went on, and the space keeps its lines apart.
+after_paste() { echo "put( )+bg-transform~sleep 0.1; echo 'transform:$1'~"; }
+
+# the reply task on conversation $2 in source $1 that hasn't left yet, if there is one
+reply_to() {
+  local found
+  for found in $(grep -lx "conversation: $1 $2" /dev/null "$T_TASKS"/*/task.md 2> /dev/null || true); do
+    found=${found%/task.md}
+    if [ "$(cat "$found/pipeline")" = reply ] && [ "$(cat "$found/step")" != done ]; then echo "$found"; return; fi
+  done
 }
 
 # the actions worth offering for a task now; Enter does the first. A watch offers its mail, and a reply
