@@ -1165,9 +1165,20 @@ test_the_board_starts_a_task_and_says_to_one_in_place() {
   mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
   t ui --key "$(keyfor new)" '' '' | grep -q 'change-prompt(new> )+disable-search'
   eq "$(cat "$T_UI/pick")" local
-  t ui --key tab '' '' > /dev/null                        # tab: the next pipeline
+  out=$(t ui --key "$(keyfor pipeline)" '' 'add the widget')      # ^p: the list becomes the pipelines
+  grep -q 'change-prompt(pipeline> )+enable-search' <<< "$out"
+  grep -q 'reload-sync~t-ui --pipelines~+pos(1)' <<< "$out"       # the cursor lands on the first
+  eq "$(cat "$T_UI/list")" pipelines
+  eq "$(cat "$T_UI/title")" 'add the widget'                      # the title waits where you left it
+  eq "$(head -1 <<< "$(t ui --pipelines)" | awk '{ print $1 }')" local   # the repo's default, first
+  t ui --pane feature '' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *feature'  # the one under the cursor
+  t ui --key esc '' '' > /dev/null                                # esc: back to the tasks, nothing picked
+  eq "$(cat "$T_UI/list")" tasks
+  eq "$(cat "$T_UI/pick")" local
+  t ui --key "$(keyfor pipeline)" '' '' > /dev/null
+  t ui --key enter feature '' > /dev/null                         # enter on it: that is the pipeline
+  eq "$(cat "$T_UI/list")" tasks
   eq "$(cat "$T_UI/pick")" feature
-  t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *feature'   # in color
   t ui --key "$(keyfor agent)" '' '' > /dev/null          # another agent than the pipeline's
   t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^steps *implement (claude) → test → review (claude) → sync (claude) → pr$'
   t ui --key enter '' 'add the widget' | grep -q 'reload-sync'   # made; the reload's end puts the cursor on it
@@ -1277,6 +1288,30 @@ fi
 EOF
   chmod +x "$tmp/tick/test/fake/nvidia-smi"
   timeout 15 t ui --changed > /dev/null || { echo "the live board never reloaded for a stats change" >&2; return 1; }
+}
+
+test_the_board_picks_the_pipeline_from_a_list_of_them() {
+  command -v tmux > /dev/null && command -v fzf > /dev/null || return 0
+  new "add the widget" > /dev/null
+  server=tick-${tmp##*/}
+  tmux -f /dev/null -L "$server" new-session -d -x 160 -y 16 t
+  screen() { tmux -L "$server" capture-pane -p; }
+  for i in $(seq 100); do screen | grep -q 'implement · next tick' && break; sleep 0.1; done
+  tmux -L "$server" send-keys C-n                          # the new form
+  for i in $(seq 100); do screen | grep -q 'new> ' && break; sleep 0.1; done
+  tmux -L "$server" send-keys 'add a discount code'
+  tmux -L "$server" send-keys C-p                          # the pipelines, the default first
+  for i in $(seq 100); do screen | grep -qE '^[│ ]*> +local ' && break; sleep 0.1; done
+  screen | grep -q 'pipeline> '
+  screen | grep -qE '^[│ ]*> +local '                      # the default, under the cursor
+  tmux -L "$server" send-keys fea                          # search them, as the tasks are searched
+  for i in $(seq 100); do screen | grep -qE '^[│ ]*> +feature ' && break; sleep 0.1; done
+  tmux -L "$server" send-keys Enter                        # picks it; the tasks come back, the title waiting
+  for i in $(seq 100); do screen | grep -q 'new> add a discount code' && break; sleep 0.1; done
+  tmux -L "$server" send-keys Enter
+  for i in $(seq 100); do [ -f "$(dir 0002)/pipeline" ] && break; sleep 0.1; done
+  eq "$(cat "$(dir 0002)/pipeline")" feature
+  tmux -L "$server" kill-server
 }
 
 test_the_board_changes_who_solves_a_task_it_already_has() {
@@ -1460,13 +1495,30 @@ test_the_front_digest_calls_no_agent_when_nothing_is_new() {
 test_the_front_digest_fails_with_the_fix_when_front_refuses() {
   export XDG_CONFIG_HOME=$tmp/config
   not "$tmp/tick/jobs/front-digest" 2> "$tmp/err"
-  grep -q 'FRONT_TOKEN=' "$tmp/err"
+  grep -q 't front login' "$tmp/err"
   front
   touch "$FAKE/front/401"
   not "$tmp/tick/jobs/front-digest" > "$tmp/out" 2> "$tmp/err"
   grep -q 'check FRONT_TOKEN' "$tmp/err"
   [ ! -s "$tmp/out" ]
   [ ! -e "$FAKE/claude.calls" ]
+}
+
+test_front_login_checks_the_token_before_it_keeps_it_where_front_is_read() {
+  export XDG_CONFIG_HOME=$tmp/config
+  mkdir -p "$FAKE/front"
+  echo '{"id": "cmp_1", "name": "Stadler"}' > "$FAKE/front/me"
+  echo '{"id": "tea_me", "first_name": "Aksel", "last_name": "S"}' > "$FAKE/front/teammates_alt:email:me%40example.com"
+  printf 'secret-token\nme@example.com\n' | t front login 2> "$tmp/err"
+  grep -q '^  private     Read, Write, Send' "$tmp/err"                 # what to choose, said before it asks
+  grep -q '^  Delete   leave it off' "$tmp/err"
+  grep -q 'at Stadler as Aksel S' "$tmp/err"
+  eq "$(env -i bash -c ". '$tmp/config/front/env'; echo \"\$FRONT_TOKEN \$FRONT_EMAIL\"")" "secret-token me@example.com"
+  eq "$(stat -c %a "$tmp/config/front/env")" 600
+  touch "$FAKE/front/401"
+  not bash -c "printf 'bad-token\n\n' | t front login" 2> "$tmp/err"   # an empty login keeps the one you had
+  grep -q 'refused the token, so nothing changed' "$tmp/err"
+  grep -q '^FRONT_TOKEN=secret-token$' "$tmp/config/front/env"
 }
 
 front_source() { "$tmp/tick/sources/front" "$@"; }
@@ -1489,12 +1541,13 @@ test_a_front_thread_reads_oldest_first_without_quotes_or_drafts() {
   echo '{"id": "cnv_x", "subject": "Invoice question"}' > "$FAKE/front/conversations_cnv_x"
   page '[{"type": "email", "created_at": 300, "draft_mode": "private", "text": "half a thought"},
          {"type": "email", "created_at": 200, "draft_mode": null, "recipients": [{"role": "from", "handle": "me@example.com"}], "text": "We are on it.\n> Can you resend the invoice?"},
-         {"type": "email", "created_at": 100, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob", "handle": "bob@shop.example"}], "text": "Can you resend the invoice?"}]' \
+         {"type": "email", "created_at": 100, "draft_mode": null, "is_inbound": true, "recipients": [{"role": "from", "name": "Bob", "handle": "bob@shop.example"}], "text": "Can you resend the invoice?"}]' \
     > "$FAKE/front/conversations_cnv_x_messages"
   page '[{"posted_at": 150, "author": {"first_name": "Kari", "last_name": "N"}, "body": "ask finance"}]' > "$FAKE/front/conversations_cnv_x_comments"
   front_source thread cnv_x > "$tmp/thread.md"
   eq "$(head -1 "$tmp/thread.md")" "# Invoice question"
-  eq "$(grep '^## ' "$tmp/thread.md" | cut -d, -f1)" "$(printf '## email from Bob\n## comment by Kari N\n## email from me@example.com')"
+  eq "$(grep '^##' "$tmp/thread.md" | cut -d, -f1)" "$(printf '## email from Bob\n### └ comment by Kari N\n## email from me@example.com')"
+  grep -qx '_1 comment: only your teammates see it, not Bob._' "$tmp/thread.md"   # said, so it never reads as said to Bob
   not grep -q '^> ' "$tmp/thread.md"
   not grep -q 'half a thought' "$tmp/thread.md"                     # your unsent draft is not the thread
 }
@@ -1611,7 +1664,7 @@ test_show_puts_a_reply_above_the_thread_it_answers_and_says_how_to_sign_it() {
 test_the_front_watch_keeps_what_changed_and_says_how_much_on_its_one_row() {
   conversation
   page "[{\"id\": \"cnv_x\", \"subject\": \"Invoice question\", \"updated_at\": $(date +%s)}]" > "$FAKE/front/conversations_search_mention"
-  id=$(new -p front "front inbox")
+  id=$(new -p front-inbox "front inbox")
   t run $id
   eq "$(step $id)" 10-watch                                         # a watch never ends
   mail=$T_VAR/mail/front/cnv_x
@@ -1632,7 +1685,7 @@ test_the_front_watch_keeps_what_changed_and_says_how_much_on_its_one_row() {
 
 watched() {   # a front watch that has read cnv_x once (after conversation); prints its task id
   page "[{\"id\": \"cnv_x\", \"subject\": \"Invoice question\", \"updated_at\": $(date +%s)}]" > "$FAKE/front/conversations_search_mention"
-  new -p front "front inbox"
+  new -p front-inbox "front inbox"
   t run 1 > /dev/null 2>&1
 }
 inbox() { T_INBOX=front "$tmp/tick/bin/t-inbox" "$@"; }
@@ -1662,6 +1715,67 @@ test_archiving_in_the_inbox_archives_in_front_and_takes_the_row() {
   inbox --key "$(keyfor archive)" cnv_x > /dev/null
   grep -A1 '^PATCH /conversations/cnv_x$' "$FAKE/front.calls" | tail -1 | grep -q '"status":"archived"'
   eq "$(inbox --rows)" ""
+}
+
+test_a_comment_is_posted_for_your_teammates_only_once_you_sign_it() {
+  conversation
+  mkdir -p "$T_VAR/mail/front/cnv_x"
+  echo '{"id": "cnv_x", "from": "bob@shop.example"}' > "$T_VAR/mail/front/cnv_x/conv.json"
+  id=$(printf 'conversation: front cnv_x\n' | t new -p comment "Re: Invoice question" - 2> /dev/null)
+  t run $id
+  eq "$(cat "$(dir $id)/hold")" "write your comment"
+  printf 'Ida, can you confirm the PO?\n' > "$(dir $id)/answer.md"
+  t resume $id 2> /dev/null
+  t run $id
+  eq "$(cat "$(dir $id)/hold")" "comment ready: internal, bob@shop.example will not see it"   # who, by name
+  [ ! -e "$FAKE/front.calls" ]                                      # and nothing is up yet
+  sign $id
+  t run $id
+  eq "$(step $id)" done
+  body=$(grep -A1 '^POST /conversations/cnv_x/comments$' "$FAKE/front.calls" | tail -1)
+  eq "$(jq -r .body <<< "$body")" 'Ida, can you confirm the PO?'
+  eq "$(jq -r .author_id <<< "$body")" tea_me
+  not grep -q '/drafts$\|/messages$' "$FAKE/front.calls"            # a comment, never a reply
+}
+
+test_the_inbox_says_where_a_comment_mentions_you_and_writes_a_comment_apart_from_a_reply() {
+  conversation
+  page '[{"posted_at": 150, "author": {"first_name": "Ida", "last_name": "K"}, "body": "@me the PO was never updated"}]' \
+    > "$FAKE/front/conversations_cnv_x_comments"
+  watched > /dev/null                                               # found by Front's mention: search
+  inbox --rows | grep -q $'^cnv_x\t.*Invoice question .*mention'
+  inbox --pane cnv_x | grep -q ' · 1 message, 1 comment'
+  inbox --pane cnv_x | grep -q '^### └ comment by Ida K'
+  eq "$(inbox --key "$(keyfor comment)" cnv_x)" "execute(t-inbox --write comment cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
+  eq "$(inbox --key "$(keyfor write)" cnv_x)" "execute(t-inbox --write reply cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
+}
+
+test_a_draft_follows_the_comments_and_is_told_the_customer_cannot_see_them() {
+  conversation
+  page '[{"posted_at": 150, "author": {"first_name": "Marius", "last_name": "H"}, "body": "do not offer a credit note"}]' \
+    > "$FAKE/front/conversations_cnv_x_comments"
+  id=$(reply +draft)
+  t run $id
+  grep -q '^### └ comment by Marius H' "$FAKE/read.prompts"
+  grep -q 'do not offer a credit note' "$FAKE/read.prompts"
+  grep -q 'never sees' "$FAKE/read.prompts"                         # agents/drafter.md says what a └ line is
+}
+
+test_the_first_poll_reads_a_day_back_and_a_later_mention_brings_the_whole_thread() {
+  conversation                                                      # Bob asked for his invoice long ago
+  id=$(new -p front-inbox "front inbox")
+  before=$(date +%s)
+  t run $id
+  since=$(grep -o 'after%3A[0-9]*' "$FAKE/curl.calls" | head -1 | grep -o '[0-9]*$')
+  [ "$since" -le $((before - 86400)) ] && [ "$since" -ge $((before - 86400 - 120)) ]   # a day back, and nothing more
+  [ ! -e "$T_VAR/mail/front/cnv_x" ]
+  page '[{"posted_at": 150, "author": {"first_name": "Ida", "last_name": "K"}, "body": "@me can you take this?"}]' \
+    > "$FAKE/front/conversations_cnv_x_comments"
+  page "[{\"id\": \"cnv_x\", \"subject\": \"Invoice question\", \"updated_at\": $(date +%s)}]" > "$FAKE/front/conversations_search_mention"
+  touch -d '1 hour ago' "$T_VAR/mail/front/polled"
+  t run $id
+  grep -q 'Can you resend the invoice?' "$T_VAR/mail/front/cnv_x/thread.md"   # the message from before the day, too
+  grep -q '^### └ comment by Ida K' "$T_VAR/mail/front/cnv_x/thread.md"
 }
 
 searched_since() { grep -o 'participant%3Atea_me%20after%3A[0-9-]*' "$FAKE/curl.calls" | tail -1 | grep -o '[0-9-]*$'; }

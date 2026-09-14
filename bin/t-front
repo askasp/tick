@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# t front login — the Front API token tick uses: what to choose when you make it, then the token and your login, checked and kept
+#
+# It writes ~/.config/front/env (FRONT_TOKEN=, FRONT_EMAIL=), which sources/front and jobs/front-digest read, and
+# only once Front has taken the token and knows you: a token that doesn't work leaves the one you had.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+[ "${1:-}" = login ] || die "usage: t front login"
+dir=${XDG_CONFIG_HOME:-$HOME/.config}/front
+FRONT_EMAIL=
+if [ -r "$dir/env" ]; then . "$dir/env"; fi
+
+cat >&2 << 'EOF'
+In Front: Settings → Developers → API tokens → Create API token. Name it tick, and choose:
+
+  feature     Access resources
+  global      Read                         to find you among the teammates
+  shared      All shared workspaces: Read, Write, Send
+  private     Read, Write, Send            your own inbox, and the drafts only you see
+
+  Read     conversations, their messages and comments, who a comment mentions, inboxes and channels:
+           the watch, t inbox, the digest, the corpus
+  Write    drafts of your replies, the comments you post, and archiving
+  Send     only with DELIVER=send in pipelines/reply/env; without it, tick never sends
+  Delete   leave it off: tick deletes nothing
+
+For private resources, also turn on API access in your own Front settings.
+
+EOF
+
+ask() {   # PROMPT [hidden]: a line from you; in a terminal, the token isn't echoed
+  local line
+  if [ -t 0 ]; then
+    read -r ${2:+-s} -p "$1" line
+    if [ -n "${2:-}" ]; then echo >&2; fi
+  else
+    read -r line || true
+  fi
+  printf %s "$line"
+}
+
+token=$(ask "token: " hidden)
+[ -n "$token" ] || die "no token, so nothing changed"
+email=$(ask "your Front login${FRONT_EMAIL:+ [$FRONT_EMAIL]}: ")
+email=${email:-$FRONT_EMAIL}
+[ -n "$email" ] || die "no login, so nothing changed"
+
+front() { curl -sfS -H "Authorization: Bearer $token" "https://api2.frontapp.com$1"; }
+company=$(front /me | jq -r .name) ||
+  die "Front refused the token, so nothing changed; make one with the choices above, then: t front login"
+you=$(front "/teammates/alt:email:$(jq -rn --arg e "$email" '$e | @uri')" |
+  jq -er 'select(.id != null) | [.first_name, .last_name] | map(select(. != null)) | join(" ")') ||
+  die "$company has no teammate $email (or the token can't read teammates: global Read), so nothing changed"
+
+mkdir -p "$dir"
+(umask 077 && printf 'FRONT_TOKEN=%q\nFRONT_EMAIL=%q\n' "$token" "$email" > "$dir/env.tmp")
+mv "$dir/env.tmp" "$dir/env"
+echo "t: logged in to Front at $company as ${you:-$email} ($email); kept in $dir/env" >&2

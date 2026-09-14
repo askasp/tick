@@ -2,6 +2,8 @@
 # watch — an inbox as one row that never ends. Every POLL seconds (the pipeline's env) it asks sources/$SOURCE what
 # changed, keeps each conversation in $T_VAR/mail/$SOURCE/ID/ (conv.json, thread.md, and gist: one line an agent
 # wrote), and puts how many had something today on the board. Between polls and after one it exits 75: not yet.
+# Its first poll reads back SINCE (a day); after that, whatever changed since the last one, and a conversation
+# that turns up (a new comment that mentions you, on however old a thread) comes whole.
 set -euo pipefail
 shopt -s nullglob
 : "${SOURCE:?needs SOURCE= in the pipeline env: the name of a file in sources/}"
@@ -19,7 +21,7 @@ if [ "$(wc -l < "$log")" -gt 1000 ]; then tail -n 200 "$log" > log.tmp; cat log.
 
 rm -f note                                                # a poll that fails says so on the board, not the last count
 started=$(date +%s)
-since=$(stat -c %Y "$polled" 2> /dev/null || date -d '7 days ago' +%s)
+since=$(stat -c %Y "$polled" 2> /dev/null || date -d "${SINCE:-1 day} ago" +%s)
 "$T_ROOT/sources/$SOURCE" poll "$((since - 60))" > poll.tmp
 while read -r conv; do
   dir=$cache/$(jq -r .id <<< "$conv")

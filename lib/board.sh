@@ -286,10 +286,12 @@ BOARD_KEYS='new      ctrl-n  a new task
 clean    ctrl-g  delete every task done, answered or held for 12 hours
 keys     ?       every action, in the pane'
 FORM_KEYS='details  ctrl-o  the details, in $EDITOR
-repo     ctrl-r  another repo'
+repo     ctrl-r  another repo
+pipeline ctrl-p  the pipelines, to pick one'
 # t inbox's keys, on a screen of its own
 INBOX_KEYS='draft    enter   an agent drafts a reply, for you to read and sign
 write    ctrl-o  a reply you write, in $EDITOR
+comment  ctrl-t  a comment you write, for your teammates only
 archive  ctrl-x  archive it, where the mail lives'
 # t cal's: answering is the signature, so each answer is a key of its own
 CAL_KEYS='open     enter   open it in the browser
