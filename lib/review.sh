@@ -45,10 +45,12 @@ mindset_file() {
   echo "$file"
 }
 
-# one review of task $1 with mindset $2 (empty: the whole diff at once), its text on stdout
+# one review of task $1 with mindset $2 (empty: the whole diff at once), its text on stdout.
+# $3, the pass's answer from last round, goes back to it when it asked for changes.
 review_pass() {
   { review_prompt "$1"
     if [ -n "${2:-}" ]; then printf '\n## This review\n\n'; cat "$(mindset_file "$2")"; fi
+    if [ -n "${3:-}" ] && [ -f "$3" ]; then printf '\n## What you asked for last round\n\n'; cat "$3"; fi
   } | (cd -P "$1/work" && agent reviewer)
 }
 
