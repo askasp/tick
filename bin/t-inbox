@@ -72,6 +72,8 @@ pane() {
   echo
   if [ -f "$mail/$1/thread.md" ]; then thread_view "$mail/$1/thread.md"
   else echo "${C_DIM}Nothing here involves you, so only its count was read. Enter reads it.$C_OFF"; fi
+  echo
+  echo                                                            # room under the last message, so it reads as the end
 }
 
 # every key the inbox binds, and what it does

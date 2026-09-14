@@ -1968,6 +1968,7 @@ test_the_inbox_shows_a_long_thread_at_its_newest_message_under_its_subject() {
   grep -q 'message number 30' "$tmp/screen"                          # the newest, as a chat opens
   not grep -qE 'message number 1( |$)' "$tmp/screen"
   eq "$(grep -o 'Invoice question' "$tmp/screen" | wc -l)" 2          # its row, and the subject kept over the pane
+  awk '/message number 30/{ getline; sub(/^.*│/, ""); exit (NF != 0) }' "$tmp/screen" # room under it: blank below, in the pane
 }
 
 test_what_you_type_under_a_thread_leaves_with_the_one_key_that_sends_on_every_screen() {
