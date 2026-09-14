@@ -548,8 +548,9 @@ test_agent_f_moves_a_step_stuck_on_opencode_to_claude() {
   FAKE_SLEEP=30 t run $id > /dev/null 2>&1 &
   pid=$!
   for i in $(seq 50); do [ ! -s "$FAKE/opencode.calls" ] || break; sleep 0.1; done   # opencode is stuck on it
-  t agent $id claude | grep -q "t agent -f 1$"                # without -f, the running step keeps its agent
-  t agent -f $id claude | grep -q 'implement runs again'
+  hint=$(t agent $id claude | sed -n 's/.*too: //p')           # without -f, the running step keeps its agent
+  eq "$hint" "t agent -f 1 claude"
+  $hint | grep -q 'implement runs again'
   not wait $pid
   flock -n "$(dir $id)/lock" true
   [ ! -e "$(dir $id)/hold" ]

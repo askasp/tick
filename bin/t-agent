@@ -19,7 +19,7 @@ fi
 if [ -n "$cli" ]; then who="$cli solves every step"; else who="its pipeline's agents solve it again"; fi
 
 if flock -n "$task/lock" true; then echo "task $n: $who from its next run"; exit 0; fi
-if [ -z "$force" ]; then echo "task $n: $who from its next run; to switch the running step too: t agent -f $n"; exit 0; fi
+if [ -z "$force" ]; then echo "task $n: $who from its next run; to switch the running step too: t agent -f $n ${cli:-''}"; exit 0; fi
 step=$(cat "$task/step")
 stop "$task"
 runs=$task/runs/$step
