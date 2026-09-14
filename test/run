@@ -1090,9 +1090,20 @@ test_the_board_starts_a_task_and_says_to_one_in_place() {
   mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
   t ui --key "$(keyfor new)" '' '' | grep -q 'change-prompt(new> )+disable-search'
   eq "$(cat "$T_UI/pick")" local
-  t ui --key tab '' '' > /dev/null                        # tab: the next pipeline
+  out=$(t ui --key "$(keyfor pipeline)" '' 'add the widget')      # ^p: the list becomes the pipelines
+  grep -q 'change-prompt(pipeline> )+enable-search' <<< "$out"
+  grep -q 'reload-sync~t-ui --pipelines~+pos(1)' <<< "$out"       # the cursor lands on the first
+  eq "$(cat "$T_UI/list")" pipelines
+  eq "$(cat "$T_UI/title")" 'add the widget'                      # the title waits where you left it
+  eq "$(head -1 <<< "$(t ui --pipelines)" | awk '{ print $1 }')" local   # the repo's default, first
+  t ui --pane feature '' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *feature'  # the one under the cursor
+  t ui --key esc '' '' > /dev/null                                # esc: back to the tasks, nothing picked
+  eq "$(cat "$T_UI/list")" tasks
+  eq "$(cat "$T_UI/pick")" local
+  t ui --key "$(keyfor pipeline)" '' '' > /dev/null
+  t ui --key enter feature '' > /dev/null                         # enter on it: that is the pipeline
+  eq "$(cat "$T_UI/list")" tasks
   eq "$(cat "$T_UI/pick")" feature
-  t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *feature'   # in color
   t ui --key "$(keyfor agent)" '' '' > /dev/null          # another agent than the pipeline's
   t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^steps *implement (claude) → test → review (claude) → sync (claude) → pr$'
   t ui --key enter '' 'add the widget' | grep -q 'reload-sync'   # made; the reload's end puts the cursor on it
@@ -1174,6 +1185,30 @@ test_the_live_board_draws_its_rows_and_the_keys_at_the_bottom() {
   grep -qE '^[│ ]*> +1 +(repo +)?add the widget +0/3 +next tick' "$tmp/screen"   # fzf's pointer
   grep -q 'implement · next tick' "$tmp/screen"                      # the pane on it
   grep -qE 'enter:run .*:keys' "$tmp/screen"
+}
+
+test_the_board_picks_the_pipeline_from_a_list_of_them() {
+  command -v tmux > /dev/null && command -v fzf > /dev/null || return 0
+  new "add the widget" > /dev/null
+  server=tick-${tmp##*/}
+  tmux -f /dev/null -L "$server" new-session -d -x 160 -y 16 t
+  screen() { tmux -L "$server" capture-pane -p; }
+  for i in $(seq 100); do screen | grep -q 'implement · next tick' && break; sleep 0.1; done
+  tmux -L "$server" send-keys C-n                          # the new form
+  for i in $(seq 100); do screen | grep -q 'new> ' && break; sleep 0.1; done
+  tmux -L "$server" send-keys 'add a discount code'
+  tmux -L "$server" send-keys C-p                          # the pipelines, the default first
+  for i in $(seq 100); do screen | grep -qE '^[│ ]*> +local ' && break; sleep 0.1; done
+  screen | grep -q 'pipeline> '
+  screen | grep -qE '^[│ ]*> +local '                      # the default, under the cursor
+  tmux -L "$server" send-keys fea                          # search them, as the tasks are searched
+  for i in $(seq 100); do screen | grep -qE '^[│ ]*> +feature ' && break; sleep 0.1; done
+  tmux -L "$server" send-keys Enter                        # picks it; the tasks come back, the title waiting
+  for i in $(seq 100); do screen | grep -q 'new> add a discount code' && break; sleep 0.1; done
+  tmux -L "$server" send-keys Enter
+  for i in $(seq 100); do [ -f "$(dir 0002)/pipeline" ] && break; sleep 0.1; done
+  eq "$(cat "$(dir 0002)/pipeline")" feature
+  tmux -L "$server" kill-server
 }
 
 test_the_board_changes_who_solves_a_task_it_already_has() {

@@ -13,7 +13,8 @@ ask() { local answer; read -rp "$1 " answer < /dev/tty; echo "$answer"; }
 #   --pane ID QUERY      the pane
 #   --key KEY ID QUERY   what KEY does now (ID is empty on an empty board); the keys are in lib/board.sh
 # $T_UI/mode is "board", or "MODE ID" while the prompt takes words for new, stack, say, hold, name or the
-# action to do (? asks), or waits on rm; and $T_UI/pick is the pipeline (new, stack) or the step (say) tab went to.
+# action to do (? asks), or waits on rm; $T_UI/pick is the pipeline (new, stack) or the step (say) chosen,
+# and $T_UI/list the list behind the prompt: the tasks, or the pipelines ^p brings up in new and stack.
 
 # how wide a row can be: fzf's columns less the list's borders and pointer, less the pane beside them
 list_width() {
@@ -44,6 +45,20 @@ neighbour() {
 
 if [ "${1:-}" = --rows ]; then board_rows; exit; fi
 
+# ^p in the new and stack forms: the tasks give way to the pipelines, the default first, to be
+# scrolled and searched as the tasks are; enter on one picks it
+if [ "${1:-}" = --pipelines ]; then
+  def=$(cat "$T_UI/def" 2> /dev/null)
+  for p in $(pipelines "${def:-$T_PIPELINE}"); do
+    f=$(flow "$p") note=
+    if [[ $f == *→* ]]; then f=$(sed 's/ ([^)]*)//g' <<< "$f"); fi     # who solves each step, the preview says
+    if [ "$p" = "$def" ]; then note=default; fi
+    if no_repo "$p"; then note="no repo"; fi
+    printf '%-9s ' "$p"; pad 36 "$f"; printf ' %s%s%s\n' "$C_DIM" "$note" "$C_OFF"
+  done
+  exit
+fi
+
 # a reload reruns the pane, which loses your place in it: reload as soon as a task moves, and for
 # what the agents are doing only every 14 seconds
 if [ "${1:-}" = --changed ]; then
@@ -69,12 +84,14 @@ fi
 # gets the keys of its task as it is now.
 if [ "${1:-}" = --onload ]; then
   row= keys=
-  if [ -s "$T_UI/new" ]; then
-    row=$(row_of "$(cat "$T_UI/new")")
-    rm -f "$T_UI/new"
+  if [ "$(cat "$T_UI/list" 2> /dev/null)" != pipelines ]; then   # the pipelines list never changes
+    if [ -s "$T_UI/new" ]; then
+      row=$(row_of "$(cat "$T_UI/new")")
+      rm -f "$T_UI/new"
+    fi
+    if [ -z "$row" ]; then keys=$(t-ui --key focus "${2:-}" "${3:-}"); fi
+    printf '%s%sreload-sync~t-ui --changed~' "${row:+pos($row)+}" "${keys:+$keys+}"
   fi
-  if [ -z "$row" ]; then keys=$(t-ui --key focus "${2:-}" "${3:-}"); fi
-  printf '%s%sreload-sync~t-ui --changed~' "${row:+pos($row)+}" "${keys:+$keys+}"
   exit
 fi
 
@@ -85,9 +102,12 @@ if [ "${1:-}" = --pane ]; then
   if [[ ${target:-} == [0-9]* ]]; then task=$(tdir "$target"); fi
   case $mode in
     new | stack)
-      echo "$(strip "$pick" $(pipelines "$(cat "$T_UI/def")"))  ${C_FAINT}tab:pipeline$C_OFF"
+      if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ]; then
+        show=${2:-$pick} typed=$(cat "$T_UI/title" 2> /dev/null)    # the pipeline under the cursor
+      else show=$pick typed=$q; fi
+      echo "$(strip "$show" $(pipelines "$(cat "$T_UI/def")"))  ${C_FAINT}$(key pipeline):pipelines$C_OFF"
       echo
-      CLICOLOR_FORCE=1 exec t-compose --dry "$pick" "$q" ;;
+      CLICOLOR_FORCE=1 exec t-compose --dry "$show" "$typed" ;;
     say)
       echo "$(strip "$pick" $(steps "$(cat "$task/pipeline")" "$task" | sed 's/^[0-9]*-//'))  ${C_FAINT}tab:restart step$C_OFF"
       echo
@@ -178,10 +198,21 @@ if [ "${1:-}" = --key ]; then
     agent=$(cat "$T_UI/cli")
     agent="agent ${agent:-default}"
     case $1 in
-      new)   hint enter create tab pipeline "$(key agent)" "$agent" "$(key details)" details "$(key repo)" repo esc back ;;
-      stack) hint enter create tab pipeline "$(key agent)" "$agent" "$(key details)" details esc back ;;
+      new)   hint enter create "$(key pipeline)" pipeline "$(key agent)" "$agent" "$(key details)" details "$(key repo)" repo esc back ;;
+      stack) hint enter create "$(key pipeline)" pipeline "$(key agent)" "$agent" "$(key details)" details esc back ;;
       say)   hint enter say tab "restart step" "$(key agent)" "$agent" esc back ;;
     esac
+  }
+  pipeline_list() {   # ^p: the list becomes the pipelines, the default first; the title waits in $T_UI/title
+    echo pipelines > "$T_UI/list"
+    printf '%s' "$q" > "$T_UI/title"
+    echo "change-prompt(pipeline> )+enable-search+change-query()+change-footer~$(keys "$mode")~+reload-sync~t-ui --pipelines~+pos(1)+refresh-preview"
+  }
+  pipeline_done() {   # from the pipelines: enter on one ($1) picks it; esc and ^p only go back to the tasks
+    if [ -n "$1" ]; then printf '%s\n' "$1" > "$T_UI/pick"; fi
+    echo tasks > "$T_UI/list"
+    case $mode in new) prompt="new> " ;; stack) prompt="stack on $target> " ;; esac
+    echo "change-prompt($prompt)+disable-search+change-query~$(cat "$T_UI/title" 2> /dev/null)~+change-footer~$(keys "$mode")~+reload-sync~t-ui --rows~+refresh-preview"
   }
   new_form() {
     : > "$T_UI/args"; : > "$T_UI/repo"; : > "$T_UI/cli"
@@ -316,23 +347,29 @@ if [ "${1:-}" = --key ]; then
   if [[ ${target:-} == [0-9]* ]]; then task=$(tdir "$target"); fi
   case $key in                          # the board's own keys wait until you're back
     tab)    case $mode in
-              say)         choices=$(steps "$(cat "$task/pipeline")" "$task" | sed 's/^[0-9]*-//') ;;
-              new | stack) choices=$(pipelines "$(cat "$T_UI/def")") ;;
-              *)           exit 0 ;;
+              say) choices=$(steps "$(cat "$task/pipeline")" "$task" | sed 's/^[0-9]*-//') ;;
+              *)   exit 0 ;;            # new and stack pick the pipeline as a list, not a tab cycle
             esac
             next_choice "$pick" $choices > "$T_UI/pick"
             echo refresh-preview ;;
-    esc)    back ;;
+    esc)    if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ]; then pipeline_done
+            else back; fi ;;
     ctrl-u) echo unix-line-discard ;;   # in a prompt, ^u clears what you typed
-    enter)  submit enter ;;
+    enter)  if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ]; then pipeline_done "$id"
+            else submit enter; fi ;;
     *)      case $(named "$FORM_KEYS" "$BOARD_KEYS" "$ACTIONS") in
-              details) submit details ;;
+              details) if [ "$(cat "$T_UI/list" 2> /dev/null)" != pipelines ]; then submit details; fi ;;
               agent)   [[ $mode == new || $mode == stack || $mode == say ]] || exit 0   # the pipeline's, or another
                        next_cli "$(cat "$T_UI/cli")" > "$T_UI/c" && mv "$T_UI/c" "$T_UI/cli"
                        echo "refresh-preview+change-footer~$(keys "$mode")~" ;;
               repo)    if [ "$mode" = new ]; then
                          echo "execute(t-complete repos | fzf --prompt 'repo> ' --height 40% --reverse --delimiter : --nth 1 | cut -d: -f1 > \"\$T_UI/r\" && mv \"\$T_UI/r\" \"\$T_UI/repo\")+refresh-preview"
                        fi ;;
+              pipeline) case $mode in
+                          new | stack) if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ]
+                                       then pipeline_done
+                                       else pipeline_list; fi ;;
+                        esac ;;
               keys)    if [ "$mode" = do ]; then back; else echo "put($key)"; fi ;;   # typed in a title, it is the title's
             esac ;;
   esac
@@ -378,6 +415,7 @@ T_UI=$(mktemp -d)
 T_NEW=$T_UI
 trap 'rm -rf "$T_UI"' EXIT
 echo board > "$T_UI/mode"
+echo tasks > "$T_UI/list"
 touch "$T_UI/pane" "$T_UI/pick" "$T_UI/def" "$T_UI/args" "$T_UI/repo" "$T_UI/cli"
 
 binds=()                                # each key once, though it may mean one thing on the board and another in a form

@@ -106,13 +106,14 @@ On the board, `^n` (or Enter on an empty board) starts one without leaving
 it: the prompt becomes `new>` and takes the title, and the pane shows the task
 that is about to exist (`t new --dry`): its repo and where that came from,
 branch, base, who solves it, when it starts, and the command to type next
-time. `tab` picks the pipeline from the strip at the top of the pane. Enter
-creates it and puts the cursor on it, `^o` opens `$EDITOR` for details with
-the title already on line 1, `^r` picks another repo, `^s` another agent for
-every step (like `--cli`; the keys at the bottom say which), and esc goes
-back. `^a`, `^e` and `^u` edit the line as in a shell. With cron installed the
-task starts at once; without it, `? run` on its row runs it. Flags typed with
-the title work too: `Add proration -r amino`.
+time. `^p` turns the list into the pipelines, the repo's default first and
+under the cursor: search and scroll it as the tasks, and enter on one picks
+it. Enter creates it and puts the cursor on it, `^o` opens `$EDITOR` for
+details with the title already on line 1, `^r` picks another repo, `^s`
+another agent for every step (like `--cli`; the keys at the bottom say
+which), and esc goes back. `^a`, `^e` and `^u` edit the line as in a shell.
+With cron installed the task starts at once; without it, `? run` on its row
+runs it. Flags typed with the title work too: `Add proration -r amino`.
 
 `^t` stacks a task on the one you're on the same way (`stack on 7>`), and
 `? say` says something to it (`say to 7>`, and Enter on a held task): what you
