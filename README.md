@@ -659,7 +659,7 @@ status describes work already done; priority and effort stay the team's.
 What you have written down and are not doing now goes on a list only you
 write. Nothing polls it, so it isn't a watch: it is one row under the tasks,
 with no id, that never sorts above them (`later  23 · 4 this week · 2
-rotting`), and only while something is on it.
+rotting`; empty, `nothing yet`).
 
 ```sh
 t later "Bytte regnskapsfører"       # on the list, from anywhere

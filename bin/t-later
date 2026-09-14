@@ -39,7 +39,7 @@ board_row() {
     if due_this_week "$thing"; then week=$((week + 1)); fi
     if rotten "$thing"; then rot=$((rot + 1)); fi
   done < <(things)
-  [ "$all" -gt 0 ] || return 0
+  if [ "$all" = 0 ]; then line "" "" later "" "" "" "${C_DIM}nothing yet · enter writes one down$C_OFF"; return; fi
   says=$all
   if [ "$week" -gt 0 ]; then says+=" · $week this week"; fi
   if [ "$rot" -gt 0 ]; then says+=" · $rot rotting" color=$C_TEXT; fi

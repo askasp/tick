@@ -98,9 +98,10 @@ mkdir -p "$T_TASKS"
 n=$(last_task_num)
 while :; do
   n=$((n + 1))
-  if mkdir "$T_TASKS/$(printf %04d "$n")" 2> /dev/null; then break; fi
+  id=$(printf %04d "$n")
+  if mkdir "$T_TASKS/$id" 2> /dev/null; then break; fi
+  [ -e "$T_TASKS/$id" ] || die "can't make $T_TASKS/$id; see who may write there: ls -ld $T_TASKS"
 done
-id=$(printf %04d "$n")
 cd "$T_TASKS/$id"
 
 if [ ${#images[@]} -gt 0 ]; then           # the agent works elsewhere, so it gets the whole path

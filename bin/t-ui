@@ -99,7 +99,7 @@ if [ "${1:-}" = --changed ]; then
     if [ "$(moves)" != "$was" ]; then break; fi
     if [ $((i % 7)) -ne 0 ]; then continue; fi
     fresh=$(board_stats); put_stats "$fresh"
-    [ "$(board -a)" = "$all" ] && [ "$fresh" = "$stats" ] || break
+    [ "$(board -a; t-later --row)" = "$all" ] && [ "$fresh" = "$stats" ] || break
   done
   board_rows
   exit
