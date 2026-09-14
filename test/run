@@ -1312,7 +1312,21 @@ test_the_live_board_says_its_stats_in_the_footer() {
   kill $pid 2> /dev/null || true
 }
 
+test_the_footer_reads_the_stats_the_background_kept_warm() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  printf '#!/usr/bin/env bash\necho "1, 1024, 1024"\n' > "$tmp/tick/test/fake/nvidia-smi"   # a value the warm file doesn't have
+  chmod +x "$tmp/tick/test/fake/nvidia-smi"
+  id=$(new "add the widget")
+  echo "GPU 45% 8.0/16.0GiB" > "$T_UI/stats"                    # what --changed would have kept warm
+  out=$(t ui --key focus "$id" '')                               # a cursor move: the footer, no fresh nvidia-smi
+  grep -q 'GPU 45% 8.0/16.0GiB' <<< "$out"
+  not grep -q 'GPU 1%' <<< "$out"
+}
+
 test_the_live_board_reloads_when_its_stats_change() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
   cat > "$tmp/tick/test/fake/nvidia-smi" <<'EOF'
 #!/usr/bin/env bash
 if [ -f "$FAKE/gpu" ]; then echo "45, 8192, 16384"; rm -f "$FAKE/gpu"
@@ -1321,6 +1335,7 @@ fi
 EOF
   chmod +x "$tmp/tick/test/fake/nvidia-smi"
   timeout 20 t ui --changed > /dev/null || { echo "the live board never reloaded for a stats change" >&2; return 1; }
+  [ -s "$T_UI/stats" ]                                           # and it kept the stats warm for the footer
 }
 
 test_the_board_picks_the_pipeline_from_a_list_of_them() {
