@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# preview — amino's dev stack from this worktree (./dev.sh up), each surface behind a Cloudflare quick tunnel.
+# Prints "App URL", "Backoffice URL" and "API URL" once all three answer through their tunnels and both
+# frontends were built against the API's link; everything else goes to stderr.
+# The tunnels run in docker so they outlive the step, and keep their links while they run; teardown removes them.
+set -euo pipefail
+exec 3>&1 1>&2
+compose="docker compose -f docker-compose.dev.yml"
+
+./dev-env.sh > /dev/null
+rm -f .env.bak.*    # dev-env.sh's backup of the last .env
+. ./.env
+
+# the https link of a quick tunnel to a local port; extra arguments go to cloudflared
+tunnel() {
+  local name=${COMPOSE_PROJECT_NAME}_tunnel_$1 port=$2 url
+  shift 2
+  if [ "$(docker inspect -f '{{.State.Running}}' "$name" 2> /dev/null)" != true ]; then
+    docker rm -f "$name" > /dev/null 2>&1 || true
+    docker run -d --name "$name" --network host cloudflare/cloudflared:latest \
+      tunnel --no-autoupdate --url "http://localhost:$port" "$@" > /dev/null
+  fi
+  for _ in $(seq 60); do
+    url=$(docker logs "$name" 2>&1 | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | grep -v '//api\.' | head -1 || true)
+    if [ -n "$url" ]; then echo "$url"; return; fi
+    sleep 1
+  done
+  { echo "the $1 tunnel gave no link:"; docker logs --tail 20 "$name" 2>&1; } >&2
+  return 1
+}
+
+# wait up to ten minutes for a check to pass
+await() {
+  local what=$1
+  shift
+  for _ in $(seq 200); do
+    if "$@" > /dev/null 2>&1; then return; fi
+    sleep 3
+  done
+  echo "$what never came up"
+  $compose logs --no-color --tail 40
+  exit 1
+}
+
+app=$(tunnel app "$PORT_FRONTEND")
+# Bun's dev server answers 403 to any Host that isn't loopback
+backoffice=$(tunnel backoffice "$PORT_BACKOFFICE" --http-host-header "localhost:$PORT_BACKOFFICE")
+api=$(tunnel api "$PORT_API")
+
+# Both frontends call the API's link, the backend writes the app's into its mail, and the seeded-user
+# login stands in for BankID, which knows none of these origins. dev-env.sh keeps these lines.
+links="FRONTEND_URL=$app
+EXPO_PUBLIC_API_URL=$api
+BUN_PUBLIC_API_URL=$api
+BUN_PUBLIC_FRONTEND_URL=$app
+EXPO_PUBLIC_ALLOW_DEV_LOGIN=true
+BUN_PUBLIC_ALLOW_DEV_LOGIN=true
+ALLOW_MOCK_LAB_RESULTS=true"
+{ grep -vE "^($(cut -d= -f1 <<< "$links" | paste -sd'|'))=" .env || true; echo "$links"; } > .env.tmp
+mv .env.tmp .env
+
+timeout 45m ./dev.sh up -d
+
+# /health exits the backend after three failed database checks, so not before it listens at all
+await "the API" curl -sS -o /dev/null "http://localhost:$PORT_API/"
+await "the API's health" bash -c "curl -fsS '$api/health' | grep -q '\"status\":\"ok\"'"
+
+# the first script a page loads, through its tunnel
+script() { curl -fsS "$1/" | grep -o "src=\"[^\"]*$2[^\"]*\"" | head -1 | cut -d'"' -f2; }
+# whether a file the browser loads names the API's link: grep without -q reads to the end, so curl's pipe never breaks
+calls_api() { curl -fsS --max-time 900 "$1" | grep -F "$api" > /dev/null; }
+
+# Metro builds the app's bundle only when someone reads it, minutes the first time. EXPO_PUBLIC_ lands in it.
+await "the app" script "$app" '\.bundle'
+calls_api "$app$(script "$app" '\.bundle')" || { echo "the app's bundle doesn't call $api"; exit 1; }
+
+# Bun inlines BUN_PUBLIC_ into the script the backoffice's page loads
+await "the backoffice" script "$backoffice" '\.js'
+calls_api "$backoffice$(script "$backoffice" '\.js')" || { echo "the backoffice's script doesn't call $api"; exit 1; }
+
+printf 'App %s\nBackoffice %s\nAPI %s\n' "$app" "$backoffice" "$api" >&3

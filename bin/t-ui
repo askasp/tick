@@ -27,6 +27,9 @@ list_width() {
 
 board_rows() { T_COLOR=1 T_COLS=$(list_width) board -a; }
 
+# the step task $1 starts over at, by name
+first_step() { local s; s=$(steps "$(cat "$1/pipeline")" "$1" | head -1); echo "${s#*-}"; }
+
 # the line task $1 is on in the board's list
 row_of() { board -a | awk -v n="$(task_num "$1")" '$1 == n { print NR; exit }'; }
 
@@ -114,14 +117,19 @@ if [ "${1:-}" = --pane ]; then
       echo
       CLICOLOR_FORCE=1 exec t-compose --dry "$show" "$typed" ;;
     say)
-      echo "$(strip "$pick" $(steps "$(cat "$task/pipeline")" "$task" | sed 's/^[0-9]*-//'))  ${C_FAINT}tab:restart step$C_OFF"
+      echo "$(strip "$pick" $(restart_steps "$task"))  ${C_FAINT}tab:restart step$C_OFF"
       echo
       echo "${C_DIM}task $target$C_OFF  $(name "$task")"
       status "$task"
-      echo "${C_DIM}goes to feedback.md; the task restarts at$C_OFF $pick ${C_DIM}on the next tick$C_OFF"
+      step=${pick#+}
+      if [ -n "$q" ]; then what="goes to feedback.md; the task restarts at"
+      elif [ "$pick" != "$(first_step "$task")" ]; then what="nothing said: the task restarts at"
+      else what="type what to change; the task restarts at"; fi
+      echo "$C_DIM$what$C_OFF $step ${C_DIM}on the next tick$C_OFF"
+      if [ "$pick" != "$step" ]; then echo "${C_DIM}It left out $step, which becomes one of its steps.$C_OFF"; fi
       if [ "$(state "$task")" = running ]; then echo "${C_BRIGHT}It is running: enter stops it first.$C_OFF"; fi
       who=$(cat "$T_UI/cli")
-      who=${who:-$(solver "$(cat "$task/pipeline")" "$pick" "$task")}
+      who=${who:-$(solver "$(cat "$task/pipeline")" "$step" "$task")}
       if [ -n "$who" ]; then echo "${C_DIM}solved by$C_OFF $who  ${C_FAINT}$(key agent):another$C_OFF"; else echo; fi
       echo
       CLICOLOR_FORCE=1 t-log "$target" | tail -n 60 ;;
@@ -239,11 +247,10 @@ if [ "${1:-}" = --key ]; then
     fi
   }
   say_form() {
-    local task first
+    local task
     task=$(tdir "$1")
-    first=$(steps "$(cat "$task/pipeline")" "$task" | head -1)
     env_get "$task/env" AGENT_CLI > "$T_UI/cli"
-    form say "$1" "say to $1> " "${first#*-}" "follow,~6" "$(keys say)"
+    form say "$1" "say to $1> " "$(first_step "$task")" "follow,~6" "$(keys say)"
   }
   act_on() {   # action $1 on task $id, as $key asked
     local task
@@ -285,6 +292,7 @@ if [ "${1:-}" = --key ]; then
       stack)  stack_form "$id" ;;
       attach) echo "execute(t-attach $id)+reload-sync~t-ui --rows~" ;;      # the agent's own screen: the one that leaves
       path)   echo "change-footer~$(t-path "$id" 2>&1 | sed 's/^t: //')~" ;;
+      copy)   echo "change-footer~$(t-copy "$id" 2>&1 | sed 's/^t: //')~" ;;
       agent)  echo "refresh-preview+change-footer~$(t-agent "$id" 2>&1 | sed 's/^t: //')   $(key agent):another~" ;;
       inbox)  echo "execute(t-inbox $id)+reload-sync~t-ui --rows~+refresh-preview" ;;   # its own screen, like diff
       cal)    echo "execute(t-cal $id)+reload-sync~t-ui --rows~+refresh-preview" ;;
@@ -318,10 +326,12 @@ if [ "${1:-}" = --key ]; then
       clean) [ "$how" = enter ] || exit 0
             t-clean 2>&1 > /dev/null | grep -v '^t: removed ' > "$T_UI/err" || true
             if [ -s "$T_UI/err" ]; then echo "refresh-preview+$(failed)"; else back ""; fi ;;
-      say)  [ "$how" = enter ] && [ -n "$q" ] || exit 0
-            if [ "$(state "$task")" = running ]; then t-hold -f "$target" "said to" 2> /dev/null; fi   # t say resumes it
+      say)  [ "$how" = enter ] || exit 0
+            if [ -z "$q" ] && [ "$pick" = "$(first_step "$task")" ]; then exit 0; fi   # nothing said, and no step picked
+            if [ "$(state "$task")" = running ]; then t-hold -f "$target" "said to" 2> /dev/null; fi   # resuming lifts it
             t-agent "$target" "$(cat "$T_UI/cli")" > /dev/null   # the agent picked here solves it from now on
-            t-say "$target" "$q" "$pick" > /dev/null 2> "$T_UI/err" || failed
+            if [ -n "$q" ]; then t-say "$target" "$q" "$pick" > /dev/null 2> "$T_UI/err" || failed
+            else t-resume "$target" "$pick" 2> "$T_UI/err" || failed; fi
             back "$target" ;;
       new | stack)
             words "$q"
@@ -364,7 +374,7 @@ if [ "${1:-}" = --key ]; then
   if [[ ${target:-} == [0-9]* ]]; then task=$(tdir "$target"); fi
   case $key in                          # the board's own keys wait until you're back
     tab)    case $mode in
-              say) choices=$(steps "$(cat "$task/pipeline")" "$task" | sed 's/^[0-9]*-//') ;;
+              say) choices=$(restart_steps "$task") ;;
               *)   exit 0 ;;            # new and stack pick the pipeline as a list, not a tab cycle
             esac
             next_choice "$pick" $choices > "$T_UI/pick"

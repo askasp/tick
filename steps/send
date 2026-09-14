@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # send — the reply you signed leaves. DELIVER=draft (the pipeline's env) saves it as a private draft in the
 # conversation's source, the same draft each time you sign again; DELIVER=send sends it as you, but only while
-# the thread is the one you read: else thread.md catches up, and the reply waits for you to read it again.
+# the thread is the one you read: else thread.md catches up, and the reply waits for you to read it again. Once sent,
+# the inbox's copy of the thread catches up at once, not at the watch's next poll.
 set -euo pipefail
 [ -f signed ] || { echo "the reply isn't signed; sign it with: t sign $((10#${PWD##*/}))" >&2; exit 1; }
 read -r source id <<< "$(sed -n '/^conversation: /{s/^conversation: //p;q}' task.md)"
@@ -23,7 +24,10 @@ case ${DELIVER:-draft} in
     fi
     rm thread.tmp
     from send "$id" < answer.md > sent.tmp
-    mv sent.tmp sent ;;
+    mv sent.tmp sent
+    dir=$T_VAR/mail/$source/${id%%/*}                   # a reply into a thread (C123/TS) is in its channel's copy
+    if [ -d "$dir" ] && from thread "${id%%/*}" > "$dir/thread.tmp"; then mv "$dir/thread.tmp" "$dir/thread.md"
+    else rm -f "$dir/thread.tmp"; fi ;;
   *)
     echo "DELIVER=$DELIVER in the pipeline's env means nothing; it is draft or send" >&2
     exit 1 ;;

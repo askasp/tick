@@ -66,6 +66,16 @@ steps() {
     { print }'
 }
 
+# the steps task $1 can restart at, by name and in order: its own, and as +name the optional ones it left out
+restart_steps() {
+  local pipeline mine s
+  pipeline=$(cat "$1/pipeline")
+  mine=" $(steps "$pipeline" "$1" | xargs) "
+  for s in $(steps "$pipeline"); do
+    if [[ $mine == *" $s "* ]]; then echo "${s#*-}"; else echo "+${s#*-}"; fi
+  done
+}
+
 # the step after $2 in pipeline $1 for task $3, or "done"
 next_step() {
   local s prev=

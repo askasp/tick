@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# t slack login NAME — a Slack workspace for tick, under a name of your own (slack-amino): its user token, checked and kept
+#
+# It writes ~/.config/slack/NAME/env (SLACK_TOKEN=, SLACK_ME=, SLACK_REACTION=), and only once Slack has taken the token
+# and said who you are: a token that doesn't work leaves the one you had. A new NAME also gets its source, sources/NAME (a
+# link to slack), and the pipeline that puts its inbox on the board, pipelines/NAME. As many workspaces as you like.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+[ "${1:-}" = login ] && [ -n "${2:-}" ] || die "usage: t slack login NAME   (a name for the workspace, like slack-amino)"
+name=$2 source=$T_ROOT/sources/$2 pipeline=$T_ROOT/pipelines/$2
+[[ $name =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "a workspace's name is lowercase letters, digits and dashes, like slack-amino"
+[ "$name" != slack ] || die "slack is the script every workspace links to; name this one, like slack-amino"
+if [ -e "$source" ] && [ "$(readlink "$source")" != slack ]; then die "sources/$name is another source already; pick another name"; fi
+if [ -e "$pipeline" ] && ! grep -qx "SOURCE=$name" "$pipeline/env" 2> /dev/null; then die "pipelines/$name is another pipeline already; pick another name"; fi
+dir=${XDG_CONFIG_HOME:-$HOME/.config}/slack/$name
+SLACK_REACTION=+1
+if [ -r "$dir/env" ]; then . "$dir/env"; fi
+
+cat >&2 << 'EOF'
+At api.slack.com/apps: Create New App → From scratch, name it tick, and pick the workspace. Under OAuth & Permissions,
+add these as User Token Scopes, not Bot Token Scopes: tick reads and writes as you, and no bot joins a channel.
+
+  channels:history groups:history im:history mpim:history   the messages, in t inbox and t thread
+  channels:read groups:read im:read mpim:read users:read     the conversations you are in, and who said what
+  channels:write groups:write im:write mpim:write            marking one read (^x)
+  chat:write                                                 what you send (^y), posted as you
+  reactions:write                                            your one reaction (^r)
+
+Then Install to Workspace, and copy the User OAuth Token (xoxp-…).
+
+EOF
+if [ -t 0 ]; then read -rsp "token: " token; echo >&2; else read -r token || true; fi
+[ -n "$token" ] || die "no token, so nothing changed"
+who=$(curl -sfS -H "Authorization: Bearer $token" https://slack.com/api/auth.test) ||
+  die "Slack didn't answer, so nothing changed; try again: t slack login $name"
+[ "$(jq -r .ok <<< "$who")" = true ] ||
+  die "Slack refused the token ($(jq -r .error <<< "$who")), so nothing changed; copy the User OAuth Token (xoxp-…), then: t slack login $name"
+team=$(jq -r .team <<< "$who")
+
+mkdir -p "$dir"
+(umask 077 && printf 'SLACK_TOKEN=%q\nSLACK_ME=%q\nSLACK_REACTION=%q\n' "$token" "$(jq -r .user_id <<< "$who")" "$SLACK_REACTION" > "$dir/env.tmp")
+mv "$dir/env.tmp" "$dir/env"
+if [ ! -e "$source" ]; then ln -s slack "$source"; fi
+if [ ! -e "$pipeline" ]; then
+  mkdir "$pipeline"
+  ln -s ../../steps/watch "$pipeline/10-watch"
+  printf '# %s: the Slack workspace %s, as one row on the board that never ends (t slack login %s)\nREPO=none\nSOURCE=%s\nPOLL=300\nCLI_watch=opencode\n' \
+    "$name" "$team" "$name" "$name" > "$pipeline/env"
+fi
+echo "t: logged in to Slack at $team as $(jq -r .user <<< "$who"); kept in $dir/env" >&2
+if ! grep -qsx "$name" "$T_TASKS"/*/inbox; then echo "t: put its inbox on the board once: t new -p $name \"${name//-/ }\"" >&2; fi

@@ -1,0 +1,7 @@
+# periode-mail: the mail of the Google account periode, as one row on the board (t google login periode)
+REPO=none
+SOURCE=periode
+POLL=300
+CLI_watch=opencode
+# only the mail that matters to you, in Gmail's search words:
+SEARCH='(aksel OR aksels OR app OR apps OR appen OR apper OR appene OR appar OR "native app" OR "mobile app" OR mobilapp OR mobilappen OR "the app" OR ios OR iphone OR ipad OR android OR testflight OR "app store" OR appstore OR "google play" OR "play store")'

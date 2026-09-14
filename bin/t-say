@@ -12,10 +12,11 @@ n=$(task_num "$task") first=$(steps "$(cat "$task/pipeline")" "$task" | sed -n 1
 flock -n "$task/lock" true || die "task $n is running; say it when it stops, or: t hold $n"
 
 if [ -z "$msg" ] && [ -t 0 ] && command -v fzf > /dev/null && [ "${T_PICKER:-fzf}" = fzf ]; then
-  rows=$(steps "$(cat "$task/pipeline")" "$task" | while read -r s; do
+  rows=$(restart_steps "$task" | while read -r s; do
     note="restarts here"
-    if [ "$s" = "$first" ]; then note="starts over"; fi
-    printf '%-10s %s%s%s\n' "${s#*-}" "$C_DIM" "$note" "$C_OFF"
+    if [ "$s" = "${first#*-}" ]; then note="starts over"; fi
+    if [[ $s == +* ]]; then note="takes it on, and restarts here"; fi
+    printf '%-10s %s%s%s\n' "$s" "$C_DIM" "$note" "$C_OFF"
   done)
   preview='. "$T_ROOT/lib/tick.sh"; t=$(tdir '"$n"') s={1}
     echo "${C_DIM}task '"$n"'$C_OFF  $(name "$t")  $C_DIM$(cat "$t/branch" 2> /dev/null)$C_OFF"; status "$t"

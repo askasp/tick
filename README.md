@@ -170,7 +170,7 @@ next
 4. It ends `done`, or `held` when it needs you. `t show` tells you what to
    do either way, and ends with the implementer's summary of what it changed.
 5. When it's done, read it with `t diff`. Then take it with `git merge`, or
-   with `-p feature`, review the PR it opened.
+   with `-p amino`, review the PR it opened.
 6. Clean up with `t rm`. The branch stays.
 
 ### Questions instead of code
@@ -217,23 +217,26 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 
 | pipeline | steps |
 | --- | --- |
-| `local` (the default) | implement (opencode) → test → review (opencode) |
-| `feature` | +plan (claude) → implement (opencode) → test → review (opencode) → sync → pr → +ci |
-| `main` | local's steps, then merge (opencode): tick only, from any directory; lands on its `main` |
+| `amino` (the default) | +plan (claude) → implement (opencode) → test → review (opencode) → sync → pr → +preview → +ci |
+| `periode-feature` | +plan (claude) → implement (opencode) → test → review (opencode) → sync → pr → +ci: mono only, from any directory |
+| `main` | implement (opencode) → test → review (opencode) → merge (opencode): tick only, from any directory; lands on its `main` |
 | `ask` | answer (opencode): reads the repo you're in and changes nothing |
 | `research` | answer (claude): searches the web; needs no repo |
 
-You pick one per task with `t new -p feature "…"`, and a repo can name its own
+You pick one per task with `t new -p amino "…"`, and a repo can name its own
 default (see Repos).
 
 A step written `+plan` is optional: the pipeline lists it in `OPTIONAL=` in its
-`env` and leaves it out unless the task asks for it with `t feature +plan "…"`
+`env` and leaves it out unless the task asks for it with `t amino +plan "…"`
 (the same `+plan` works on the board, typed after the title, and `+plan +ci`
 asks for both). The task keeps what it asked for in its `opt` file, and every
-screen counts only its own steps, so a plain feature is 0/5 and one with both
-is 0/7.
+screen counts only its own steps, so a plain amino task is 0/5 and one with both
+is 0/7. A task can take one on later, done or not: `t resume 7 preview` adds
+it to `opt` and restarts there, and so does the say form on the board (`^y`),
+where `tab` offers the left-out steps as `+preview` and Enter with nothing
+typed restarts at the step you picked.
 
-`feature` has two: **plan** and **ci**. With **plan**, `agents/planner.md` reads
+`amino` has three: **plan**, **preview** and **ci**. With **plan**, `agents/planner.md` reads
 the task and the repo and decides how many pull requests it needs. One is the
 default, and the answer nearly always. Only a change too big to review well, with seams that let
 each part merge on its own, becomes a stack of up to four: the task becomes
@@ -254,6 +257,20 @@ PR's checks (`exit 75` while they are pending), and a failing one becomes
 `feedback.md` and sends the task back to implement, which pushes again. Without
 it the pull request is yours to watch.
 
+With **preview**, the pushed branch goes online for people to click through.
+The step runs the repo's `PREVIEW=` in the worktree, which starts the app and
+prints one `NAME URL` line per surface; the links go to the task's `preview`
+file and, whenever they change, into a comment on the PR. `t show` and the board's pane
+list them under the PR's link, and `t copy` (`alt-c` on the board) puts them all on the
+clipboard. The task finishes
+with the preview still up, and the repo's `TEARDOWN` takes it down when `t rm`
+or `t clean` deletes the task. amino's (`repos/amino/preview`) runs `./dev.sh up`
+behind three Cloudflare quick tunnels (app, backoffice, API), builds both
+frontends against the API's link, and prints the links only once each answers
+through its tunnel and both bundles name that API. Quick tunnels need no
+Cloudflare account; the random `trycloudflare.com` links are the only lock, and
+they change when a test run's teardown closes the tunnels.
+
 ### Mindsets: reviewing once per thing
 
 A mindset is a file in `mindsets/` — eight to fifteen lines saying what one
@@ -271,7 +288,7 @@ and find something new. `passes/` keeps each pass's last answer until the task
 moves past review instead: a pass that approved doesn't read again, and one that
 asked for changes reads its own answer back, and may ask again only for what is
 still not done or for a bug the fix added. From the third round on, only
-`LATE_MINDSETS=` (`feature`: intent and defects) may still send the task back.
+`LATE_MINDSETS=` (`amino`: intent and defects) may still send the task back.
 A round that sends the task back is not a failed run: the task holds only once
 review has sent it back `MAX_ROUNDS` times (5), with the last feedback waiting
 for implement when you `t resume` it.
@@ -285,15 +302,16 @@ While it reads, the board says which pass it is on and of how many
 | `blast-radius` | what outside this diff does it break? |
 | `tests` | would the test fail if the code were wrong? |
 | `craft` | is it the simplest thing that works, and does it look like this repo? |
+| `house-rules` | does it keep the rules the repo's CLAUDE.md files and skills wrote down? |
 | `data` | what happens at a thousand times the data? |
 | `trust` | who could see or do what they shouldn't? |
 
-`feature` names the first five. A small local model answers five narrow
+`amino` names the first five, and `periode-feature` adds `house-rules`. A small local model answers five narrow
 questions better than one wide one, and a stacked pull request gets no review
 from GitHub's bot at all, so this is the only review it will get. `data` and
 `trust` are left to `jobs/idle-review`, which has all the time in the world.
 
-`main` works in a worktree of its own, like `local`, but branches from tick's
+`main` works in a worktree of its own, like `amino`, but branches from tick's
 local `main` (`TRUNK=main` in its env) and ends with `merge`. That step merges
 `main` into the task's branch, and the merger agent resolves any conflicts. If
 `main` had moved, the task goes through test and review again. Then `main`
@@ -305,7 +323,7 @@ your uncommitted work, so while it's in the way, the step waits.
 Each agent step's solver is set in its pipeline's `env`, by the step's name:
 
 ```sh
-# pipelines/feature/env
+# pipelines/amino/env
 CLI_plan=claude
 MODEL_plan=opus                          # the latest Opus: planning is worth it
 EFFORT_plan=max                          # and let it think as hard as it can
@@ -350,16 +368,17 @@ A repo gets a short name, a default pipeline and settings of its own in
 ```sh
 # repos/amino/env
 REPO=~/git/amino-monorepo                  # where it is
-PIPELINE=feature                           # its default pipeline
+PIPELINE=amino                             # its default pipeline
 TEST_CMD="$T_ROOT/repos/amino/run-tests"   # what test steps run; without it, `make test` or nothing
 GENERATED="*openapi*.json *.gen.ts …"      # what tooling writes: no agent reads or reviews it
 GENERATE="$T_ROOT/repos/amino/generate"    # writes it: implement runs this after the agent, before it commits
 TEARDOWN="$T_ROOT/repos/amino/teardown"    # after every test run, and before `t rm` deletes the worktree
+PREVIEW="$T_ROOT/repos/amino/preview"      # +preview: start the app, print "NAME URL" lines
 ```
 
-`repos/amino/` also holds the three scripts it names. A repo's settings apply
-under every pipeline you run on it, so `t new -r amino -p local "…"` runs
-amino's tests too.
+`repos/amino/` also holds the four scripts it names. A repo's settings apply
+under every pipeline you run on it, so `t new -r mono -p amino "…"` runs
+mono's tests too.
 
 Which repo and which pipeline a task gets (the first one given wins):
 
@@ -367,13 +386,13 @@ Which repo and which pipeline a task gets (the first one given wins):
 | --- | --- | --- |
 | 1 | `-r NAME`: a name in `repos/`, a directory in `~/git` (`T_REPOS`), or a path | `-p NAME` |
 | 2 | the repo you're standing in | the repo's `PIPELINE=` |
-| 3 | `T_REPO` in `etc/tick.conf`, for when you're in no repo | `T_PIPELINE` in `etc/tick.conf` (local) |
+| 3 | `T_REPO` in `etc/tick.conf`, for when you're in no repo | `T_PIPELINE` in `etc/tick.conf` (amino) |
 
-To add one:
+To add one, with a pipeline of its own to change its review in:
 
 ```sh
-mkdir ~/git/tick/repos/rigg
-printf 'REPO=~/git/rigg\nPIPELINE=local\nTEST_CMD="cargo test"\n' > ~/git/tick/repos/rigg/env
+mkdir ~/git/tick/repos/rigg && cp -a ~/git/tick/pipelines/amino ~/git/tick/pipelines/rigg
+printf 'REPO=~/git/rigg\nPIPELINE=rigg\nTEST_CMD="cargo test"\n' > ~/git/tick/repos/rigg/env
 t doctor      # lists it, and warns if its test steps would check nothing
 ```
 
@@ -464,12 +483,12 @@ empty one takes the line above back. A paste keeps its lines.
 
 | key | does |
 | --- | --- |
-| ^d | ends it: a task on pipeline `reply` holds on the board with it, and nothing leaves |
+| ^y | sends it: it leaves now, the same key that sends on every screen |
 | ^t | a comment for your teammates instead (pipeline `comment`), or a reply again; your text comes along |
 | ^s | an agent writes it into the prompt, from what you wrote so far (`+draft`) |
-| ^y | signs what you ended: then it leaves |
-| ^e ^x | once ended: write on at its end, or delete it |
-| esc | back to the inbox; what you wrote holds on the board |
+| ^e ^x | once held: write on at its end, or delete it |
+| ^d ^u | scroll the thread half a page, as on the board |
+| esc | back to the inbox; what you wrote holds on the board (a task on pipeline `reply`), and nothing leaves |
 
 A reply is `thread → +draft → sign → send`, and nothing leaves until you sign
 it. The task holds at `sign`, in red (`draft ready`, or `write your reply`), and
@@ -507,10 +526,48 @@ then to anyone at their domain, then your newest, up to `CORPUS_MAX` bytes:
 (crontab -l; echo '0 3 * * * $HOME/git/tick/jobs/mail-corpus >> $HOME/.tick/corpus.log 2>&1') | crontab -
 ```
 
-`sources/front` is the only file that knows Front's API. Another source, Gmail
-or Slack's DMs, is a file beside it with the same verbs (`poll`, `thread`,
-`draft`, `send`, `archive`, `sent`), a pipeline like `front` with its own
-`SOURCE=`, and a word in `CORPUS_SOURCES`.
+`sources/front` is the only file that knows Front's API. Another source is a
+file beside it with the same verbs (`poll`, `thread`, `draft`, `send`,
+`archive`, `sent`), a pipeline like `front-inbox` with its own `SOURCE=`, and a
+word in `CORPUS_SOURCES`. `can VERB` says which of them it has, and the screens
+offer only those keys.
+
+## Slack: the same inbox, and the same thread
+
+Slack comes in the way Front does, through your own user token, so no bot
+joins a channel and what you sign is posted as you. Each workspace has a name
+of your own, and as many as you like stand side by side. `t slack login NAME`
+says which scopes to give the token, checks it and keeps it in
+`~/.config/slack/NAME/env`; for a new name it also links `sources/NAME` to
+`slack` and makes the pipeline `pipelines/NAME` that watches it. Then start the
+watch once:
+
+```sh
+t slack login slack-amino
+t new -p slack-amino "slack amino"
+```
+
+Its row counts what involves you (`5 today · 1 mention`), never the unread.
+Enter opens `t inbox` as for mail, in two bands: above a rule, direct messages,
+mentions and threads you are in, each with the last thing said; under it,
+channels that don't involve you, as a count (`#random  41 unread`). `^x` marks
+one read.
+
+Enter on a conversation is `t thread`, with the same keys as mail and three of
+Slack's own. The prompt starts under the message that brought you there, as a
+reply in its thread; the signature line says who will read it.
+
+| key | does |
+| --- | --- |
+| ^k ^j | walk the messages: the prompt moves with you, into that message's thread |
+| ^g | let go of the message: a message to the whole channel, in red |
+| ^r | your one reaction (`SLACK_REACTION=`, `+1`), or off it again; it goes at once, and needs no signature |
+
+There is no comment (`^t`), because Slack has no strand only your team sees.
+Slack keeps no draft a token can write, so `pipelines/slack-reply` has
+`DELIVER=send`: `^y` posts it. What was said since you wrote it shows above it
+behind a red rule, and a reply sent over new messages holds again instead of
+going, for you to read them first; `^y` again sends it.
 
 ## Google: mail and calendars, one account or many
 
@@ -519,36 +576,35 @@ A Google account is a name, and what it has is a link under that name:
 or both. Each account keeps its login in `~/.config/google/NAME/`, so a second
 Workspace is a second name, and it shares nothing with the first, or with Front.
 
-1. In the account's Google Cloud console, turn on the Gmail and Calendar APIs
-   and make an OAuth client of type *Desktop app*. In a Workspace, make the
-   consent screen *Internal*: an *External* app still in testing loses its
-   login every 7 days.
-2. Write the client's id and secret, and link what the account has:
+1. `t google login work` (or `t google login work mail calendar` for both).
+   The first time, it lists the four pages in Google Cloud where the account
+   gets an OAuth client of its own (a *Desktop app*, with the consent screen
+   *Internal*, since an *External* app still in testing logs out every 7 days),
+   and asks for the client's id and secret.
+2. It prints the login link and opens it. Pick the account and allow it. With
+   the browser on another machine, the page it lands on won't load: paste its
+   address into the terminal instead. It asks only for what you log in for:
+   `gmail.modify` for mail, `calendar.events` for a calendar.
+3. Once logged in, the account gets its links (`sources/work → gmail`,
+   `calendars/work → gcal`) and a pipeline for each (`work-mail`, `work-cal`),
+   and it says what to start:
 
    ```sh
-   mkdir -p ~/.config/google/work
-   printf 'GOOGLE_CLIENT_ID=…\nGOOGLE_CLIENT_SECRET=…\n' > ~/.config/google/work/env
-   chmod 600 ~/.config/google/work/env
-   ln -s gmail ~/git/tick/sources/work
-   ln -s gcal ~/git/tick/calendars/work
-   ```
-
-3. `t google login work` opens Google's consent page and keeps the refresh
-   token. It asks only for what the links need: `gmail.modify` for mail,
-   `calendar.events` for a calendar.
-4. Put it on the board, a pipeline for each:
-
-   ```sh
-   cd ~/git/tick/pipelines
-   mkdir work-mail work-cal
-   ln -s ../../steps/watch work-mail/10-watch && printf 'REPO=none\nSOURCE=work\n' > work-mail/env
-   ln -s ../../steps/agenda work-cal/10-agenda && printf 'REPO=none\nCALENDAR=work\n' > work-cal/env
-   t new -p work-mail "work inbox"
-   t new -p work-cal "work calendar"
+   t new -p work-mail "work mail"
+   t new -p work-cal "work cal"
    ```
 
 The mail is a source like Front: its inbox, the replies you sign, `DELIVER=`,
 and the corpus (`CORPUS_SOURCES="front work"`) all work the same way.
+
+An inbox full of mail that isn't yours (everything to a shared address) can
+be narrowed where Gmail keeps it: `SEARCH=` in its pipeline's env is added to
+the search the watch makes, in Gmail's own words, so what doesn't match never
+comes onto the list.
+
+```sh
+SEARCH='("native app" OR aksel)'
+```
 
 The calendar's row says the day (`2 left today · next 13:00 Standup · 1 to
 answer`), and Enter on it is `t cal`: the next 7 days (`DAYS=`), with the event
@@ -648,17 +704,19 @@ t diff [TASK]              the files it changed, with the diff of each beside th
 t say [TASK] "notes"       back to implement, with your notes
 t sign [TASK]              read a reply in $EDITOR, or type it under the thread, and sign it: then it leaves
 t inbox [TASK]             the mail a watch keeps: enter opens the thread to write under it, ? every key
-t thread CONV|TASK         a conversation the width of the screen: type a reply or comment under it, ^d, ^y signs it
+t thread CONV|TASK         a conversation the width of the screen: type a reply or comment under it, ^y sends it
 t cal [TASK]               the week a calendar watch keeps: ^y accepts an invite, ^t maybe, ^x declines
 t roadmap [TASK]           the project a roadmap watch keeps: enter lists sub-issues, ^t makes a task with your note, ^n an issue
 t google login NAME        log a Google account in, for its linked mail and calendar
 t front login              the Front API token: what to choose when you make it, then it is checked and kept
+t slack login NAME         a Slack workspace under a name of your own: its token, checked and kept, and its inbox pipeline
 t attach [TASK]            resume the agent's conversation yourself
 t run [TASK]               run it now, in this terminal
 t hold [-f] [TASK] [why]   pause it after the running step; -f cancels that step now, agent and all
-t resume [TASK] [STEP]     unpause it, optionally at another step
+t resume [TASK] [STEP]     unpause it, optionally at another step, or at an optional one it left out
 t name [TASK] ["name"]     what the board calls it; left out, an agent picks a short one
 t agent [-f] [TASK] [CLI]  who solves every step from its next run; left out, the next one; -f switches the running step too
+t copy [TASK]              its links on the clipboard: the pull request, and the preview's
 t path [TASK]              its worktree:  cd "$(t path discount)"
 t rm [-f] [TASK]           delete the task and its worktree (the branch stays); -f stops its run first
 t clean [-n] [HOURS]       delete every task done, answered or held for 12 hours (or HOURS); -n lists them

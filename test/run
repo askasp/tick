@@ -38,8 +38,11 @@ setup() {
   trap 'rm -rf "$tmp"' EXIT
   cp -a "$root" "$tmp/tick"
   rm -rf "$tmp/tick/repos"                 # your own repos stay out of the tests
+  mkdir -p "$tmp/tick/pipelines/local"         # the tests' own plain pipeline: implement, test, review, and no PR
+  for step in 10-implement 20-test 30-review; do ln -sf "../../steps/${step#*-}" "$tmp/tick/pipelines/local/$step"; done
+  printf 'CLI_implement=opencode\nCLI_review=opencode\n' > "$tmp/tick/pipelines/local/env"
   echo "REPO=$tmp/repo" >> "$tmp/tick/pipelines/main/env"   # main is tick's; here it is the toy repo's
-  export T_VAR=$tmp/var FAKE=$tmp/fake PATH=$tmp/tick/test/fake:$tmp/tick/bin:$path
+  export T_PIPELINE=local T_VAR=$tmp/var FAKE=$tmp/fake PATH=$tmp/tick/test/fake:$tmp/tick/bin:$path
   mkdir -p "$FAKE"
   git init -q --bare -b main "$tmp/origin.git"
   git init -q -b main "$tmp/repo"
@@ -51,9 +54,9 @@ setup() {
   git remote set-head origin main
 }
 
-profile() {   # a repo named "toy" for the toy repo: feature by default, with a test command of its own
+profile() {   # a repo named "toy" for the toy repo: amino by default, with a test command of its own
   mkdir -p "$tmp/tick/repos/toy"
-  printf 'REPO=%s\nPIPELINE=feature\nTEST_CMD="touch %s/tested && make test"\n' "$tmp/repo" "$tmp" > "$tmp/tick/repos/toy/env"
+  printf 'REPO=%s\nPIPELINE=amino\nTEST_CMD="touch %s/tested && make test"\n' "$tmp/repo" "$tmp" > "$tmp/tick/repos/toy/env"
 }
 
 front() {   # a Front account for jobs/front-digest, served by the fake curl: me@example.com is tea_me
@@ -78,7 +81,7 @@ test_run_runs_only_the_tests_its_pattern_names() {
 
 test_help_shows_how_to_start_a_task() {
   t help | grep -q 'Start a task'
-  t help | grep -q 'feature .*implement (opencode)'
+  t help | grep -q 'amino .*implement (opencode)'
   t help | grep -q 't resume'
   t new --help | grep -q 'stacks it'
   not t nosuch 2> "$tmp/err"
@@ -286,8 +289,8 @@ test_a_stacked_task_waits_then_builds_on_its_parent() {
 }
 
 test_a_stacked_task_takes_what_the_task_below_did_after_it_branched() {
-  a=$(new "parent work" -p feature)
-  b=$(new "child work" --on $a -p feature)
+  a=$(new "parent work" -p amino)
+  b=$(new "child work" --on $a -p amino)
   t run $a
   t run $b
   eq "$(step $b)" done
@@ -380,7 +383,7 @@ test_a_killed_run_is_picked_up_again() {
 
 test_feature_pipeline_opens_a_pr_and_waits_for_ci() {
   printf 'pending\nfail\npass\n' > "$FAKE/checks"
-  id=$(new "add the widget" -p feature +ci)
+  id=$(new "add the widget" -p amino +ci)
   t run $id
   eq "$(step $id)" 50-ci                                  # checks pending: waiting
   eq "$(cat "$(dir $id)/runs/50-ci")" 0
@@ -395,7 +398,7 @@ test_feature_pipeline_opens_a_pr_and_waits_for_ci() {
 
 test_a_feature_is_one_pull_request_unless_its_plan_splits_it() {
   echo "Looks small to me." > "$FAKE/plan"
-  id=$(new "add the widget" -p feature +plan)
+  id=$(new "add the widget" -p amino +plan)
   t run $id
   eq "$(step $id)" 05-plan                                # a plan without a PART line is no plan
   grep -q 'no PART line' "$(dir $id)/log/05-plan.log"
@@ -409,7 +412,7 @@ test_a_feature_is_one_pull_request_unless_its_plan_splits_it() {
 
 test_a_plan_in_parts_becomes_a_stack_of_pull_requests() {
   printf 'Three seams.\n\nPART: Add the widget table\nThe table only.\n\nPART: Show widgets\nA page.\n\nPART: Let users edit widgets\nA form.\n' > "$FAKE/plan"
-  a=$(new "build the whole widget feature" -p feature +plan)
+  a=$(new "build the whole widget feature" -p amino +plan)
   t run $a
   eq "$(step $a)" done
   eq "$(head -1 "$(dir $a)/task.md")" "# Add the widget table"   # it became part 1...
@@ -429,22 +432,92 @@ test_a_plan_in_parts_becomes_a_stack_of_pull_requests() {
 }
 
 test_a_pipelines_optional_step_is_left_out_unless_the_task_asks() {
-  id=$(new "add the widget" -p feature)                   # feature plans and waits for CI only when asked
+  id=$(new "add the widget" -p amino)                   # amino plans and waits for CI only when asked
   eq "$(step $id)" 10-implement
   [ ! -e "$(dir $id)/opt" ]
   t ls | grep -qE '^ +1 .* 0/5 +next tick$'               # five steps, not seven
   not grep -qx plan <(t complete steps widget)
-  with=$(new "add the gadget" -p feature +plan +ci)
+  with=$(new "add the gadget" -p amino +plan +ci)
   eq "$(step $with)" 05-plan
   eq "$(cat "$(dir $with)/opt")" "$(printf 'plan\nci')"
   t ls | grep -qE '^ +2 .* 0/7 +next tick$'
   t complete steps gadget | grep -qx plan
-  t new --dry -p feature +plan "add the gizmo" > "$tmp/out"
+  t new --dry -p amino +plan "add the gizmo" > "$tmp/out"
   grep -q '^steps *plan (claude) → implement (opencode) → test → review (opencode) → sync (opencode) → pr$' "$tmp/out"
-  grep -q '^t feature +plan \\$' "$tmp/out"             # the command, to type next time
-  t new --dry -p feature +ci "add the gizmo" | grep -q '^steps *implement (opencode) → test → review (opencode) → sync (opencode) → pr → ci$'
-  not new "fix the thing" -p feature +nosuch
+  grep -q '^t amino +plan \\$' "$tmp/out"             # the command, to type next time
+  t new --dry -p amino +ci "add the gizmo" | grep -q '^steps *implement (opencode) → test → review (opencode) → sync (opencode) → pr → ci$'
+  not new "fix the thing" -p amino +nosuch
   not new "fix the thing" -p local +plan                  # local has no optional steps at all
+}
+
+test_a_preview_puts_its_links_on_the_pull_request_when_they_change() {
+  printf 'PREVIEW="echo starting >&2; cat %s/links"\n' "$FAKE" >> "$tmp/tick/pipelines/amino/env"
+  printf 'App https://app.example\nAPI https://api.example\n' > "$FAKE/links"
+  id=$(new "add the widget" -p amino +preview)
+  t run $id
+  eq "$(step $id)" done
+  eq "$(cat "$(dir $id)/preview")" "$(cat "$FAKE/links")"
+  grep -qx -- '- App: https://app.example' "$FAKE/comments"
+  t resume $id preview && t run $id                       # the same links again: the PR has them already
+  eq "$(grep -c '^Preview of' "$FAKE/comments")" 1
+  echo 'App https://other.example' > "$FAKE/links"
+  t resume $id preview && t run $id
+  eq "$(grep -c '^Preview of' "$FAKE/comments")" 2
+  grep -qx -- '- App: https://other.example' "$FAKE/comments"
+}
+
+test_a_tasks_links_show_with_it_and_copy_from_the_board() {
+  export T_UI=$tmp/ui WAYLAND_DISPLAY=test
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  id=$(new "add the widget")
+  not t copy $id 2> "$tmp/err"                            # nothing to copy yet: it says so
+  grep -q 'no links yet' "$tmp/err"
+  echo https://github.com/o/r/pull/7 > "$(dir $id)/pr"
+  printf 'App https://app.example\nAPI https://api.example\n' > "$(dir $id)/preview"
+  t show $id > "$tmp/out"
+  grep -qE '^preview +App +https://app\.example$' "$tmp/out"   # a line each, whole, to click or select
+  grep -qE '^ +API +https://api\.example$' "$tmp/out"
+  t ui --key "$(keyfor copy)" $id '' | grep -q '~copied 3 links of task 1~'
+  eq "$(cat "$FAKE/clipboard")" "$(printf 'PR https://github.com/o/r/pull/7\nApp https://app.example\nAPI https://api.example')"
+}
+
+test_a_done_task_takes_on_an_optional_step_from_resume_or_the_board() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  printf 'PREVIEW="echo App https://app.example"\n' >> "$tmp/tick/pipelines/amino/env"
+  a=$(new "add the widget" -p amino)
+  b=$(new "add the gadget" -p amino)
+  t run $a; t run $b
+  eq "$(step $b)" done
+  not t resume $a nosuch 2> "$tmp/err"
+  grep -q 'has: +plan implement .* pr +preview +ci$' "$tmp/err"   # the steps it left out, with a +
+  t resume $a preview 2> /dev/null
+  eq "$(cat "$(dir $a)/opt")" preview
+  t run $a
+  eq "$(step $a)" done
+  grep -qx -- '- App: https://app.example' "$FAKE/comments"
+
+  n=$((10#$b))
+  t ui --key "$(keyfor say)" $n '' > /dev/null
+  form_enter $n '' > /dev/null                            # nothing said and no step picked: nothing happens
+  eq "$(cat "$T_UI/mode")" "say $n"
+  for i in $(seq 8); do [ "$(cat "$T_UI/pick")" = +preview ] && break; t ui --key tab $n '' > /dev/null; done
+  t ui --pane $n '' | grep -q 'It left out preview'
+  form_enter $n '' > /dev/null                            # nothing said, but a step picked: it restarts there
+  eq "$(cat "$T_UI/mode")" board
+  eq "$(step $b)" 45-preview
+  [ ! -e "$(dir $b)/feedback.md" ]
+}
+
+test_a_preview_that_prints_no_links_fails_and_one_without_a_command_holds() {
+  printf 'PREVIEW="echo up"\n' >> "$tmp/tick/pipelines/amino/env"
+  id=$(new "add the widget" -p amino +preview)
+  t run $id
+  eq "$(step $id)" 45-preview
+  grep -q 'printed no "NAME URL" lines' "$(dir $id)/log/45-preview.log"
+  sed -i '/^PREVIEW=/d' "$tmp/tick/pipelines/amino/env"
+  t run $id
+  grep -q 'PREVIEW= in the repo' "$(dir $id)/hold"
 }
 
 test_opencode_codes_by_default_and_claude_on_request() {
@@ -472,20 +545,20 @@ test_agents_may_read_the_task_directories_outside_their_worktree() {
 }
 
 test_each_step_runs_on_the_cli_its_pipeline_names() {
-  echo MODEL_implement=vllm/test-model >> "$tmp/tick/pipelines/feature/env"
-  id=$(new "add the widget" -p feature +plan)             # feature: plan on claude, the rest on opencode
+  echo MODEL_implement=vllm/test-model >> "$tmp/tick/pipelines/amino/env"
+  id=$(new "add the widget" -p amino +plan)             # amino: plan on claude, the rest on opencode
   t run $id
   eq "$(step $id)" done
   eq "$(grep -c . "$FAKE/opencode.calls")" 6              # implement, and a review pass per mindset
   grep -q -- '-m vllm/test-model' "$FAKE/opencode.calls"  # the step's model went with it
   eq "$(grep -c . "$FAKE/claude.calls")" 1                # the planner
   grep -q -- '--model opus --effort max' "$FAKE/claude.calls"
-  t show $id | grep -q '^pipeline  feature · claude, opencode$'
-  id=$(new "add the gadget" -p feature +plan --cli claude)   # --cli beats the pipeline
+  t show $id | grep -q '^pipeline  amino · claude, opencode$'
+  id=$(new "add the gadget" -p amino +plan --cli claude)   # --cli beats the pipeline
   t run $id
   eq "$(grep -c . "$FAKE/claude.calls")" 8
   not grep -q -- 'test-model' "$FAKE/claude.calls"        # opencode's model isn't claude's
-  eq "$(grep -c -- '--effort max' "$FAKE/claude.calls")" 2     # both planners, as feature asks
+  eq "$(grep -c -- '--effort max' "$FAKE/claude.calls")" 2     # both planners, as amino asks
   eq "$(grep -c -- '--effort high' "$FAKE/claude.calls")" 6    # implement and the five reviews: T_EFFORT
 }
 
@@ -783,14 +856,14 @@ test_a_repo_by_name_brings_its_pipeline_and_its_tests() {
   cd /
   id=$(new "add the widget" -r toy)
   eq "$(cat "$(dir $id)/repo")" "$(realpath "$tmp/repo")"
-  eq "$(cat "$(dir $id)/pipeline")" feature               # the repo's own pipeline
+  eq "$(cat "$(dir $id)/pipeline")" amino               # the repo's own pipeline
   id=$(new "try the widget" -r toy -p local)              # another pipeline for once...
   t run $id
   eq "$(step $id)" done
   [ -e "$tmp/tested" ]                                    # ...still with the repo's test command
   cd "$tmp/repo"
   id=$(new "one more widget")
-  eq "$(cat "$(dir $id)/pipeline")" feature               # standing in the repo counts the same
+  eq "$(cat "$(dir $id)/pipeline")" amino               # standing in the repo counts the same
 }
 
 test_a_repo_can_be_a_directory_name_or_the_default() {
@@ -808,8 +881,8 @@ test_completion_offers_what_you_can_type() {
   profile
   export T_REPOS=$tmp
   t complete commands | grep -q '^new:create a task'
-  t complete pipelines | grep -q '^feature:+plan (claude) → implement (opencode) → test .* → pr → +ci$'
-  t complete repos | grep -q '^toy:.*(pipeline feature)'
+  t complete pipelines | grep -q '^amino:+plan (claude) → implement (opencode) → test .* → pr → +preview → +ci$'
+  t complete repos | grep -q '^toy:.*(pipeline amino)'
   t complete repos | grep -q "^repo:$tmp/repo"
   t complete clis | grep -qx opencode
   id=$(new "add the widget")
@@ -1269,21 +1342,21 @@ test_the_board_starts_a_task_and_says_to_one_in_place() {
   grep -q 'reload-sync~t-ui --pipelines~+pos(1)' <<< "$out"       # the cursor lands on the first
   eq "$(cat "$T_UI/list")" pipelines
   eq "$(head -1 <<< "$(t ui --pipelines)" | awk '{ print $1 }')" local   # the repo's default, first
-  t ui --pane feature '' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *feature'  # the one under the cursor
-  [[ $(t ui --pane feature '' | head -1) != *local* ]]           # only it: the list beside shows the others
-  t ui --key enter feature '' | grep -q 'change-prompt(new> )+disable-search'   # enter on it: that one, then the title
+  t ui --pane amino '' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *amino'  # the one under the cursor
+  [[ $(t ui --pane amino '' | head -1) != *local* ]]           # only it: the list beside shows the others
+  t ui --key enter amino '' | grep -q 'change-prompt(new> )+disable-search'   # enter on it: that one, then the title
   eq "$(cat "$T_UI/list")" tasks
-  eq "$(cat "$T_UI/pick")" feature
+  eq "$(cat "$T_UI/pick")" amino
   t ui --key "$(keyfor pipeline)" '' 'add the widget' > /dev/null  # ^p: the pipelines again
   eq "$(cat "$T_UI/title")" 'add the widget'
   t ui --key esc '' '' | grep -q 'change-query~add the widget~'   # esc: back to the title waiting, nothing picked
   eq "$(cat "$T_UI/list")" tasks
-  eq "$(cat "$T_UI/pick")" feature
+  eq "$(cat "$T_UI/pick")" amino
   t ui --key "$(keyfor agent)" '' '' > /dev/null          # another agent than the pipeline's
   t ui --pane '' 'add the widget' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^steps *implement (claude) → test → review (claude) → sync (claude) → pr$'
   form_enter '' 'add the widget' | grep -q 'reload-sync'   # made; the reload's end puts the cursor on it
   eq "$(cat "$T_UI/new")" 1
-  eq "$(cat "$(dir 0001)/pipeline")" feature
+  eq "$(cat "$(dir 0001)/pipeline")" amino
   grep -q '^AGENT_CLI=claude$' "$(dir 0001)/env"
   t hold 1 waiting
   t ui --key enter 1 '' | grep -q 'change-prompt(say to 1> )'   # Enter on a held task: say to it
@@ -1429,15 +1502,15 @@ test_the_board_picks_the_pipeline_from_a_list_of_them() {
   for i in $(seq 100); do screen | grep -qE '^[│ ]*> +local ' && break; sleep 0.1; done
   screen | grep -q 'pipeline> '
   screen | grep -qE '^[│ ]*> +local '                      # the default, under the cursor
-  tmux -L "$server" send-keys fea                          # search them, as the tasks are searched
-  for i in $(seq 100); do screen | grep -qE '^[│ ]*> +feature ' && break; sleep 0.1; done
+  tmux -L "$server" send-keys "'amino"                      # search them, as the tasks are searched
+  for i in $(seq 100); do screen | grep -qE '^[│ ]*> +amino ' && break; sleep 0.1; done
   tmux -L "$server" send-keys Enter                        # picks it; the title next
   for i in $(seq 100); do screen | grep -q 'new> ' && break; sleep 0.1; done
   tmux -L "$server" send-keys 'add a discount code'
   for i in $(seq 100); do screen | grep -q 'new> add a discount code' && break; sleep 0.1; done
   tmux -L "$server" send-keys Enter
   for i in $(seq 100); do [ -f "$(dir 0002)/pipeline" ] && break; sleep 0.1; done
-  eq "$(cat "$(dir 0002)/pipeline")" feature
+  eq "$(cat "$(dir 0002)/pipeline")" amino
   tmux -L "$server" kill-server
 }
 
@@ -1452,16 +1525,16 @@ test_a_paste_is_one_title_though_fzf_reads_its_newlines_as_enter() {
   for i in $(seq 100); do screen | grep -qE '^[│ ]*> +local ' && break; sleep 0.1; done
   tmux -L "$server" send-keys Enter                        # the default pipeline; the title next
   for i in $(seq 100); do screen | grep -q 'new> ' && break; sleep 0.1; done
-  printf 'see the design\nhttps://claude.ai/design/p/8ff?file=Canvas-3.dc.html' > "$tmp/paste"
+  printf 'see\nhttps://x.ai/p?file=C.html' > "$tmp/paste"   # 40 characters at most: no agent names it after the test
   tmux -L "$server" load-buffer "$tmp/paste"
   tmux -L "$server" paste-buffer -p
-  for i in $(seq 100); do screen | grep -q 'Canvas-3.dc.html' && break; sleep 0.1; done
-  sleep 0.5
+  for i in $(seq 100); do screen | grep -q 'C.html' && break; sleep 0.1; done
+  sleep 1
   [ ! -e "$(dir 0002)" ]                                   # the newline made no task of the first line
   tmux -L "$server" send-keys Enter
   for i in $(seq 100); do [ -f "$(dir 0002)/task.md" ] && break; sleep 0.1; done
   tmux -L "$server" kill-server
-  eq "$(head -1 "$(dir 0002)/task.md")" '# see the design https://claude.ai/design/p/8ff?file=Canvas-3.dc.html'
+  eq "$(head -1 "$(dir 0002)/task.md")" '# see https://x.ai/p?file=C.html'
 }
 
 test_the_board_changes_who_solves_a_task_it_already_has() {
@@ -1622,7 +1695,7 @@ test_idle_review_asks_one_task_for_no_more_fixes_than_it_may() {
 test_idle_review_leaves_a_closed_pull_request_alone() {
   profile
   echo MERGED > "$FAKE/pr_state"
-  id=$(new "add the widget" -r toy -p feature)
+  id=$(new "add the widget" -r toy -p amino)
   t run $id
   eq "$(step $id)" done
   before=$(reads)
@@ -1877,7 +1950,7 @@ test_the_inbox_lists_what_the_watch_keeps_and_enter_opens_the_thread() {
   eq "$(inbox --key "$(keyfor open)" cnv_x)" "execute(t-thread cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
 }
 
-test_what_you_type_under_a_thread_holds_on_the_board_until_you_sign_it() {
+test_what_you_type_under_a_thread_leaves_with_the_one_key_that_sends_on_every_screen() {
   conversation
   watched > /dev/null
   opened cnv_x
@@ -1890,16 +1963,26 @@ test_what_you_type_under_a_thread_holds_on_the_board_until_you_sign_it() {
   grep -q '^> Hi Bob,$' "$tmp/pane"                                 # under the thread, where a reply goes
   thread --key bspace '' | grep -q 'transform-query(t-thread --pop)'   # backspace on an empty line: the one above
   eq "$(thread --pop)" Oops
-  typed done Aksel > /dev/null
+  not grep -qs '^POST ' "$FAKE/front.calls"
+  eq "$(keyfor release)" "$(keyfor accept)"                         # the key an invite is answered with, too
+  typed release Aksel | grep -q 'hide-input'
   id=$(newest)
   eq "$(cat "$(dir $id)/pipeline")" reply
-  eq "$(cat "$(dir $id)/hold")" "draft ready"
   eq "$(cat "$(dir $id)/answer.md")" "$(printf 'Hi Bob,\nsent it again just now.\nAksel')"
-  not grep -qs '^POST ' "$FAKE/front.calls"                         # ended is not sent
-  inbox --rows | grep -q "task $((10#$id))"
-  typed release > /dev/null
-  wait_done $id
+  eq "$(step $id)" done                                             # one key, and it has left: no second one
   grep -q '^POST /conversations/cnv_x/drafts$' "$FAKE/front.calls"
+  thread --pane | grep -q '^sent '
+}
+
+test_a_line_that_failed_to_send_is_not_written_twice_when_you_send_again() {
+  conversation
+  watched > /dev/null
+  opened cnv_x
+  chmod -w "$T_VAR/tasks"
+  typed release 'Sent it again.' | grep -q 'clear-query'             # the line leaves the prompt for the text
+  chmod +w "$T_VAR/tasks"
+  typed release '' > /dev/null
+  eq "$(cat "$(dir $(newest))/answer.md")" 'Sent it again.'
 }
 
 test_a_thread_turns_what_you_wrote_into_a_comment_and_has_an_agent_write_it() {
@@ -1912,7 +1995,7 @@ test_a_thread_turns_what_you_wrote_into_a_comment_and_has_an_agent_write_it() {
   grep -q '^  └ you  now$' "$tmp/pane"                              # where a comment lands, your text with it
   grep -q '^    Ida, can you confirm the PO?$' "$tmp/pane"
   grep -q 'internal, for your teammates' "$tmp/pane"
-  typed done > /dev/null
+  eq "$(thread --key esc '')" abort                                 # back: what you wrote holds on the board
   id=$(newest)
   eq "$(cat "$(dir $id)/pipeline")" comment
   eq "$(cat "$(dir $id)/answer.md")" 'Ida, can you confirm the PO?'
@@ -1939,10 +2022,149 @@ test_escape_leaves_what_you_wrote_held_and_the_board_opens_the_thread_on_it() {
   mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
   t ui --key enter $((10#$id)) '' | grep -q "execute(t-thread $((10#$id)))"
   opened $((10#$id))
-  grep -q 'start:hide-input' "$FAKE/fzf.args"                       # ended: keys act on it, nothing is typed
+  thread --start | grep -q '^hide-input+'                          # ended: keys act on it, nothing is typed
   thread --pane | grep -q '^you  unsigned$'
   eq "$(thread --key esc '')" abort
   eq "$(ls "$T_VAR/tasks" | wc -l)" 2                               # leaving again makes nothing new
+}
+
+slack_workspace() {   # Slack as sources/slack sees it, you U0AKSEL1: Marius mentions you in #eng-platform, Sofie writes you, #random chats
+  export XDG_CONFIG_HOME=$tmp/config
+  mkdir -p "$FAKE/slack"
+  echo '{"ok": true, "team": "Work", "user": "aksel", "user_id": "U0AKSEL1"}' > "$FAKE/slack/auth.test"
+  t slack login slack-work <<< xoxp-test 2> /dev/null           # its token, its source link and its inbox's pipeline
+  now=$(date +%s)
+  echo '{"ok": true, "channels": [{"id": "C1", "name": "eng-platform"}, {"id": "D1", "is_im": true, "user": "U0SOFIE1"}, {"id": "C2", "name": "random"},
+         {"id": "D9", "is_im": true, "user": "USLACKBOT"}, {"id": "G1", "is_mpim": true, "name": "mpdm-aksel--julie-1"}]}' > "$FAKE/slack/users.conversations"
+  echo '{"ok": false, "error": "channel_not_found"}' > "$FAKE/slack/conversations.history_D9"   # as Slack answers for Slackbot
+  echo '{"ok": false, "error": "user_not_found"}' > "$FAKE/slack/users.info"                    # anyone not named below
+  channel_says C1 "[{\"ts\": \"$now.000300\", \"user\": \"U0MARIUS\", \"text\": \"<@U0AKSEL1> kan du se på RFC-en?\"},
+                    {\"ts\": \"$((now - 600)).000200\", \"user\": \"U0SOFIE1\", \"text\": \"deployet er greit nå\"}]"
+  channel_says D1 "[{\"ts\": \"$((now - 300)).000100\", \"user\": \"U0SOFIE1\", \"text\": \"vi bør ta chartfargene i dag\"}]"
+  channel_says C2 "[{\"ts\": \"$((now - 800)).000100\", \"bot_profile\": {\"name\": \"CRM\"}, \"text\": \"new lead\"},
+                    {\"ts\": \"$((now - 900)).000100\", \"user\": \"U0IDA001\", \"text\": \"lunsj?\"}]"
+  channel_says G1 "[{\"ts\": \"$((now - 1000)).000100\", \"user\": \"U0JULIE1\", \"text\": \"Friday wins 14:30?\"}]"
+  echo '{"ok": true, "channel": {"id": "G1", "is_mpim": true, "name": "mpdm-aksel--julie-1", "last_read": "0"}}' > "$FAKE/slack/conversations.info_G1"
+  echo '{"ok": true, "channel": {"id": "C1", "name": "eng-platform", "num_members": 23, "last_read": "0"}}' > "$FAKE/slack/conversations.info_C1"
+  echo '{"ok": true, "channel": {"id": "D1", "is_im": true, "user": "U0SOFIE1", "last_read": "0"}}' > "$FAKE/slack/conversations.info_D1"
+  echo '{"ok": true, "channel": {"id": "C2", "name": "random", "num_members": 40, "last_read": "0"}}' > "$FAKE/slack/conversations.info_C2"
+  for user in U0MARIUS:Marius U0SOFIE1:Sofie U0IDA001:Ida; do
+    echo "{\"ok\": true, \"user\": {\"real_name\": \"${user#*:}\"}}" > "$FAKE/slack/users.info_${user%%:*}"
+  done
+  thread() { T_INBOX=slack-work T_THREAD=$tmp/thread "$tmp/tick/bin/t-thread" "$@"; }   # t thread, on Slack's conversations
+  new -p slack-work "slack work" > /dev/null
+  t run 1 > /dev/null 2>&1
+}
+channel_says() { echo "{\"ok\": true, \"messages\": $2}" > "$FAKE/slack/conversations.history_$1"; }   # CHANNEL MESSAGES, newest first
+
+test_the_slack_inbox_puts_what_involves_you_above_a_rule_and_the_channels_under_it_as_a_count() {
+  slack_workspace
+  t ls | grep '^ *1 ' | grep -q '3 today · 1 mention$'              # the row counts what involves you, never the unread
+  not grep -q not_found "$(dir 0001)/log/10-watch.log"              # not Slackbot's DM, which no token reads, nor a bot as a user
+  not grep -q 'No such file' "$(dir 0001)/log/10-watch.log"         # nor the names it keeps, as if they were a conversation
+  T_INBOX=slack-work "$tmp/tick/bin/t-inbox" --rows | cut -f2- | grep -n . > "$tmp/rows"
+  grep -q '^1:.*#eng-platform .*Marius: @you kan du se på RFC-en? .*mention' "$tmp/rows"
+  grep -q '^2:.*Sofie .*vi bør ta chartfargene i dag .*dm' "$tmp/rows"
+  grep -q '^3:.*aksel, julie .*Friday wins 14:30? .*dm' "$tmp/rows"   # a group DM by its people, not mpdm-…
+  grep -q '^4:─' "$tmp/rows"
+  grep -q '^5:.*#random .*2 unread *$' "$tmp/rows"                  # a channel that doesn't involve you: a count, no text
+  [ ! -e "$T_VAR/mail/slack-work/C2/gist" ] && [ ! -e "$T_VAR/mail/slack-work/C2/thread.md" ]   # nor did an agent or a fetch read it
+  T_INBOX=slack-work "$tmp/tick/bin/t-inbox" --pane C2 | grep -q 'Enter reads it'
+  eq "$(T_INBOX=slack-work "$tmp/tick/bin/t-inbox" --key "$(keyfor archive)" -)" ""
+  (exec 9> "$(dir 0001)/lock"; flock 9; sleep 2) &
+  sleep 0.3
+  eq "$(offered 0001)" "inbox log"                                  # while it polls, enter still opens the inbox
+}
+
+test_a_slack_reply_goes_into_the_thread_the_prompt_is_under_or_to_the_whole_channel() {
+  slack_workspace
+  opened C1
+  thread --pane > "$tmp/pane"
+  grep -q '^  └ you  now$' "$tmp/pane"                              # under the mention it opened on
+  grep -q '^thread  under Marius ' "$tmp/pane"
+  typed comment > /dev/null
+  thread --start > "$tmp/start"
+  grep -q 'change-preview-window(follow,' "$tmp/start"              # and at the bottom of the channel
+  not grep -q comment "$tmp/start"                                  # Slack has no internal strand, and no key for one
+  eq "$(thread --key esc 'jeg ser på den i dag')" abort
+  id=$(newest)
+  eq "$(cat "$(dir $id)/pipeline")" slack-reply
+  grep -qx "conversation: slack-work C1/$now.000300" "$(dir $id)/task.md"
+  not grep -q chat.postMessage "$FAKE/slack.calls"                  # held is not sent
+  rm "$T_VAR/mail/slack-work/C1/thread.md"
+  opened $((10#$id))
+  typed release > /dev/null
+  eq "$(step $id)" done
+  grep -A1 '^POST /chat.postMessage$' "$FAKE/slack.calls" | tail -1 | grep -q "thread_ts=$now.000300"
+  [ -s "$T_VAR/mail/slack-work/C1/thread.md" ]                           # the inbox has it now, not at the next poll
+  opened C1
+  typed channel > /dev/null
+  thread --pane | grep -q '^channel  #eng-platform · 23 members'     # let go of the message: the whole channel
+  typed release 'RFC før torsdag' > /dev/null
+  grep -A1 '^POST /chat.postMessage$' "$FAKE/slack.calls" | tail -1 | not grep -q thread_ts
+  grep -qx 'conversation: slack-work C1' "$(dir $(newest))/task.md"
+}
+
+test_ctrl_r_in_slack_reacts_at_once_and_again_takes_it_back() {
+  slack_workspace
+  opened C1
+  typed react | grep -q ':+1: on'
+  grep -A1 '^POST /reactions.add$' "$FAKE/slack.calls" | tail -1 | grep -q "timestamp=$now.000300"
+  echo '{"ok": false, "error": "already_reacted"}' > "$FAKE/slack/reactions.add"
+  typed react | grep -q ':+1: off'
+  grep -q '^POST /reactions.remove$' "$FAKE/slack.calls"
+  eq "$(ls "$T_VAR/tasks" | wc -l)" 1                               # a reaction is no task: nothing to sign
+}
+
+test_a_held_slack_reply_shows_what_was_said_since_and_is_not_sent_over_it() {
+  slack_workspace
+  opened C1
+  eq "$(thread --key esc 'jeg tar rollback-biten')" abort
+  id=$(newest)
+  opened $((10#$id))
+  channel_says C1 "[{\"ts\": \"$((now + 60)).000100\", \"user\": \"U0IDA001\", \"text\": \"rollback er dekket\"},
+                    {\"ts\": \"$now.000300\", \"user\": \"U0MARIUS\", \"text\": \"<@U0AKSEL1> kan du se på RFC-en?\"},
+                    {\"ts\": \"$((now - 600)).000200\", \"user\": \"U0SOFIE1\", \"text\": \"deployet er greit nå\"}]"
+  thread --fresh > /dev/null
+  thread --pane > "$tmp/pane"
+  grep -q '^── 1 message since you wrote yours$' "$tmp/pane"
+  grep -q '1 said since you wrote it' "$tmp/pane"
+  typed release | grep -q 'the thread moved'                        # the screen says it did not go
+  not grep -q chat.postMessage "$FAKE/slack.calls"                  # Ida answered it since: nothing went
+  typed release > /dev/null                                         # read now, the same key sends it
+  grep -q chat.postMessage "$FAKE/slack.calls"
+}
+
+test_slack_login_keeps_each_workspace_under_its_own_name_once_slack_knows_who_you_are() {
+  export XDG_CONFIG_HOME=$tmp/config
+  mkdir -p "$FAKE/slack"
+  not t slack login < /dev/null 2> "$tmp/err"
+  grep -q 'usage: t slack login NAME' "$tmp/err"
+  echo '{"ok": false, "error": "invalid_auth"}' > "$FAKE/slack/auth.test"
+  not t slack login slack-one <<< xoxb-wrong 2> "$tmp/err"
+  grep -q invalid_auth "$tmp/err"
+  [ ! -e "$tmp/config/slack/slack-one/env" ] && [ ! -e "$tmp/tick/sources/slack-one" ]   # nothing, not even the link
+  echo '{"ok": true, "team": "Amino", "user": "aksel", "user_id": "U0AKSEL1"}' > "$FAKE/slack/auth.test"
+  t slack login slack-one <<< xoxp-amino 2> /dev/null
+  t slack login slack-two <<< xoxp-periode 2> "$tmp/err"
+  grep -q 't new -p slack-two "slack two"' "$tmp/err"
+  grep -qx 'SLACK_TOKEN=xoxp-amino' "$tmp/config/slack/slack-one/env"        # two workspaces, each with its own token
+  grep -qx 'SLACK_TOKEN=xoxp-periode' "$tmp/config/slack/slack-two/env"
+  eq "$(stat -c %a "$tmp/config/slack/slack-two/env")" 600
+  eq "$(readlink "$tmp/tick/sources/slack-two")" slack
+  grep -qx 'SOURCE=slack-two' "$tmp/tick/pipelines/slack-two/env"
+  not "$tmp/tick/sources/slack" poll 0 2> "$tmp/err"                           # the script itself is no workspace
+  grep -q 'linked under its name' "$tmp/err"
+}
+
+test_a_conversation_archived_in_front_leaves_the_inbox_at_the_next_poll() {
+  conversation
+  watched > /dev/null
+  inbox --rows | grep -q $'^cnv_x\t'
+  echo '{"id": "cnv_x", "subject": "Invoice question", "updated_at": 100, "status": "archived"}' > "$FAKE/front/conversations_cnv_x"
+  touch -d '1 hour ago' "$T_VAR/mail/front/polled"
+  t run 1 > /dev/null 2>&1
+  eq "$(inbox --rows)" ""                                           # though the poll found it again: it is closed there
 }
 
 test_archiving_in_the_inbox_archives_in_front_and_takes_the_row() {
@@ -1972,6 +2194,7 @@ test_a_comment_is_posted_for_your_teammates_only_once_you_sign_it() {
   eq "$(jq -r .body <<< "$body")" 'Ida, can you confirm the PO?'
   eq "$(jq -r .author_id <<< "$body")" tea_me
   not grep -q '/drafts$\|/messages$' "$FAKE/front.calls"            # a comment, never a reply
+  [ -s "$T_VAR/mail/front/cnv_x/thread.md" ]                        # the inbox has it now, not at the next poll
 }
 
 test_the_inbox_says_where_a_comment_mentions_you() {
@@ -2000,7 +2223,7 @@ test_the_inbox_pane_lists_every_key() {
   FZF_PREVIEW_LABEL=' keys ' inbox --key "$(keyfor keys)" cnv_x | grep -q 't-inbox --pane {1}'   # again: the thread
 }
 
-test_the_inbox_scrolls_the_thread_with_the_keys_the_board_scrolls_its_pane() {
+test_the_inbox_and_the_thread_scroll_with_the_keys_the_board_scrolls_its_pane() {
   conversation
   watched > /dev/null
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "$FAKE/fzf.args"\n' > "$tmp/tick/test/fake/fzf"
@@ -2009,6 +2232,8 @@ test_the_inbox_scrolls_the_thread_with_the_keys_the_board_scrolls_its_pane() {
   grep -q 'ctrl-d:preview-half-page-down' "$FAKE/fzf.args"
   grep -q 'ctrl-u:preview-half-page-up' "$FAKE/fzf.args"
   grep -q 'ctrl-d:preview-half-page-down' "$tmp/tick/bin/t-ui"     # as on the board
+  opened cnv_x
+  grep -q 'ctrl-d:preview-half-page-down' "$FAKE/fzf.args"          # and in the thread, where ^d ends nothing
 }
 
 test_a_draft_follows_the_comments_and_is_told_the_customer_cannot_see_them() {
@@ -2115,6 +2340,8 @@ test_gmail_reads_one_accounts_threads_the_way_front_does() {
   eq "$(jq -r .updated_at <<< "$out")" $((now - 60))                # your draft is not news
   eq "$(jq -r .why <<< "$out")" "inbox unread"
   grep -q "in%3Ainbox%20after%3A$((now - 3600))" "$FAKE/curl.calls"
+  SEARCH='("native app" OR aksel)' "$tmp/tick/sources/work" poll $((now - 3600)) > /dev/null   # a shared inbox, narrowed where Gmail keeps it
+  tail -3 "$FAKE/curl.calls" | grep -q "after%3A$((now - 3600))%20%28%22native%20app%22%20OR%20aksel%29"
   "$tmp/tick/sources/work" thread th_1 > "$tmp/thread.md"
   eq "$(head -1 "$tmp/thread.md")" "# Invoice"
   eq "$(grep '^## ' "$tmp/thread.md" | cut -d, -f1)" "$(printf '## email from Me <me@work.example>\n## email from Bob <bob@shop.example>')"
@@ -2200,8 +2427,15 @@ test_logging_a_google_account_in_asks_only_for_what_its_links_need() {
   not grep -q 'calendar' "$tmp/err"
   eq "$(cat "$tmp/config/google/work/refresh_token")" refresh-new
   eq "$(stat -c %a "$tmp/config/google/work/refresh_token")" 600
-  not t google login home 2> "$tmp/err"                             # another account is another name
-  grep -q 'ln -s gmail' "$tmp/err"
+  grep -qx 'SOURCE=work' "$tmp/tick/pipelines/work-mail/env"         # and its inbox's pipeline, to put on the board
+  grep -q 't new -p work-mail' "$tmp/err"
+  not t google login home < /dev/null 2> "$tmp/err"                 # another account is another name, with its own client
+  grep -q 'console.cloud.google.com/auth/clients/create' "$tmp/err"
+  [ ! -e "$tmp/tick/sources/home" ] && [ ! -e "$tmp/config/google/home/env" ]   # nothing, without a client
+  t google login home <<< $'home.apps\nhome-secret' 2> /dev/null     # the client pasted: logged in, linked, a pipeline
+  grep -qx 'GOOGLE_CLIENT_ID=home.apps' "$tmp/config/google/home/env"
+  eq "$(readlink "$tmp/tick/sources/home")" gmail
+  grep -qx 'SOURCE=home' "$tmp/tick/pipelines/home-mail/env"
 }
 
 test_drivers_read_real_cli_output() {
@@ -2417,7 +2651,7 @@ test_compose_types_the_title_it_was_given_and_keeps_the_details_from_stdin() {
   cat "$tmp/screen" >&2
   eq "$(head -1 "$(dir 0001)/task.md")" "# fix the gadget"
   grep -qx 'What #12 is about' "$(dir 0001)/task.md"
-  eq "$(cat "$(dir 0001)/pipeline")" feature                          # toy's own, under the cursor
+  eq "$(cat "$(dir 0001)/pipeline")" amino                          # toy's own, under the cursor
   grep -q '^AGENT_CLI=' "$(dir 0001)/env"                             # the agent picked on the screen
 }
 

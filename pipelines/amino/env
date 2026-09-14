@@ -1,6 +1,7 @@
-# feature: local's steps, then a pull request. With +plan, a planner first decides whether it is one
-# pull request or a stack of small ones; with +ci, the task waits for the PR's checks and fixes them.
-OPTIONAL="plan ci"
+# amino: implement, test and review, then a pull request. With +plan, a planner first decides whether it is one
+# pull request or a stack of small ones; with +preview, the repo's PREVIEW puts the branch online and
+# its links on the PR; with +ci, the task waits for the PR's checks and fixes them.
+OPTIONAL="plan preview ci"
 # Who solves each agent step (claude or opencode). MODEL_<step>= pins a model for it, and
 # EFFORT_<step>= how hard claude thinks; every other step thinks at T_EFFORT (etc/tick.conf).
 CLI_plan=claude                        # the planner gets the latest Opus, thinking as hard as it can

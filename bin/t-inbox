@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# t inbox [TASK] — the mail a watch keeps, newest first, its thread beside it: enter opens the thread to write under it, ? every key
+# t inbox [TASK] — the mail or chat a watch keeps, newest first, its thread beside it: enter opens the thread to write under it, ? every key
 #
-# The watch is a task on a pipeline like front-inbox (t new -p front-inbox "front inbox"), and Enter on its row opens this.
-# Enter here is t thread: the conversation the width of the screen, with a reply or a comment typed under it, which holds
-# on the board until you sign it. The list is what the watch last read, and ^x archives where the mail lives.
+# The watch is a task on a pipeline like front-inbox or slack-inbox (t new -p front-inbox "front inbox"), and Enter on its
+# row opens this. Enter here is t thread: the conversation the width of the screen, with what you write typed under it,
+# which holds on the board until you sign it. What involves you comes first; under a rule, channels that don't, as a
+# count. The list is what the watch last read, and ^x archives (in Slack: marks read) where it lives.
 # fzf runs t-inbox for what changes: --rows, --pane ID, --keys, --key KEY ID (what KEY does to it)
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
@@ -18,33 +19,40 @@ if [ -z "${T_INBOX:-}" ]; then                       # the watch you named, else
   T_INBOX=$(cat "$watch")
 fi
 mail=$T_VAR/mail/$T_INBOX
+archive=$("$T_ROOT/sources/$T_INBOX" can archive 2> /dev/null || echo archive)   # what ^x is called where the mail lives
 terminal_colors
 
-subject_of() { jq -r '.subject // "(no subject)"' "$mail/$1/conv.json"; }
-
-# why a conversation is on the list, in a word: mention (a teammate's comment names you), assigned, replied, unread
+# why a conversation is on the list, in a word: mention (a teammate names you), assigned, dm, thread (one you are in),
+# replied, unread; a channel that doesn't involve you has none
 reason() {
   case " $1 " in
     *" mention "*)     echo mention ;;
     *" assigned "*)    echo assigned ;;
+    *" dm "*)          echo dm ;;
+    *" thread "*)      echo thread ;;
     *" participant "*) echo replied ;;
     *" unread "*)      echo unread ;;
   esac
 }
 
-# a conversation a line, the id first for fzf and hidden: 11:02  anna@stadler.no  Q3 invoice discrepancy  mention  task 14
+# a conversation a line, the id first for fzf and hidden: 11:02  anna@stadler.no  Q3 invoice discrepancy  mention  task 14.
+# What involves you comes first, then a rule (id -), then the channels that don't.
 rows() {
-  local id when from subject why word color task
+  local id when where about why word color task
   cat /dev/null "$mail"/*/conv.json | jq -rs --argjson midnight "$(date -d 00:00 +%s)" '
-    sort_by(-.updated_at)[]
-    | [.id, (.updated_at | strflocaltime(if . >= $midnight then "%H:%M" else "%d %b" end)), .from, .subject // "(no subject)", .why // ""]
+    (map(select(.why != "channel")) | sort_by(-.updated_at)) as $yours
+    | (map(select(.why == "channel" and (.unread // 1) > 0)) | sort_by(-.updated_at)) as $rest   # one you read in Slack is gone
+    | ($yours + (if $yours != [] and $rest != [] then [{id: "-"}] else [] end) + $rest)[]
+    | [.id, (.updated_at // 0 | strflocaltime(if . >= $midnight then "%H:%M" else "%d %b" end)),
+       .where // .from // "", .about // .subject // "(no subject)", .why // ""]
     | join("\u001f")' |
-    while IFS=$'\x1f' read -r id when from subject why; do
+    while IFS=$'\x1f' read -r id when where about why; do
+      if [ "$id" = - ]; then printf -- '-\t%s%s%s\n' "$C_FAINT" "$(printf '%*s' 86 '' | sed 's/ /─/g')" "$C_OFF"; continue; fi
       task=$(reply_to "$T_INBOX" "$id") word=$(reason "$why") color=$C_DIM
       if [ "$word" = mention ]; then color=$C_RED; fi       # the one tag that reaches you nowhere else
-      if [ "${#from}" -gt 24 ]; then from=${from:0:23}…; fi
-      if [ "${#subject}" -gt 44 ]; then subject=${subject:0:43}…; fi
-      printf '%s\t%s%-6s%s  %s  %s  %s%s\n' "$id" "$C_DIM" "$when" "$C_OFF" "$(pad 24 "$from")" "$(pad 44 "$subject")" \
+      if [ "${#where}" -gt 24 ]; then where=${where:0:23}…; fi
+      if [ "${#about}" -gt 44 ]; then about=${about:0:43}…; fi
+      printf '%s\t%s%-6s%s  %s  %s  %s%s\n' "$id" "$C_DIM" "$when" "$C_OFF" "$(pad 24 "$where")" "$(pad 44 "$about")" \
         "$(pad 8 "$word" "$color$word$C_OFF")" "${task:+  ${C_DIM}task $(task_num "$task")$C_OFF}"
     done
 }
@@ -56,37 +64,40 @@ pane() {
   [ -f "$mail/$1/conv.json" ] || return 0
   messages=$(grep -c '^## ' "$mail/$1/thread.md" || true)
   comments=$(grep -c '^### └ comment' "$mail/$1/thread.md" || true)
-  echo "$C_BRIGHT$(subject_of "$1")$C_OFF"
-  echo "$C_DIM$(jq -r '"\(.from) · \(.why)"' "$mail/$1/conv.json") · $(count "$messages" message), $(count "$comments" comment)$C_OFF"
+  echo "$C_BRIGHT$(jq -r '.subject // "(no subject)"' "$mail/$1/conv.json")$C_OFF"
+  echo "$C_DIM$(jq -r '.meta // "\(.from) · \(.why)"' "$mail/$1/conv.json") · $(count "$messages" message)$(if [ "$comments" -gt 0 ]; then echo ", $(count "$comments" comment)"; fi)$C_OFF"
   if [ -s "$mail/$1/gist" ]; then echo; cat "$mail/$1/gist"; fi
   task=$(reply_to "$T_INBOX" "$1")
   if [ -n "$task" ]; then echo; echo "${C_DIM}task $(task_num "$task")$C_OFF  $(standing "$task")"; fi
   echo
-  thread_view "$mail/$1/thread.md"
+  if [ -f "$mail/$1/thread.md" ]; then thread_view "$mail/$1/thread.md"
+  else echo "${C_DIM}Nothing here involves you, so only its count was read. Enter reads it.$C_OFF"; fi
 }
 
 # every key the inbox binds, and what it does
 keys() {
   local name key what
   while read -r name key what; do
-    echo "$C_MID$(pad 7 "$(keyname "$key")")$C_OFF$(pad 8 "$name")$C_DIM$what$C_OFF"
+    if [ "$name" = archive ]; then name=$archive; fi
+    echo "$C_MID$(pad 7 "$(keyname "$key")")$C_OFF$(pad 11 "$name")$C_DIM$what$C_OFF"
   done <<< "$INBOX_KEYS"
-  echo "${C_MID}^d ^u  ${C_OFF}scroll  ${C_DIM}the pane, half a page; PgDn/PgUp a page, Shift-↓/↑ a line$C_OFF"
-  echo "${C_MID}esc    ${C_OFF}back    ${C_DIM}to the board$C_OFF"
+  echo "${C_MID}^d ^u  ${C_OFF}scroll     ${C_DIM}the pane, half a page; PgDn/PgUp a page, Shift-↓/↑ a line$C_OFF"
+  echo "${C_MID}esc    ${C_OFF}back       ${C_DIM}to the board$C_OFF"
   echo
-  echo "${C_DIM}Type to filter: mention lists every conversation a comment mentions you in.$C_OFF"
+  echo "${C_DIM}Type to filter: mention lists every conversation that mentions you.$C_OFF"
 }
 
 # what key $1 does to conversation $2, as fzf actions
 act() {
   local out
+  [ "$2" != - ] || return 0                            # the rule between what involves you and the rest
   case $(awk -v k="$1" '$2 == k { print $1; exit }' <<< "$INBOX_KEYS") in
     open)
       echo "execute(t-thread $2)+reload(CLICOLOR_FORCE=1 t-inbox --rows)" ;;
     archive)
       if out=$("$T_ROOT/sources/$T_INBOX" archive "$2" 2>&1); then
         rm -rf "${mail:?}/$2"
-        echo "reload(CLICOLOR_FORCE=1 t-inbox --rows)+change-footer~archived in $T_INBOX~"
+        echo "reload(CLICOLOR_FORCE=1 t-inbox --rows)+change-footer~done: $archive in $T_INBOX~"
       else
         echo "change-footer~$C_RED${out#t: }$C_OFF~"
       fi ;;
@@ -112,6 +123,6 @@ while read -r _ key _; do
   binds+=(--bind "$key:transform:t-inbox --key '$key' {1}")
 done <<< "$INBOX_KEYS"
 CLICOLOR_FORCE=1 t-inbox --rows | fzf "${BOARD_FZF[@]}" --delimiter $'\t' --with-nth 2.. --prompt "$T_INBOX> " --info inline-right \
-  --footer "$(hint enter open "$(key archive)" archive "$(key keys)" keys esc back)" \
+  --footer "$(hint enter open "$(key archive)" "$archive" "$(key keys)" keys esc back)" \
   --preview 'CLICOLOR_FORCE=1 t-inbox --pane {1}' --preview-window 'right,50%,wrap,border-left,<60(down,60%,border-top)' \
   "${PANE_SCROLL[@]}" "${binds[@]}" || true

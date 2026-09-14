@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+# sources/slack VERB … — the Slack conversations you are in, as a source, through your own user token (t slack login).
+# sources/front's verbs, as far as Slack has them:
+#   poll SINCE         the conversations with messages since SINCE (epoch seconds), newest first, a JSON line each: id (the
+#                      channel), subject and where (#channel, or who a DM is with), about (what was said last, or how many
+#                      unread where nothing involves you), from, updated_at, why (mention thread dm, else channel), at (the
+#                      message a reply goes under) and meta (the thread's header line)
+#   thread ID[/TS]     the channel as markdown: its latest messages oldest first, each with its ts in a comment line; under
+#                      one you are in (or TS) its replies, under the rest a line saying how many; and the reactions
+#   send ID[/TS]       the text on stdin, posted as you: into the thread under message TS, else to the channel
+#   react ID TS        your reaction (SLACK_REACTION=, +1) on message TS; on it already, it comes off again
+#   archive ID         marks the channel read, up to its latest message
+#   can VERB           what VERB is called here, if Slack has it: threads says a reply can go under one message
+# There is no draft: a token can write none, so a reply's pipeline sends (pipelines/slack-reply).
+# It is one workspace's, linked under a name of your own (sources/slack-amino → slack; t slack login makes the link),
+# and knows its token by that name: ~/.config/slack/NAME/env.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+workspace=${0##*/}
+conf=${XDG_CONFIG_HOME:-$HOME/.config}/slack/$workspace/env
+if [ "${1:-}" != can ]; then
+  [ "$workspace" != slack ] || die "sources/slack is one workspace's, linked under its name; make one with: t slack login slack-NAME"
+  [ -r "$conf" ] || die "no $conf; log in with: t slack login $workspace"
+  . "$conf"
+fi
+users=$T_VAR/mail/$workspace/users
+
+# one call: RETRIES METHOD field=value …, its answer on stdout. Only a read is retried: a post that timed out may
+# have posted. What Slack refuses (ok: false) goes to stderr in its own word, and returns 1.
+call() {
+  local retries=$1 method=$2 fields=() field out
+  shift 2
+  for field; do fields+=(--data-urlencode "$field"); done
+  out=$(curl -sfS --retry "$retries" -H "Authorization: Bearer $SLACK_TOKEN" "${fields[@]}" "https://slack.com/api/$method") ||
+    die "Slack refused $method; check SLACK_TOKEN in $conf, or log in again: t slack login"
+  if [ "$(jq -r .ok <<< "$out")" != true ]; then
+    echo "t: slack $method ${1:-}: $(jq -r '.error // "refused"' <<< "$out")" >&2
+    return 1
+  fi
+  printf '%s\n' "$out"
+}
+api() { call 3 "$@"; }
+post() { call 0 "$@"; }
+
+# a user id's name, asked of Slack once; you are you. One Slack can't name (someone in another workspace, on a
+# shared channel) keeps its id, so it isn't asked again every poll.
+name_of() {
+  if [ "$1" = "${SLACK_ME:-}" ]; then echo you; return; fi
+  if [[ ! $1 =~ ^[UW][A-Z0-9]+$ ]]; then echo "$1"; return; fi
+  if [ ! -s "$users/$1" ]; then
+    mkdir -p "$users"
+    api users.info user="$1" 2> /dev/null | jq -r '.user | .profile.real_name // .real_name // .name' > "$users/$1.tmp" || true
+    if [ ! -s "$users/$1.tmp" ]; then echo "$1" > "$users/$1.tmp"; fi
+    mv "$users/$1.tmp" "$users/$1"
+  fi
+  cat "$users/$1"
+}
+
+# the user ids in $1 as names
+named() {
+  local text=$1 id
+  for id in $(grep -oE '\b[UW][A-Z0-9]{6,}' <<< "$text" | sort -u); do text=${text//$id/$(name_of "$id")}; done
+  printf '%s\n' "$text"
+}
+
+# Slack's markup as text: <@U1> as @name, <#C1|dev> as #dev, <https://x|label> as label, &amp; as &
+plain() {
+  named "$(sed -E 's/<@(U[A-Z0-9]+)>/@\1/g; s/<#[A-Z0-9]+\|([^>]*)>/#\1/g; s/<([^|>]+)\|([^>]+)>/\2/g; s/<([^>]+)>/\1/g; s/&lt;/</g; s/&gt;/>/g; s/&amp;/\&/g' <<< "$1")"
+}
+
+said='def said: select((.subtype // "") | test("^channel_(join|leave)$") | not);'
+
+# what a conversation is called: #channel, the people in a group DM (mpdm-aksel--julie-1 is "aksel, julie"), or for
+# a DM the user id of whom it is with
+title='def title: if .is_im then .user elif .is_mpim then (.name | sub("^mpdm-"; "") | sub("-[0-9]+$"; "") | split("--") | join(", ")) else "#\(.name)" end;'
+
+# a channel's new messages ($channel and $info around them) as what poll needs, still with user ids; a bot has no
+# user, only a name
+summary="$said$title"'
+  [.messages[] | said] as $said | select($said | length > 0)
+  | ($said | map(select(.text // "" | contains("<@\($me)>"))) | .[0].ts) as $mention
+  | ($said | map(select(((.reply_users // []) | index($me)) or (.user == $me and (.reply_count // 0) > 0))) | .[0].ts) as $thread
+  | ($channel.is_im or $channel.is_mpim) as $dm
+  | [if $mention then "mention" else empty end, if $thread then "thread" else empty end, if $dm then "dm" else empty end] as $why
+  | {id: $channel.id, updated_at: ($said[0].ts | tonumber | floor), why: (if $why == [] then "channel" else $why | join(" ") end),
+     at: ($mention // $thread // ""), text: ($said[0].text // ""), dm: $dm, title: ($channel | title),
+     user: ($said[0].user // ""), bot: ($said[0].username // $said[0].bot_profile.name // "a bot"),
+     unread: ([$said[] | select(.ts > ($info.channel.last_read // "0") and .user != $me)] | length),
+     members: ($info.channel.num_members // 0), last_read: ($info.channel.last_read // "0" | tonumber | floor)}'
+
+poll() {
+  local since=${1:?usage: sources/slack poll SINCE} channel id history info seen from subject text about
+  : "${SLACK_ME:?no SLACK_ME in $conf; log in again: t slack login}"
+  api users.conversations types=public_channel,private_channel,mpim,im exclude_archived=true limit=200 |
+    jq -c '.channels[] | select(.user != "USLACKBOT")' |          # no token may read the DM with Slackbot
+    while read -r channel; do
+      id=$(jq -r .id <<< "$channel")
+      history=$(api conversations.history channel="$id" oldest="$since" limit=100) || continue
+      jq -e '.messages | length > 0' <<< "$history" > /dev/null || continue
+      info=$(api conversations.info channel="$id" include_num_members=true) || continue
+      seen=$(jq -c --arg me "$SLACK_ME" --argjson channel "$channel" --argjson info "$info" "$summary" <<< "$history")
+      [ -n "$seen" ] || continue
+      from=$(jq -r .user <<< "$seen")
+      if [ -n "$from" ]; then from=$(name_of "$from"); else from=$(jq -r .bot <<< "$seen"); fi
+      subject=$(name_of "$(jq -r .title <<< "$seen")")
+      text=$(plain "$(jq -r .text <<< "$seen")" | head -1)
+      case $(jq -r 'if .why == "channel" then "channel" elif .dm then "dm" else "you" end' <<< "$seen") in
+        channel) about="$(jq -r 'if .unread >= 100 then "100+" else .unread end' <<< "$seen") unread" ;;   # here, a count
+        dm)      about=$text ;;
+        you)     about="${from%% *}: $text" ;;
+      esac
+      jq -c --arg subject "$subject" --arg from "$from" --arg about "$about" '
+        {id, subject: $subject, where: $subject, about: $about, from: $from, updated_at, why, at, unread,
+         meta: (if .dm then "direct message" else "\(.members) members · last read \(.last_read | strflocaltime("%H:%M"))" end)}' <<< "$seen"
+    done | jq -sc 'sort_by(-.updated_at)[]'
+}
+
+# message $1 as markdown under header $2 (## message from, or ### └ reply by): who and when, and what was said.
+# A message a reply can go under keeps its ts in a comment line, which thread_view doesn't draw.
+markdown() {
+  local ts user text
+  ts=$(jq -r .ts <<< "$1")
+  user=$(jq -r '.user // empty' <<< "$1")
+  if [ -n "$user" ]; then user=$(name_of "$user"); else user=$(jq -r '.username // .bot_profile.name // "a bot"' <<< "$1"); fi
+  text=$(jq -r 'if (.text // "") != "" then .text else "(\(.files[0].name // "no text"))" end' <<< "$1")
+  printf '\n%s %s, %s\n' "$2" "$user" "$(date -d "@${ts%.*}" '+%a %d %b %H:%M')"
+  if [ "$2" = "## message from" ]; then printf '<!-- ts %s -->\n' "$ts"; fi
+  printf '\n%s\n' "$(plain "$text")"
+}
+
+thread() {
+  local id=${1:?usage: sources/slack thread ID[/TS]} channel under= info message ts
+  channel=${id%%/*}
+  if [ "$channel" != "$id" ]; then under=${id#*/}; fi
+  info=$(api conversations.info channel="$channel")
+  jq -r "$title"'.channel | title' <<< "$info" | { read -r name; echo "# $(name_of "$name")"; }
+  api conversations.history channel="$channel" limit="${SLACK_MESSAGES:-30}" | jq -c "$said"'[.messages[] | said] | reverse[]' |
+    while read -r message; do
+      markdown "$message" "## message from"
+      ts=$(jq -r .ts <<< "$message")
+      if jq -e --arg me "${SLACK_ME:-}" --arg under "$under" \
+          '(.reply_count // 0) > 0 and (.ts == $under or ((.reply_users // []) | index($me)) or .user == $me)' <<< "$message" > /dev/null; then
+        api conversations.replies channel="$channel" ts="$ts" limit=100 | jq -c '.messages[1:][]' |
+          while read -r reply; do markdown "$reply" "### └ reply by"; done
+      elif jq -e '(.reply_count // 0) > 0' <<< "$message" > /dev/null; then
+        named "$(jq -r '"\n_└ \(.reply_count) \(if .reply_count == 1 then "reply" else "replies" end) · \(.reply_users // [] | join(", ")) · last \(.latest_reply | tonumber | strflocaltime("%H:%M"))_"' <<< "$message")"
+      fi
+      if jq -e '.reactions' <<< "$message" > /dev/null; then
+        named "$(jq -r '"\n_◦ \([.reactions[] | ":\(.name): \(.users | join(", "))"] | join(" · "))_"' <<< "$message")"
+      fi
+    done
+}
+
+send() {
+  local id=${1:?usage: sources/slack send ID[/TS] < text} ts= text
+  if [ "${id%%/*}" != "$id" ]; then ts=${id#*/}; fi
+  text=$(cat)
+  [ -n "${text//[[:space:]]/}" ] || die "the message is empty; there is nothing to send"
+  post chat.postMessage channel="${id%%/*}" text="$text" ${ts:+thread_ts="$ts"} | jq -r .ts
+}
+
+react() {
+  local channel=${1:?usage: sources/slack react ID TS} ts=${2:?usage: sources/slack react ID TS} name=${SLACK_REACTION:-+1} err
+  channel=${channel%%/*}
+  if err=$(post reactions.add channel="$channel" timestamp="$ts" name="$name" 2>&1 > /dev/null); then echo ":$name: on"; return; fi
+  [[ $err == *already_reacted* ]] || die "${err#t: }"
+  post reactions.remove channel="$channel" timestamp="$ts" name="$name" > /dev/null
+  echo ":$name: off"
+}
+
+archive() {
+  local channel=${1:?usage: sources/slack archive ID} latest
+  channel=${channel%%/*}
+  latest=$(api conversations.history channel="$channel" limit=1 | jq -r '.messages[0].ts // empty')
+  if [ -n "$latest" ]; then post conversations.mark channel="$channel" ts="$latest" > /dev/null; fi
+}
+
+can() {
+  case ${1:-} in
+    poll | thread | send | react) echo "$1" ;;
+    archive) echo "mark read" ;;
+    threads) echo thread ;;
+    *) return 1 ;;
+  esac
+}
+
+case ${1:-} in
+  poll | thread | send | react | archive | can) verb=$1; shift; "$verb" "$@" ;;
+  *) die "usage: sources/slack poll SINCE | thread ID[/TS] | send ID[/TS] < text | react ID TS | archive ID | can VERB" ;;
+esac

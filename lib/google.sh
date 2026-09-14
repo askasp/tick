@@ -19,7 +19,7 @@ google_account() {
   google_client "$1"
   [ -s "$dir/refresh_token" ] || die "google account $1 is not logged in; log in with: t google login $1"
   GOOGLE_ACCOUNT=$1
-  GOOGLE_TOKEN=$(jq -rn --arg id "$GOOGLE_CLIENT_ID" --arg secret "$GOOGLE_CLIENT_SECRET" --rawfile refresh "$dir/refresh_token" \
+  GOOGLE_TOKEN=$(jq -jn --arg id "$GOOGLE_CLIENT_ID" --arg secret "$GOOGLE_CLIENT_SECRET" --rawfile refresh "$dir/refresh_token" \
       '"client_id=\($id | @uri)&client_secret=\($secret | @uri)&refresh_token=\($refresh | rtrimstr("\n") | @uri)&grant_type=refresh_token"' |
     curl -sfS --retry 3 --data-binary @- https://oauth2.googleapis.com/token | jq -r '.access_token // empty') || true
   [ -n "$GOOGLE_TOKEN" ] || die "Google refused account $1's login; log in again with: t google login $1"

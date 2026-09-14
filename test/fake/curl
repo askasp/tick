@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
-# A stand-in for curl against the Front and Google APIs.
-# Front (api2.frontapp.com) and Google (*.googleapis.com) answer from $FAKE/front or $FAKE/google: the file whose
-# name (the URL's path, slashes as _) starts the requested path; longest name wins. No file: an empty Front page.
+# A stand-in for curl against the Front, Google and Slack APIs.
+# Front (api2.frontapp.com), Google (*.googleapis.com) and Slack (slack.com/api) answer from $FAKE/front, $FAKE/google or
+# $FAKE/slack: the file whose name (the URL's path, slashes as _) starts the requested path; longest name wins. No file: an
+# empty Front page, or Slack's {"ok": true}. Slack's path is its method, and _CHANNEL when a channel= field is sent.
 # $FAKE/SERVICE/401 makes every request fail the way `curl -f` does. A call that writes (-X POST, PATCH, PUT) goes
 # to $FAKE/SERVICE.calls as "METHOD /path" and its body on the next line, and answers with $FAKE/SERVICE/POST_path
-# first, then as a GET would, else an id of its own.
+# first, then as a GET would, else an id of its own. Every Slack call goes there, its fields as the body.
 set -eu
 url=${!#}
 if [ "$url" = http ]; then echo "${@: -2:1}" >> "$FAKE/fzf.calls"; exit 0; fi   # -d ACTION to fzf's --listen socket
 echo "$url" >> "$FAKE/curl.calls"
-verb=GET
+verb=GET fields=() channel=
 for ((i = 1; i < $#; i++)); do
-  if [ "${!i}" = -X ]; then j=$((i + 1)); verb=${!j}; fi
+  j=$((i + 1))
+  if [ "${!i}" = -X ]; then verb=${!j}; fi
+  if [ "${!i}" = --data-urlencode ]; then fields+=("${!j}"); if [[ ${!j} == @(channel|user)=* ]]; then channel=${!j#*=}; fi; fi
 done
 
 case $url in
   https://api2.frontapp.com/*) service=front ;;
   https://*.googleapis.com/*)  service=google ;;
+  https://slack.com/api/*)     service=slack ;;
   *) echo "the fake curl knows nothing of $url" >&2; exit 2 ;;
 esac
 route=/${url#https://*/}
@@ -24,8 +28,10 @@ route=${route%%\?*}
 path=${route#/}
 path=${path//\//_}
 if [ -e "$FAKE/$service/401" ]; then echo "curl: (22) The requested URL returned error: 401" >&2; exit 22; fi
-if [ "$verb" != GET ]; then
-  printf '%s %s\n%s\n' "$verb" "$route" "$(cat)" >> "$FAKE/$service.calls"
+if [ "$path" = token ] && [[ " $* " == *" --data-binary @- "* ]]; then   # Google's token form, read as Google reads it
+  form=$(cat; echo .)
+  if [[ $form == *$'\n.' ]]; then echo "curl: (22) The requested URL returned error: 400" >&2; exit 22; fi   # grant_type=refresh_token\n
+  printf '%s %s\n%s\n' POST "$route" "${form%.}" >> "$FAKE/$service.calls"
 fi
 answer() {   # the file whose name starts $1, if there is one
   local name
@@ -33,6 +39,15 @@ answer() {   # the file whose name starts $1, if there is one
     if [[ $1 == "$name"* ]]; then cat "$FAKE/$service/$name"; exit 0; fi
   done
 }
+if [ "$service" = slack ]; then
+  printf 'POST /%s\n%s\n' "${path#api_}" "${fields[*]:-}" >> "$FAKE/slack.calls"
+  answer "${path#api_}${channel:+_$channel}"
+  echo '{"ok": true}'
+  exit 0
+fi
+if [ "$verb" != GET ]; then
+  printf '%s %s\n%s\n' "$verb" "$route" "$(cat)" >> "$FAKE/$service.calls"
+fi
 if [ "$verb" != GET ]; then answer "${verb}_$path"; fi   # POST_conversations_cnv_x_messages: what only a POST gets
 answer "$path"
 if [ "$verb" != GET ]; then echo '{"id": "msg_fake"}'; exit 0; fi

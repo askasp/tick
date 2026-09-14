@@ -1,0 +1,5 @@
+# slack-amino: the Slack workspace Amino2.0, as one row on the board that never ends (t slack login slack-amino)
+REPO=none
+SOURCE=slack-amino
+POLL=300
+CLI_watch=opencode

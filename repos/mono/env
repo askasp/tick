@@ -1,0 +1,8 @@
+# mono: Periode's monorepo (merchant, subscriber, functions, common). `t new -r mono "..."` from anywhere,
+# or `t periode-feature "..."`. The agents follow the repo's own CLAUDE.md files and .claude/skills.
+REPO=~/git/mono
+PIPELINE=periode-feature
+TEST_CMD="$T_ROOT/repos/mono/run-tests"
+
+# written by npm, so no agent reads, edits or reviews them
+GENERATED="*package-lock.json"

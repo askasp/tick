@@ -26,6 +26,15 @@ rendered() {   # glow writes into less, not a terminal: force its style and colo
 field() { printf '%s%-10s%s%s\n' "$C_FAINT" "$1" "$C_OFF" "$2"; }
 home() { echo "${1/#"$HOME"/\~}"; }
 
+# what +preview put online, a link a line, whole, to click or select: preview   App        https://…
+preview_links() {
+  local label=preview surface url
+  while read -r surface url; do
+    field "$label" "$(printf '%-11s%s' "$surface" "$url")"
+    label=
+  done < "$task/preview"
+}
+
 # under the name, the title it stands for (often a pasted prompt): dim, and in the pane two lines at most
 about() {
   local text cut=$((2 * ${FZF_PREVIEW_COLUMNS:-80} - 1))
@@ -109,6 +118,7 @@ next_steps() {
                echo "  t stack $n \"...\"    make it a task: the question and answer are its details"
              elif [ -f "$task/pr" ]; then
                echo "  review and merge   $(cat "$task/pr")"
+               echo "  t copy $n           its links, to paste anywhere"
                echo "  t say $n \"...\"      ask for more changes"
              else
                echo "  t diff $n           read the change"
@@ -135,6 +145,7 @@ show() {
   fi
   if [ -e "$task/work" ]; then echo "${C_FAINT}worktree  $(home "$(readlink -f "$task/work")")$C_OFF"; fi
   if [ -f "$task/pr" ]; then field pr "$(cat "$task/pr")"; fi
+  if [ -s "$task/preview" ]; then preview_links; fi
   if [ -s "$task/feedback.md" ]; then field feedback "$(grep -m1 . "$task/feedback.md" | cut -c1-90)"; fi
   if [ -n "$waits_for" ]; then
     parent=$(tdir "$waits_for")

@@ -47,7 +47,7 @@ how to change it.
 | to add | do this | touch the runner? |
 | --- | --- | --- |
 | a pipeline | `mkdir pipelines/NAME`, then `ln -s ../../steps/X NN-X` for each step | no |
-| a repo | `repos/NAME/env`: `REPO=` where it is, `PIPELINE=` its default pipeline, and settings its steps read (`TEST_CMD=`, `TEARDOWN=`, `GENERATED=`, `GENERATE=`) | no |
+| a repo | `repos/NAME/env`: `REPO=` where it is, `PIPELINE=` its default pipeline, and settings its steps read (`TEST_CMD=`, `TEARDOWN=`, `GENERATED=`, `GENERATE=`, `PREVIEW=`) | no |
 | a pipeline's settings | `pipelines/NAME/env`; a step sees the pipeline's env, then its repo's, then its task's own. `REPO=none` for a pipeline that needs no repo | no |
 | a step | an executable in `steps/` that follows the contract below | no |
 | a step you don't always want | `OPTIONAL=plan` in the pipeline's env: it is left out unless `t new` asks for it with `+plan`, which the task keeps in its `opt` file | no |
@@ -56,7 +56,8 @@ how to change it.
 | who solves a step | `CLI_<step>=claude` or `opencode`, and optionally `MODEL_<step>=` and `EFFORT_<step>=` (claude's thinking; `T_EFFORT` elsewhere), in the pipeline's env; `t new --cli` overrides it for one task | no |
 | a kind of question | a pipeline whose one step is `steps/answer`; its env sets `MODE_answer=` (read or web), `CLI_answer=`, and `ANSWERER=NAME` only for a prompt of its own | no |
 | an AI CLI | `drivers/NAME`, same contract as `drivers/claude` | no |
-| a mail source | `sources/NAME`, with the verbs of `sources/front`: `poll`, `thread`, `draft`, `send`, `archive`, `sent` | no |
+| a mail source | `sources/NAME`, with the verbs of `sources/front`: `poll`, `thread`, `draft`, `send`, `archive`, `sent`, and `can VERB`, which `t inbox` and `t thread` ask before they offer a key (`comment`, `react`, `threads`). A source that can't draft gets `pipelines/SCRIPT-reply` with `DELIVER=send`, as `sources/slack` does | no |
+| a Slack workspace | `t slack login NAME`: its token in `~/.config/slack/NAME/env`, the link `sources/NAME` → `slack`, and the pipeline `pipelines/NAME` that watches it | no |
 | a Google account | `~/.config/google/NAME/env` (its OAuth client), then `ln -s gmail sources/NAME` for its mail and `ln -s gcal calendars/NAME` for its calendar, and `t google login NAME`. The script knows its account by the name it runs as | no |
 | an inbox on the board | a pipeline whose one step is `steps/watch`, with `SOURCE=` and `POLL=` in its env; start it once with `t new -p NAME` | no |
 | a calendar on the board | a pipeline whose one step is `steps/agenda`, with `CALENDAR=` in its env | no |
