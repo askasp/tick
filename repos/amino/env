@@ -2,7 +2,7 @@
 # a postgres container of the worktree's own and bun test on the host, with no image build.
 # TEARDOWN removes that container again, after every test run and before `t rm` deletes the worktree.
 REPO=~/git/amino-monorepo
-PIPELINE=amino
+PIPELINE=amino-feature
 TEST_CMD="$T_ROOT/repos/amino/run-tests"
 TEARDOWN="$T_ROOT/repos/amino/teardown"
 # +preview: ./dev.sh up with the app, backoffice and API each on a Cloudflare quick tunnel; TEARDOWN closes them

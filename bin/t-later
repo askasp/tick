@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+# t later ["something"] — your own list, where you are the only writer: a line put on it from anywhere, or with nothing, the list
+#
+# A thing on it is a file in $T_VAR/later, named by when it was added: its first line says what it is, the lines under it
+# are notes ("due 30 Sep" counts toward this week) and subtasks ("- [ ] …", "- [x] …"). Nothing polls it, so the one
+# thing it can tell you is what you are plainly not doing: a thing untouched for LATER_ROT days rots, above a line.
+# In the list the query is the add box: type the thing, and if nothing matches, enter adds it. Enter on a thing opens
+# its subtasks, where the same goes, and enter on a subtask ticks it off. ^t makes a task in t compose (pipeline me for
+# what only your hands can do), ^d says you did it, ^x that you won't, ^e edits it. The board shows the list as one row.
+# fzf runs t-later for what changes: --row (the board's), --pane (the board's), --rows [THING], --key KEY ROW,
+# --compose ROW TITLE and --made (^t)
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+list=$T_VAR/later
+top="later> "
+terminal_colors
+
+# the files of the things on the list, newest touched first
+things() { ls -t "$list" 2> /dev/null | grep -x '[0-9]*' | sed "s|^|$list/|" || true; }
+touched() { stat -c %Y "$1"; }
+added() { local name=${1##*/}; echo "${name:0:10}"; }
+rotten() { [ $(( $(date +%s) - $(touched "$1") )) -ge $((LATER_ROT * 86400)) ]; }
+subtasks() { grep -c "^- \[${2:-[ x]}\] " "$1" || true; }   # FILE [x]: how many, or how many done
+note() { sed -n '2,${/^- \[[ x]\] /d;/^$/d;p;q;}' "$1"; }
+
+# whether a note on thing $1 says "due DATE", and DATE is in the coming seven days
+due_this_week() {
+  local when
+  when=$(sed -n 's/^due //p' "$1" | head -1)
+  [ -n "$when" ] && when=$(date -d "$when" +%s 2> /dev/null) || return 1
+  [ "$when" -ge "$(date -d 'today 00:00' +%s)" ] && [ "$when" -lt "$(date -d 'today 00:00 + 7 days' +%s)" ]
+}
+
+# the board's row: no id, since no task key means anything on a pile, and the list in numbers
+board_row() {
+  local thing all=0 week=0 rot=0 says color=$C_DIM
+  while read -r thing; do
+    all=$((all + 1))
+    if due_this_week "$thing"; then week=$((week + 1)); fi
+    if rotten "$thing"; then rot=$((rot + 1)); fi
+  done < <(things)
+  [ "$all" -gt 0 ] || return 0
+  says=$all
+  if [ "$week" -gt 0 ]; then says+=" · $week this week"; fi
+  if [ "$rot" -gt 0 ]; then says+=" · $rot rotting" color=$C_TEXT; fi
+  line "" "" later "" "" "" "$color$says$C_OFF"
+}
+
+# a thing a line, its file's name first for fzf and hidden:  Sette opp backup  3/5  3w  amino #646
+row() {
+  local title fraction= since detail
+  title=$(head -1 "$1") since=$(ago "$(touched "$1")")
+  if [ "$(subtasks "$1")" -gt 0 ]; then fraction="$(subtasks "$1" x)/$(subtasks "$1")"; fi
+  if [ "${#title}" -gt 48 ]; then title=${title:0:47}…; fi
+  if ! rotten "$1"; then
+    since=$(pad 5 "$since" "$C_MID$since$C_OFF") detail=$C_DIM$(note "$1")$C_OFF
+  elif [ $(( $(touched "$1") - $(added "$1") )) -lt 60 ]; then
+    since=$(pad 5 "$since" "$C_RED$since$C_OFF") detail="${C_RED}added $(date -d "@$(added "$1")" '+%-d %b') · never touched$C_OFF"
+  else
+    since=$(pad 5 "$since" "$C_RED$since$C_OFF") detail="${C_RED}untouched since $(date -d "@$(touched "$1")" '+%-d %b')$C_OFF"
+  fi
+  printf '%s\t%s  %s  %s  %s\n' "${1##*/}" "$(pad 48 "$title")" "$(pad 5 "$fraction" "$C_MID$fraction$C_OFF")" "$since" "$detail"
+}
+
+# what rots, oldest first, a line, then the rest, newest first
+rows() {
+  local thing rotting= rest=
+  while read -r thing; do
+    if rotten "$thing"; then rotting=$(row "$thing")$'\n'$rotting; else rest+=$(row "$thing")$'\n'; fi
+  done < <(things)
+  printf %s "$rotting"
+  if [ -n "$rotting" ] && [ -n "$rest" ]; then printf -- '-\t%s%s%s\n' "$C_FAINT" "$(printf '─%.0s' {1..70})" "$C_OFF"; fi
+  printf %s "$rest"
+}
+
+# thing $1's subtasks, in its order, THING:LINE first for fzf and hidden
+subtask_rows() {
+  awk -v thing="${1##*/}" -v dim="$C_DIM" -v text="$C_TEXT" -v off="$C_OFF" '
+    /^- \[x\] / { print thing ":" NR "\t" dim "✓ " substr($0, 7) off }
+    /^- \[ \] / { print thing ":" NR "\t" text "  " substr($0, 7) off }' "$1"
+}
+
+# the board's pane on the row
+pane() {
+  echo "${C_BRIGHT}later$C_OFF  ${C_DIM}your own list$C_OFF"
+  echo
+  rows | cut -f2-
+  echo
+  echo "${C_DIM}enter opens it: type to find a thing, and enter adds what isn't there$C_OFF"
+}
+
+# TITLE [PARENT]: a new thing on the list, or a subtask of PARENT's
+add() {
+  local thing
+  mkdir -p "$list"
+  if [ -n "${2:-}" ]; then
+    { cat "$2"; echo "- [ ] $1"; } > "$2.tmp" && mv "$2.tmp" "$2"
+    return
+  fi
+  while read -r thing; do
+    if [ "$(head -1 "$thing")" = "$1" ]; then echo "already on your list: $1"; return 1; fi
+  done < <(things)
+  thing=$list/$(date +%s%N)
+  echo "$1" > "$thing.tmp" && mv "$thing.tmp" "$thing"
+}
+
+# FILE PROGRAM: the file through an awk program, whole or not at all
+rewrite() { awk "$2" "$1" > "$1.tmp" && mv "$1.tmp" "$1"; }
+
+# thing $1 off the list, into $2 (done, dropped), where a slip is one mv away from undone
+put_away() { mkdir -p "$list/$2" && mv "$list/$1" "$list/$2/"; }
+
+footer() { hint enter open "$(key task)" task "$(key did)" "did it" "$(key drop)" "drop it" "$(key edit)" edit esc back; }
+subtask_footer() { hint enter "did it" "$(key task)" "make this one a task" "$(key drop)" "drop it" esc "back to the list"; }
+typed_footer() { hint enter "add it to the list" "$(key task)" "make it a task now, skip the list" esc clear; }
+back() { echo "clear-query+change-prompt~$top~+reload~CLICOLOR_FORCE=1 t-later --rows~+change-footer~${1:-$(footer)}~"; }
+opened() {   # the subtasks of thing $1
+  local title
+  title=$(head -1 "$1" | tr -d '~')
+  if [ "${#title}" -gt 40 ]; then title=${title:0:39}…; fi
+  echo "clear-query+change-prompt~later · $title> ~+reload~CLICOLOR_FORCE=1 t-later --rows '${1##*/}'~+change-footer~${2:-$(subtask_footer)}~"
+}
+
+# COMPOSE ROW TITLE: t compose on a thing (ROW is THING) or a subtask (THING:LINE), or with no ROW on TITLE, typed; once
+# the task is made, the thing leaves the list. What came of it waits in $list/made for the footer (made).
+compose() {
+  local thing=$list/${1%%:*} title=$2 details= id
+  rm -f "$list/made"
+  if [[ $1 == *:* ]]; then
+    title=$(sed -n "${1##*:}s/^- \[[ x]\] //p" "$thing") details="Part of: $(head -1 "$thing")"
+  elif [ -n "$1" ]; then
+    title=$(head -1 "$thing") details=$(tail -n +2 "$thing")
+  fi
+  id=$(printf '%s\n' "$details" | t-compose --title "$title" -) || true
+  [ -n "$id" ] || return 0
+  if [[ $1 == *:* ]]; then rewrite "$thing" "NR != ${1##*:}"
+  elif [ -n "$1" ]; then rm "$thing"; fi
+  echo "task $(task_num "$id") is $title" > "$list/made"
+}
+
+# what key $1 does to row $2, as fzf actions; in a thing's subtasks, $list/open names the thing
+act() {
+  local key=$1 row=$2 query=${FZF_QUERY:-} thing= name
+  if [ "${FZF_PROMPT:-$top}" != "$top" ]; then thing=$list/$(cat "$list/open"); fi
+  here() { if [ -n "$thing" ]; then opened "$thing" "$@"; else back "$@"; fi; }
+  case $key in
+    result)                                             # nothing matches what you typed: the keys say what enter does
+      if [ "${FZF_MATCH_COUNT:-0}" = 0 ] && [ -n "$query" ]; then touch "$list/typed"; echo "change-footer~$(typed_footer)~"
+      elif [ -f "$list/typed" ]; then
+        rm "$list/typed"
+        if [ -n "$thing" ]; then echo "change-footer~$(subtask_footer)~"; else echo "change-footer~$(footer)~"; fi
+      fi
+      return ;;
+    esc)
+      if [ -n "$query" ]; then echo clear-query
+      elif [ -n "$thing" ]; then back
+      else echo abort; fi
+      return ;;
+  esac
+  name=$(awk -v k="$key" '$2 == k { print $1; exit }' <<< "$LATER_KEYS")
+  if [ -z "$row" ]; then                                # nothing under the cursor: what you typed is the thing
+    [ -n "$query" ] || return 0
+    case $name in
+      open) if out=$(add "$query" "$thing"); then here "on your list: $query"; else echo "change-footer~$out~"; fi ;;
+      task) echo "execute~t-later --compose '' {q}~+transform~t-later --made~" ;;
+    esac
+    return
+  fi
+  [ "$row" != - ] || return 0
+  if [[ $row == *:* ]]; then                            # a subtask
+    case $name in
+      open | did) rewrite "$thing" "NR == ${row##*:} && !sub(/^- \\[x\\] /, \"- [ ] \") { sub(/^- \\[ \\] /, \"- [x] \") } 1"
+                  echo "reload~CLICOLOR_FORCE=1 t-later --rows '${thing##*/}'~" ;;
+      drop)       rewrite "$thing" "NR != ${row##*:}"
+                  echo "reload~CLICOLOR_FORCE=1 t-later --rows '${thing##*/}'~" ;;
+      task)       echo "execute~t-later --compose '$row' ''~+transform~t-later --made~" ;;
+      edit)       echo "execute~\${EDITOR:-vi} '$thing'~+reload~CLICOLOR_FORCE=1 t-later --rows '${thing##*/}'~" ;;
+    esac
+    return
+  fi
+  case $name in
+    open) echo "$row" > "$list/open"; opened "$list/$row" ;;
+    task) echo "execute~t-later --compose '$row' ''~+transform~t-later --made~" ;;
+    did)  put_away "$row" done; back "done: $(head -1 "$list/done/$row" | tr -d '~')" ;;
+    drop) put_away "$row" dropped; back "dropped: $(head -1 "$list/dropped/$row" | tr -d '~')" ;;
+    edit) echo "execute~\${EDITOR:-vi} '$list/$row'~+reload~CLICOLOR_FORCE=1 t-later --rows~" ;;
+  esac
+}
+made() {
+  local said
+  said=$(cat "$list/made" 2> /dev/null || echo "no task made")
+  if [ "${FZF_PROMPT:-$top}" != "$top" ]; then opened "$list/$(cat "$list/open")" "$said"; else back "$said"; fi
+}
+
+case ${1:-} in
+  --row)     board_row; exit ;;
+  --pane)    pane; exit ;;
+  --rows)    if [ -n "${2:-}" ]; then subtask_rows "$list/$2"; else rows; fi; exit ;;
+  --key)     act "$2" "${3:-}"; exit ;;
+  --compose) compose "$2" "${3:-}"; exit ;;
+  --made)    made; exit ;;
+esac
+
+if [ $# -gt 0 ]; then
+  add "$*" >&2 || exit 1
+  echo "t: on your list: $*; t later opens it" >&2
+  exit
+fi
+command -v fzf > /dev/null || die "the list needs fzf (sudo apt install fzf); it is files in $list, and t later \"...\" adds to it"
+mkdir -p "$list"
+rm -f "$list/typed"
+binds=()
+for key in esc result $(awk '{ print $2 }' <<< "$LATER_KEYS"); do
+  binds+=(--bind "$key:transform:t-later --key '$key' {1}")
+done
+CLICOLOR_FORCE=1 t-later --rows | fzf "${BOARD_FZF[@]}" --exact --delimiter $'\t' --with-nth 2.. --prompt "$top" \
+  --info inline-right --footer "$(footer)" "${binds[@]}" || true

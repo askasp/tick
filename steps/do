@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# do — work only your hands can finish. Nothing runs: the task holds until you resume it (t resume, or its key on the
+# board), and resuming it is saying you did it.
+set -euo pipefail
+if grep -q " resumed at $(cat step)$" history 2> /dev/null; then exit 0; fi
+echo "needs your hands" > hold
+exit 75

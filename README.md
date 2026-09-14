@@ -170,7 +170,7 @@ next
 4. It ends `done`, or `held` when it needs you. `t show` tells you what to
    do either way, and ends with the implementer's summary of what it changed.
 5. When it's done, read it with `t diff`. Then take it with `git merge`, or
-   with `-p amino`, review the PR it opened.
+   with `-p amino-feature`, review the PR it opened.
 6. Clean up with `t rm`. The branch stays.
 
 ### Questions instead of code
@@ -217,26 +217,26 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 
 | pipeline | steps |
 | --- | --- |
-| `amino` (the default) | +plan (claude) → implement (opencode) → test → review (opencode) → sync → pr → +preview → +ci |
-| `periode-feature` | +plan (claude) → implement (opencode) → test → review (opencode) → sync → pr → +ci: mono only, from any directory |
-| `main` | implement (opencode) → test → review (opencode) → merge (opencode): tick only, from any directory; lands on its `main` |
+| `amino-feature` (the default) | +plan (claude) → implement (opencode) → test → review (opencode) → sync → pr → +preview → +ci |
+| `mono-feature` | +plan (claude) → implement (opencode) → test → review (opencode) → sync → pr → +ci: mono only, from any directory |
+| `tick-feature` | implement (opencode) → test → review (opencode) → merge (opencode): tick only, from any directory; lands on its `main` |
 | `ask` | answer (opencode): reads the repo you're in and changes nothing |
 | `research` | answer (claude): searches the web; needs no repo |
 
-You pick one per task with `t new -p amino "…"`, and a repo can name its own
+You pick one per task with `t new -p amino-feature "…"`, and a repo can name its own
 default (see Repos).
 
 A step written `+plan` is optional: the pipeline lists it in `OPTIONAL=` in its
-`env` and leaves it out unless the task asks for it with `t amino +plan "…"`
+`env` and leaves it out unless the task asks for it with `t amino-feature +plan "…"`
 (the same `+plan` works on the board, typed after the title, and `+plan +ci`
 asks for both). The task keeps what it asked for in its `opt` file, and every
-screen counts only its own steps, so a plain amino task is 0/5 and one with both
+screen counts only its own steps, so a plain amino-feature task is 0/5 and one with both
 is 0/7. A task can take one on later, done or not: `t resume 7 preview` adds
 it to `opt` and restarts there, and so does the say form on the board (`^y`),
 where `tab` offers the left-out steps as `+preview` and Enter with nothing
 typed restarts at the step you picked.
 
-`amino` has three: **plan**, **preview** and **ci**. With **plan**, `agents/planner.md` reads
+`amino-feature` has three: **plan**, **preview** and **ci**. With **plan**, `agents/planner.md` reads
 the task and the repo and decides how many pull requests it needs. One is the
 default, and the answer nearly always. Only a change too big to review well, with seams that let
 each part merge on its own, becomes a stack of up to four: the task becomes
@@ -288,7 +288,7 @@ and find something new. `passes/` keeps each pass's last answer until the task
 moves past review instead: a pass that approved doesn't read again, and one that
 asked for changes reads its own answer back, and may ask again only for what is
 still not done or for a bug the fix added. From the third round on, only
-`LATE_MINDSETS=` (`amino`: intent and defects) may still send the task back.
+`LATE_MINDSETS=` (`amino-feature`: intent and defects) may still send the task back.
 A round that sends the task back is not a failed run: the task holds only once
 review has sent it back `MAX_ROUNDS` times (5), with the last feedback waiting
 for implement when you `t resume` it.
@@ -306,12 +306,12 @@ While it reads, the board says which pass it is on and of how many
 | `data` | what happens at a thousand times the data? |
 | `trust` | who could see or do what they shouldn't? |
 
-`amino` names the first five, and `periode-feature` adds `house-rules`. A small local model answers five narrow
+`amino-feature` names the first five, and `mono-feature` adds `house-rules`. A small local model answers five narrow
 questions better than one wide one, and a stacked pull request gets no review
 from GitHub's bot at all, so this is the only review it will get. `data` and
 `trust` are left to `jobs/idle-review`, which has all the time in the world.
 
-`main` works in a worktree of its own, like `amino`, but branches from tick's
+`tick-feature` works in a worktree of its own, like `amino-feature`, but branches from tick's
 local `main` (`TRUNK=main` in its env) and ends with `merge`. That step merges
 `main` into the task's branch, and the merger agent resolves any conflicts. If
 `main` had moved, the task goes through test and review again. Then `main`
@@ -323,7 +323,7 @@ your uncommitted work, so while it's in the way, the step waits.
 Each agent step's solver is set in its pipeline's `env`, by the step's name:
 
 ```sh
-# pipelines/amino/env
+# pipelines/amino-feature/env
 CLI_plan=claude
 MODEL_plan=opus                          # the latest Opus: planning is worth it
 EFFORT_plan=max                          # and let it think as hard as it can
@@ -368,7 +368,7 @@ A repo gets a short name, a default pipeline and settings of its own in
 ```sh
 # repos/amino/env
 REPO=~/git/amino-monorepo                  # where it is
-PIPELINE=amino                             # its default pipeline
+PIPELINE=amino-feature                     # its default pipeline
 TEST_CMD="$T_ROOT/repos/amino/run-tests"   # what test steps run; without it, `make test` or nothing
 GENERATED="*openapi*.json *.gen.ts …"      # what tooling writes: no agent reads or reviews it
 GENERATE="$T_ROOT/repos/amino/generate"    # writes it: implement runs this after the agent, before it commits
@@ -377,7 +377,7 @@ PREVIEW="$T_ROOT/repos/amino/preview"      # +preview: start the app, print "NAM
 ```
 
 `repos/amino/` also holds the four scripts it names. A repo's settings apply
-under every pipeline you run on it, so `t new -r mono -p amino "…"` runs
+under every pipeline you run on it, so `t new -r mono -p amino-feature "…"` runs
 mono's tests too.
 
 Which repo and which pipeline a task gets (the first one given wins):
@@ -386,12 +386,12 @@ Which repo and which pipeline a task gets (the first one given wins):
 | --- | --- | --- |
 | 1 | `-r NAME`: a name in `repos/`, a directory in `~/git` (`T_REPOS`), or a path | `-p NAME` |
 | 2 | the repo you're standing in | the repo's `PIPELINE=` |
-| 3 | `T_REPO` in `etc/tick.conf`, for when you're in no repo | `T_PIPELINE` in `etc/tick.conf` (amino) |
+| 3 | `T_REPO` in `etc/tick.conf`, for when you're in no repo | `T_PIPELINE` in `etc/tick.conf` (amino-feature) |
 
 To add one, with a pipeline of its own to change its review in:
 
 ```sh
-mkdir ~/git/tick/repos/rigg && cp -a ~/git/tick/pipelines/amino ~/git/tick/pipelines/rigg
+mkdir ~/git/tick/repos/rigg && cp -a ~/git/tick/pipelines/amino-feature ~/git/tick/pipelines/rigg
 printf 'REPO=~/git/rigg\nPIPELINE=rigg\nTEST_CMD="cargo test"\n' > ~/git/tick/repos/rigg/env
 t doctor      # lists it, and warns if its test steps would check nothing
 ```
@@ -654,6 +654,40 @@ issue moving. The repo is the one in `repos/` whose git remote is on GitHub.
 Tick sets the status and nothing else, and without a signature, because a
 status describes work already done; priority and effort stay the team's.
 
+## Later: your own list
+
+What you have written down and are not doing now goes on a list only you
+write. Nothing polls it, so it isn't a watch: it is one row under the tasks,
+with no id, that never sorts above them (`later  23 · 4 this week · 2
+rotting`), and only while something is on it.
+
+```sh
+t later "Bytte regnskapsfører"       # on the list, from anywhere
+t later                              # the list; Enter on its row on the board opens it too
+```
+
+Each thing is a file in `~/.tick/later/`: its first line says what it is, and
+the lines under it are notes and subtasks (`- [ ] teste restore`). There is no
+priority and no status, only how long since you touched it. A thing untouched
+for `LATER_ROT` days (42) rots, and rotting lifts it above a line, red, since
+that is the one thing the list can tell you that you don't already know. A
+note `due 30 Sep` counts toward `this week`, and does nothing else.
+
+The query is the add box: type the thing, and if it is there you found it; if
+nothing matches, Enter adds it.
+
+| key | does |
+| --- | --- |
+| enter | its subtasks, where typing adds one the same way, and Enter on a subtask ticks it off (again: on) |
+| ^t | a task of it in `t compose`, its title typed and its notes as details; the thing leaves the list. With nothing matching, a task of what you typed |
+| ^d | did it: off the list, into `done/` |
+| ^x | not doing it: off the list, into `dropped/` |
+| ^e | its file in `$EDITOR` |
+
+Half of such a list is nothing tick can do. The pipeline `me` is for that: one
+step, `do`, that runs nothing and holds (`needs your hands`) until you resume
+it, which is saying you did it: Enter on its row, `^r`, or `t resume`.
+
 ## How it works
 
 | idea | here | Linux equivalent |
@@ -707,6 +741,7 @@ t inbox [TASK]             the mail a watch keeps: enter opens the thread to wri
 t thread CONV|TASK         a conversation the width of the screen: type a reply or comment under it, ^y sends it
 t cal [TASK]               the week a calendar watch keeps: ^y accepts an invite, ^t maybe, ^x declines
 t roadmap [TASK]           the project a roadmap watch keeps: enter lists sub-issues, ^t makes a task with your note, ^n an issue
+t later ["something"]      your own list: put a line on it, or open it; typing finds, enter adds what isn't there
 t google login NAME        log a Google account in, for its linked mail and calendar
 t front login              the Front API token: what to choose when you make it, then it is checked and kept
 t slack login NAME         a Slack workspace under a name of your own: its token, checked and kept, and its inbox pipeline

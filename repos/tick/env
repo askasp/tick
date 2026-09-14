@@ -1,4 +1,4 @@
 # tick itself: `t new -r tick "..."` from anywhere, or `t new` in ~/git/tick. Tasks land on its main.
 REPO=~/git/tick
-PIPELINE=main
+PIPELINE=tick-feature
 TEST_CMD=test/run
