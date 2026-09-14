@@ -1167,6 +1167,7 @@ test_the_board_starts_a_task_and_says_to_one_in_place() {
   eq "$(cat "$T_UI/title")" 'add the widget'                      # the title waits where you left it
   eq "$(head -1 <<< "$(t ui --pipelines)" | awk '{ print $1 }')" local   # the repo's default, first
   t ui --pane feature '' | sed 's/\x1b\[[0-9;]*m//g' | grep -q '^pipeline *feature'  # the one under the cursor
+  [[ $(t ui --pane feature '' | head -1) != *local* ]]           # only it: the list beside shows the others
   t ui --key esc '' '' > /dev/null                                # esc: back to the tasks, nothing picked
   eq "$(cat "$T_UI/list")" tasks
   eq "$(cat "$T_UI/pick")" local

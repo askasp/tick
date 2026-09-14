@@ -106,7 +106,7 @@ if [ "${1:-}" = --pane ]; then
       if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ]; then
         show=${2:-$pick} typed=$(cat "$T_UI/title" 2> /dev/null)    # the pipeline under the cursor
       else show=$pick typed=$q; fi
-      echo "$(strip "$show" $(pipelines "$(cat "$T_UI/def")"))  ${C_FAINT}$(key pipeline):pipelines$C_OFF"
+      echo "$C_BRIGHT$show$C_OFF  ${C_FAINT}$(key pipeline):pipelines$C_OFF"
       echo
       CLICOLOR_FORCE=1 exec t-compose --dry "$show" "$typed" ;;
     say)
