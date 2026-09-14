@@ -672,11 +672,14 @@ test_ctrl_x_deletes_a_task_in_place() {
   mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
   new "add the widget" > /dev/null
   new "fix the gadget" > /dev/null
+  new "mend the gizmo" > /dev/null
   eq "$(keyfor rm)" ctrl-x
-  t ui --key "$(keyfor rm)" 1 '' | grep -q 'change-prompt(task> )'   # no asking: gone, and still on the board
-  gone "$(dir 0001)"
-  eq "$(cat "$T_UI/new")" 2
+  t ui --key "$(keyfor rm)" 2 '' | grep -q 'change-prompt(task> )'   # no asking: gone, and still on the board
+  gone "$(dir 0002)"
+  eq "$(cat "$T_UI/new")" 1                                          # the cursor goes to the row above
   eq "$(cat "$T_UI/mode")" board
+  t ui --key "$(keyfor rm)" 1 '' > /dev/null
+  eq "$(cat "$T_UI/new")" 3                                          # nothing above: the row below
 }
 
 test_ctrl_x_leaves_the_board_before_the_teardown_ends() {
@@ -2170,7 +2173,7 @@ test_a_conversation_archived_in_front_leaves_the_inbox_at_the_next_poll() {
 test_archiving_in_the_inbox_archives_in_front_and_takes_the_row() {
   conversation
   watched > /dev/null
-  inbox --key "$(keyfor archive)" cnv_x > /dev/null
+  inbox --key "$(keyfor archive)" cnv_x | grep -q '^up+reload('     # the cursor lands on the row above
   grep -A1 '^PATCH /conversations/cnv_x$' "$FAKE/front.calls" | tail -1 | grep -q '"status":"archived"'
   eq "$(inbox --rows)" ""
 }
@@ -2551,7 +2554,7 @@ test_the_roadmap_keeps_the_projects_order_with_what_needs_you_above_a_line() {
   roadmap_ui --pane example/shop#12 > "$tmp/pane"
   grep -q '^status    In progress$' "$tmp/pane"
   grep -q '^  └ ida  ' "$tmp/pane"
-  roadmap_ui --key "$(keyfor drop)" example/shop#13 > /dev/null
+  roadmap_ui --key "$(keyfor drop)" example/shop#13 | grep -q '^up+reload~'   # the cursor lands on the row above
   roadmap_ui --rows > "$tmp/rows"
   not grep -q 'shop#13' "$tmp/rows"                                 # not mine: off the list
   not grep -q 'issue edit\|item-edit' "$FAKE/gh.calls"              # and GitHub is told nothing

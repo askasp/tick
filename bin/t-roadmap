@@ -350,7 +350,7 @@ act() {
       echo "clear-query+reload~CLICOLOR_FORCE=1 t-roadmap --statuses '$2'~+change-prompt~$(number "$2") status> ~+change-footer~$(hint enter "move it there" esc back)~+first" ;;
     drop)
       echo "$2" >> "$cache/not-mine"
-      echo "reload~CLICOLOR_FORCE=1 t-roadmap --rows~+change-footer~$(number "$2") is off your list; GitHub keeps it as it is~" ;;
+      echo "up+reload~CLICOLOR_FORCE=1 t-roadmap --rows~+change-footer~$(number "$2") is off your list; GitHub keeps it as it is~" ;;
   esac
 }
 

@@ -33,14 +33,14 @@ first_step() { local s; s=$(steps "$(cat "$1/pipeline")" "$1" | head -1); echo "
 # the line task $1 is on in the board's list
 row_of() { board -a | awk -v n="$(task_num "$1")" '$1 == n { print NR; exit }'; }
 
-# where the cursor goes when task $1 is deleted: the row below it, else the one above
+# where the cursor goes when task $1 is deleted: the row above it, else the one below
 neighbour() {
   local ids i
   ids=($(board -a | awk '{ print $1 }'))
   for i in "${!ids[@]}"; do
     [ "${ids[i]}" = "$1" ] || continue
-    if [ -n "${ids[i + 1]:-}" ]; then echo "${ids[i + 1]}"
-    elif [ "$i" -gt 0 ]; then echo "${ids[i - 1]}"
+    if [ "$i" -gt 0 ]; then echo "${ids[i - 1]}"
+    elif [ -n "${ids[i + 1]:-}" ]; then echo "${ids[i + 1]}"
     fi
     return
   done
