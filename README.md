@@ -46,7 +46,8 @@ one it is on out of its pipeline's steps: 3/4 is at the third of four, 0/4
 hasn't begun the first, and a done task has them all. The age is how long it
 has been on that step, so a stuck task stands out. Where there is nothing to
 say, a column is blank. A task stacked on another sits under it (└) until that
-one is done. A narrow terminal drops the repo first, then the status, then the
+one is done. A watch that never ends (an inbox, a calendar, a roadmap) stands
+at the top, above the work. A narrow terminal drops the repo first, then the status, then the
 age, never the step. The status says what the task is doing:
 
 - `review  read cart.js`: running, and this is the latest line its step printed
@@ -426,71 +427,6 @@ every morning:
 (crontab -l; echo '0 7 * * * $HOME/git/tick/jobs/front-digest > $HOME/digest.tmp 2> $HOME/digest.log && mv $HOME/digest.tmp $HOME/digest.md') | crontab -
 ```
 
-## Slack: the board on your phone
-
-Two more jobs put the board in a Slack channel and let you answer it from
-there. They are the only part of tick that talks to anything outside your
-machine, and nothing else in tick reads a line they write: `rm jobs/slack*`,
-drop the crontab line, and tick is exactly as it was.
-
-A channel is bound to a repo — and a task you start in a channel stays in it
-whether or not it has one, so a question (`research …`, which sets `REPO=none`)
-is answered where you asked it. Write `~/.config/slack/env` (`chmod 600` it):
-
-```sh
-SLACK_TOKEN=xoxb-…               # chat:write, reactions:write, and channels:history
-                                 # — groups:history for a private channel
-SLACK_CHANNELS="C0AMINO=amino"   # CHANNEL=repo, one pair per repo you want on Slack
-SLACK_ME=U0AKSEL                 # who a held task mentions
-```
-
-```sh
-(crontab -l; echo '* * * * * $HOME/git/tick/jobs/slack-loop >> $HOME/.tick/slack.log 2>&1') | crontab -
-```
-
-`slack-loop` runs `slack-in` and `slack-out` every 10 seconds, so a message is
-answered in about that. It locks itself, and what fails lands in `~/.tick/slack.log`.
-
-From then on the channel holds one short line per task, posted once and edited
-in place — an edit is silent, so four agents work without touching your phone:
-
-```
-10  Backend: Health Connect source + ingest  ·  4/6 held
-```
-
-It says where the task stands, not what its agent is doing this second: a
-pushed message is read minutes later, and that line is stale by then.
-
-The details go into one reply under it, edited the same way: how long it has
-been at it, why it is held, and what it did, so the whole run is where you look
-instead of a reply per tick. Steps that follow
-each other join up (`implement → test → review`), and a loop it went round more
-than once says so (`↺ ×3`) — churn is the thing you want to see, and a line
-each hides it. Only a hold or an answer mentions you, because an edit is silent
-and a mention is not, and both are tick waiting on you. A question's answer
-lands in that thread as itself, not as the news that there is one. `t rm` takes
-the message with the task, so the channel holds what the board holds.
-
-Say `status` and every open task's line is posted again at the bottom, where
-you are already looking, with its details under it; the old line goes. A reply
-under a line goes to that task.
-
-| you do | it runs |
-| --- | --- |
-| type in the channel | `t new -r REPO` there, first line the title and the rest details |
-| open with a pipeline's name | that pipeline (`ask where is the total rounded?`), and `+plan` after it |
-| say `status` | posts each open task's line again at the bottom of the channel |
-| say `help` | what you can type in the channel and in a thread, with examples |
-| start with `t ` | that one command on the task it names (`t show 9`, `t rm 12`) |
-| reply in a task's thread | `t say` to that task |
-| reply starting with `t ` | the same command, on the task you are under (`t log`, `t stack …`) |
-
-Your own message wears the answer: **👀** means tick has it, **✅** means the
-task it started is done. No 👀 yet means the task was busy — `t say` waits for
-a step to end, so it lands on a later tick, and the missing reaction says so
-without a word. 👀 is also the only thing the job remembers, so nothing it has
-already taken can run twice.
-
 ## Mail: an inbox on the board, and replies you sign
 
 Front comes into tick the way everything else does, as tasks and files. Mail
@@ -513,19 +449,30 @@ beside the one you are on.
 
 | key | does |
 | --- | --- |
-| enter | a reply you write: the thread is read, and you type the reply under it, ctrl-d ending it |
-| ^s | an agent drafts a reply: a task on pipeline `reply`, with `+draft` |
-| ^t | a comment you write the same way, for your teammates only: a task on pipeline `comment` |
+| enter | `t thread`: the conversation the width of the screen, and you write under it |
 | ^x | archives the conversation in Front |
 | ^d ^u | scroll the thread half a page, as on the board |
 | ? | every key, in the pane; again, the thread |
 
+`t thread` is one screen for reading, writing and signing, and it opens where
+the thread ends, with the prompt under the last message. There is no editor: a
+line is what you type at the prompt, enter starts the next, and backspace on an
+empty one takes the line above back. A paste keeps its lines.
+
+| key | does |
+| --- | --- |
+| ^d | ends it: a task on pipeline `reply` holds on the board with it, and nothing leaves |
+| ^t | a comment for your teammates instead (pipeline `comment`), or a reply again; your text comes along |
+| ^s | an agent writes it into the prompt, from what you wrote so far (`+draft`) |
+| ^y | signs what you ended: then it leaves |
+| ^e ^x | once ended: write on at its end, or delete it |
+| esc | back to the inbox; what you wrote holds on the board |
+
 A reply is `thread → +draft → sign → send`, and nothing leaves until you sign
 it. The task holds at `sign`, in red (`draft ready`, or `write your reply`), and
-Enter on it, or `t sign N`, opens a draft in `$EDITOR` with the thread under
-it; with no draft yet, it shows the thread and takes what you type under it.
-What you save or type is what leaves. `t say N "shorter" draft` has the agent write
-it again. `DELIVER=` in `pipelines/reply/env` says what leaving is:
+Enter on it opens it in `t thread` again, where it was. Without fzf, `t sign N`
+opens it in `$EDITOR` with the thread under it. `DELIVER=` in
+`pipelines/reply/env` says what leaving is:
 
 - `draft`, the default: a private draft on the conversation in Front, to read
   once more and send from there. Signing again edits the same draft.
@@ -606,6 +553,48 @@ you are on beside them. enter opens it in the browser; ^y accepts, ^t says
 maybe, ^x declines. An answer is the one thing there another person sees, so
 the key is the signature, and the organizer is told at once.
 
+## GitHub: a roadmap on the board
+
+A GitHub project is a queue: its issues are the work, in the order your team
+put them. It comes onto the board as one row, like an inbox, but a roadmap
+mostly sits still, so its row doesn't count what is there. It says only what
+needs you, and nothing on a quiet day. gh needs the project scope once
+(`gh auth refresh -s project`), then:
+
+```sh
+t new -p amino-roadmap "roadmap"      # PROJECT=AminoNordics/1 in pipelines/amino-roadmap/env
+```
+
+Every `POLL` seconds (900) `steps/roadmap` reads the project into
+`~/.tick/roadmap/`, and its log says what moved since the last poll (`#613
+Up-next → QA`, `#840 arrived from carl428`). The row says `1 stalled · 1
+unplanned`:
+
+- **unplanned**: an open issue with no status, or one in the project's repos
+  that isn't on the project at all.
+- **stalled**: In progress, and nothing touched it for `STALL` days (3): not
+  on GitHub, and not a commit in a task made from it.
+
+Enter on the row is `t roadmap`: the open issues in the project's order, with
+what needs you lifted above a line, and the issue you are on beside them. A
+parent shows its sub-issues as a fraction (`4/6`), and enter lists them.
+
+| key | does |
+| --- | --- |
+| enter | its sub-issues, as a list of their own; esc goes back |
+| ^t | asks for your note, then opens `t compose` with the issue's title typed, where you pick the pipeline, the agent (^s) and the repo (^r), and ^o shows the details: the issue, its comments and your note. Enter makes the task, and GitHub hears in the background that the issue is In progress, assigned to you; if it can't be told, the roadmap's row says so |
+| ^n | asks for a title, and enter puts a new issue on the list at once as `#…`, with no status, in the repo of the issue you are on; in a list of sub-issues, a sub-issue of their parent. GitHub makes it in the background, and the list reloads with its number; if GitHub can't, it leaves the list, and the footer and the roadmap's row say why |
+| ^s | the list turns into the project's statuses (the issue's own says `now`), and enter moves it there at once; one off the project is put on it. GitHub hears in the background, and if it can't, the issue moves back |
+| ^x | not mine: off the list, and nothing changes on GitHub |
+| ? | every key in the pane, and what the red words mean; again: the issue |
+
+The task's details are the issue, its comments and your note, and its first
+line (`issue: AminoNordics/amino-monorepo#553`) ties it to the issue: the pull
+request says `Closes` it, and the roadmap counts the task's commits as the
+issue moving. The repo is the one in `repos/` whose git remote is on GitHub.
+Tick sets the status and nothing else, and without a signature, because a
+status describes work already done; priority and effort stay the team's.
+
 ## How it works
 
 | idea | here | Linux equivalent |
@@ -655,8 +644,10 @@ t log [TASK] [-f] [--raw]  every run in order, rendered in one column; -f follow
 t diff [TASK]              the files it changed, with the diff of each beside them
 t say [TASK] "notes"       back to implement, with your notes
 t sign [TASK]              read a reply in $EDITOR, or type it under the thread, and sign it: then it leaves
-t inbox [TASK]             the mail a watch keeps: enter writes a reply, ^s has an agent draft one, ? every key
+t inbox [TASK]             the mail a watch keeps: enter opens the thread to write under it, ? every key
+t thread CONV|TASK         a conversation the width of the screen: type a reply or comment under it, ^d, ^y signs it
 t cal [TASK]               the week a calendar watch keeps: ^y accepts an invite, ^t maybe, ^x declines
+t roadmap [TASK]           the project a roadmap watch keeps: enter lists sub-issues, ^t makes a task with your note, ^n an issue
 t google login NAME        log a Google account in, for its linked mail and calendar
 t front login              the Front API token: what to choose when you make it, then it is checked and kept
 t attach [TASK]            resume the agent's conversation yourself

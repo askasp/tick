@@ -1,0 +1,8 @@
+# amino-roadmap: the AminoNordics GitHub project as one row on the board that never ends. Every POLL seconds it reads the project into
+# ~/.tick/roadmap/, logs what arrived and what moved, and its row says only what needs you: an issue with no status or
+# off the project, and one In progress with nothing on it for STALL days. Start it once: t new -p amino-roadmap "roadmap"
+REPO=none
+ROADMAP=github
+PROJECT=AminoNordics/1
+POLL=900
+STALL=3

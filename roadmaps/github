@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# roadmaps/github VERB … — the one file that knows GitHub Projects. It asks through gh, which needs the project scope.
+#   items OWNER/NUMBER        the project's issues in its own order, then the open issues of its repos that aren't on it:
+#                             a JSON line each (key, item, repo, number, title, state, status, onboard, parent, done,
+#                             total, author, assignees, labels, created, updated, url, body, comments)
+#   statuses OWNER/NUMBER     the project's statuses, in its order, one a line
+#   move OWNER/NUMBER KEY ITEM STATUS
+#                             issue KEY (owner/repo#number) to STATUS; one that isn't on the project (ITEM "") is put on it first
+#   start OWNER/NUMBER KEY ITEM
+#                             move to In progress, and assigned to you
+#   create OWNER/NUMBER REPO TITLE [PARENT]
+#                             a new issue in REPO, on the project with no status, and a sub-issue of PARENT if one is named:
+#                             its key and its item on the project: owner/repo#number PVTI_…
+# A roadmap is to a project board what a source is to mail: another one is an executable here with the same verbs.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+command -v gh > /dev/null || die "a GitHub roadmap needs gh (sudo apt install gh), with the project scope: gh auth refresh -s project"
+
+issue='number title state url body createdAt updatedAt author { login } repository { nameWithOwner }
+  assignees(first: 10) { nodes { login } } labels(first: 10) { nodes { name } }
+  subIssuesSummary { total completed } parent { number repository { nameWithOwner } }
+  comments(last: 30) { nodes { author { login } createdAt body } }'
+
+line='def line($item; $status; $onboard): {
+  key: "\(.repository.nameWithOwner)#\(.number)", item: $item, repo: .repository.nameWithOwner, number, title, state,
+  status: $status, onboard: $onboard,
+  parent: (if .parent then "\(.parent.repository.nameWithOwner)#\(.parent.number)" else null end),
+  done: (.subIssuesSummary.completed // 0), total: (.subIssuesSummary.total // 0), author: (.author.login // "ghost"),
+  assignees: [.assignees.nodes[].login], labels: [.labels.nodes[].name],
+  created: (.createdAt | fromdate), updated: (.updatedAt | fromdate), url, body: (.body // ""),
+  comments: [.comments.nodes[] | {by: (.author.login // "ghost"), at: (.createdAt | fromdate), body}]};'
+
+items() {
+  local project=${1:?usage: roadmaps/github items OWNER/NUMBER} on repo
+  on=$(gh api graphql --paginate -F owner="${project%/*}" -F number="${project#*/}" -f query="
+    query(\$owner: String!, \$number: Int!, \$endCursor: String) {
+      repositoryOwner(login: \$owner) { ... on ProjectV2Owner { projectV2(number: \$number) {
+        items(first: 50, after: \$endCursor, orderBy: {field: POSITION, direction: ASC}) {
+          pageInfo { hasNextPage endCursor }
+          nodes { id isArchived
+            fieldValueByName(name: \"Status\") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+            content { ... on Issue { $issue } } } } } } } }" |
+    jq -c "$line"' .data.repositoryOwner.projectV2.items.nodes[]
+      | select((.isArchived | not) and .content.number != null)
+      | .id as $item | .fieldValueByName.name as $status | .content | line($item; $status; true)')
+  [ -n "$on" ] || die "project $project has no issues, or gh can't see it; check the number, or: gh auth refresh -s project"
+  echo "$on"
+  for repo in $(jq -r .repo <<< "$on" | sort -u); do
+    gh api graphql --paginate -F q="repo:$repo is:issue is:open -project:$project" -f query="
+      query(\$q: String!, \$endCursor: String) { search(query: \$q, type: ISSUE, first: 50, after: \$endCursor) {
+        pageInfo { hasNextPage endCursor } nodes { ... on Issue { $issue } } } }" |
+      jq -c "$line"' .data.search.nodes[] | line(null; null; false)'
+  done
+}
+
+statuses() {
+  local project=${1:?usage: roadmaps/github statuses OWNER/NUMBER}
+  gh project field-list "${project#*/}" --owner "${project%/*}" --format json | jq -r '.fields[] | select(.name == "Status") | .options[].name'
+}
+
+move() {
+  local usage="usage: roadmaps/github move OWNER/NUMBER KEY ITEM STATUS"
+  local project=${1:?$usage} key=${2:?$usage} item=${3:-} status=${4:?$usage} owner=${1%/*} number=${1#*/} id field option
+  if [ -z "$item" ]; then
+    item=$(gh project item-add "$number" --owner "$owner" --url "https://github.com/${key%#*}/issues/${key##*#}" --format json --jq .id)
+  fi
+  id=$(gh project view "$number" --owner "$owner" --format json --jq .id)
+  read -r field option <<< "$(gh project field-list "$number" --owner "$owner" --format json | jq -r --arg status "$status" '
+    .fields[] | select(.name == "Status") | [.id, (.options[] | select(.name == $status) | .id)] | join(" ")')"
+  [ -n "${option:-}" ] || die "project $project has no Status called $status to move $key to"
+  gh project item-edit --id "$item" --project-id "$id" --field-id "$field" --single-select-option-id "$option" > /dev/null
+}
+
+start() {
+  move "$1" "${2:?usage: roadmaps/github start OWNER/NUMBER KEY ITEM}" "${3:-}" "In progress"
+  gh issue edit "${2##*#}" -R "${2%#*}" --add-assignee @me > /dev/null
+}
+
+create() {
+  local usage="usage: roadmaps/github create OWNER/NUMBER REPO TITLE [PARENT]"
+  local project=${1:?$usage} repo=${2:?$usage} title=${3:?$usage} parent=${4:-} url item
+  url=$(gh issue create -R "$repo" --title "$title" --body "")
+  item=$(gh project item-add "${project#*/}" --owner "${project%/*}" --url "$url" --format json --jq .id)
+  if [ -n "$parent" ]; then
+    gh api graphql -f parent="$(gh issue view "${parent##*#}" -R "${parent%#*}" --json id --jq .id)" -f url="$url" \
+      -f query='mutation($parent: ID!, $url: String!) { addSubIssue(input: {issueId: $parent, subIssueUrl: $url}) { issue { id } } }' > /dev/null
+  fi
+  echo "$repo#${url##*/} $item"
+}
+
+case ${1:-} in
+  items | statuses | move | start | create) verb=$1; shift; "$verb" "$@" ;;
+  *) die "usage: roadmaps/github items OWNER/NUMBER | statuses OWNER/NUMBER | move OWNER/NUMBER KEY ITEM STATUS | start OWNER/NUMBER KEY ITEM | create OWNER/NUMBER REPO TITLE [PARENT]" ;;
+esac

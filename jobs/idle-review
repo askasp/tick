@@ -52,7 +52,7 @@ pairs() {
 read -r _ _ _ task mindset head count < <(pairs) || exit 0
 [ -n "${task:-}" ] || exit 0
 n=$(task_num "$task")
-if [ -s "$task/pr" ] && ! (cd -P "$task/work" && grep -qx OPEN < <(gh pr view --json state --jq .state 2> /dev/null)); then
+if [ -s "$task/pr" ] && ! (cd -P "$task/work" && gh pr view --json state --jq .state 2> /dev/null | matched -x OPEN); then
   echo "task $n: its pull request is closed; leaving it alone" >&2
   count=$IDLE_PASSES                              # marked read, so the task falls out of the sweep
   review=

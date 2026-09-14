@@ -110,7 +110,7 @@ if [ "${1:-}" = --pane ]; then
       if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ]; then
         show=${2:-$pick} typed=$(cat "$T_UI/title" 2> /dev/null)    # the pipeline under the cursor
       else show=$pick typed=$q; fi
-      echo "$(strip "$show" $(pipelines "$(cat "$T_UI/def")"))  ${C_FAINT}$(key pipeline):pipelines$C_OFF"
+      echo "$C_BRIGHT$show$C_OFF  ${C_FAINT}$(key pipeline):pipelines$C_OFF"
       echo
       CLICOLOR_FORCE=1 exec t-compose --dry "$show" "$typed" ;;
     say)
@@ -186,12 +186,14 @@ if [ "${1:-}" = --key ]; then
   }
   back() {   # to the board: its prompt, search and list, and the keys of task $1 (the cursor goes there on load)
     echo board > "$T_UI/mode"
-    echo "change-prompt(task> )+enable-search+change-query()+change-preview-window(~2)+reload-sync~t-ui --rows~+refresh-preview+change-footer~$(footer "${1-$id}")~"
+    echo "change-prompt(task> )+enable-search+change-query()+change-preview-window(~2)+reload-sync~t-ui --rows~+refresh-preview+change-footer~$(footer "${1-$id}")~+rebind($(key_of keys))"
   }
   form() {   # the prompt takes words: mode $1 on $2, prompt $3, tab starting at $4, pane $5, keys $6, text $7
+    local typed=
+    if [ "$1" != do ]; then typed="+unbind($(key_of keys))"; fi   # ? is text there, and a paste of it runs nothing
     echo "$1 $2" > "$T_UI/mode"
     echo "$4" > "$T_UI/pick"
-    echo "change-prompt($3)+disable-search+change-query~${7:-}~+change-preview-window($5)+refresh-preview+change-footer~$6~"
+    echo "change-prompt($3)+disable-search+change-query~${7:-}~+change-preview-window($5)+refresh-preview+change-footer~$6~$typed"
   }
   follow_if_log() { case $1 in log | raw) echo follow ;; *) echo nofollow ;; esac; }
   show() { echo "$1" > "$T_UI/pane"; echo "change-preview-window($(follow_if_log "$1"))+refresh-preview"; }
@@ -274,7 +276,9 @@ if [ "${1:-}" = --key ]; then
       rm)     cursor=$(neighbour "$id")        # no asking: the branch stays, and a task stacked on it stops it
               force=
               if [ "$(state "$task")" = running ]; then force=-f; fi
-              t-rm $force "$id" 2> "$T_UI/err" || failed
+              setsid -w t-rm $force "$id" < /dev/null > /dev/null 2> "$T_UI/err" &
+              while [ -f "$task/step" ] && kill -0 $! 2> /dev/null; do sleep 0.05; done   # gone from the board, or refused
+              if [ -f "$task/step" ]; then failed; fi
               if [ -n "$cursor" ]; then echo "$cursor" > "$T_UI/new"; fi
               back "$cursor" ;;
       say)    say_form "$id" ;;
@@ -284,7 +288,8 @@ if [ "${1:-}" = --key ]; then
       agent)  echo "refresh-preview+change-footer~$(t-agent "$id" 2>&1 | sed 's/^t: //')   $(key agent):another~" ;;
       inbox)  echo "execute(t-inbox $id)+reload-sync~t-ui --rows~+refresh-preview" ;;   # its own screen, like diff
       cal)    echo "execute(t-cal $id)+reload-sync~t-ui --rows~+refresh-preview" ;;
-      sign)   echo "execute~t-sign $id || read -rp 'Enter: back to the board ' _~+reload-sync~t-ui --rows~+refresh-preview" ;;
+      roadmap) echo "execute(t-roadmap $id)+reload-sync~t-ui --rows~+refresh-preview" ;;
+      sign)   echo "execute(t-thread $id)+reload-sync~t-ui --rows~+refresh-preview" ;;
     esac
   }
   submit() {   # what the prompt's words were for, sent with enter or (new, stack) with details
@@ -369,7 +374,11 @@ if [ "${1:-}" = --key ]; then
             else echo tasks > "$T_UI/list"; back; fi ;;
     ctrl-u) echo unix-line-discard ;;   # in a prompt, ^u clears what you typed
     enter)  if [ "$(cat "$T_UI/list" 2> /dev/null)" = pipelines ]; then pipeline_done "$id"
-            else submit enter; fi ;;
+            else printf '%s ' "$q" > "$T_UI/entered"; after_paste 't-ui --key entered - "$FZF_QUERY"'; fi ;;
+    entered) if [ "$q" = "$(cat "$T_UI/entered" 2> /dev/null)" ]; then   # no paste went on after enter
+               q=${q% } did=$(submit enter)
+               echo "backward-delete-char${did:++$did}"
+             fi ;;
     *)      case $(named "$FORM_KEYS" "$BOARD_KEYS" "$ACTIONS") in
               details) if [ "$(cat "$T_UI/list" 2> /dev/null)" != pipelines ]; then submit details; fi ;;
               agent)   [[ $mode == new || $mode == stack || $mode == say ]] || exit 0   # the pipeline's, or another

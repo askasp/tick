@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# t inbox [TASK] — the mail a watch keeps, newest first, its thread beside it: enter writes a reply, ^s has an agent draft one, ? every key
+# t inbox [TASK] — the mail a watch keeps, newest first, its thread beside it: enter opens the thread to write under it, ? every key
 #
 # The watch is a task on a pipeline like front-inbox (t new -p front-inbox "front inbox"), and Enter on its row opens this.
-# A reply (pipeline reply) and a comment (pipeline comment) are tasks that hold on the board until you sign them: nothing
-# another person sees leaves before that. The list is what the watch last read, and ^x archives where the mail lives.
-# fzf runs t-inbox for what changes: --rows, --pane ID, --keys, --key KEY ID (what KEY does to it), --write PIPELINE ID
+# Enter here is t thread: the conversation the width of the screen, with a reply or a comment typed under it, which holds
+# on the board until you sign it. The list is what the watch last read, and ^x archives where the mail lives.
+# fzf runs t-inbox for what changes: --rows, --pane ID, --keys, --key KEY ID (what KEY does to it)
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 shopt -s nullglob
@@ -21,14 +21,6 @@ mail=$T_VAR/mail/$T_INBOX
 terminal_colors
 
 subject_of() { jq -r '.subject // "(no subject)"' "$mail/$1/conv.json"; }
-
-# the reply task on conversation $1, if there is one; comments on it may be many
-replying() {
-  local found
-  for found in $(grep -lx "conversation: $T_INBOX $1" /dev/null "$T_TASKS"/*/task.md || true); do
-    if [ "$(cat "${found%/task.md}/pipeline")" = reply ]; then echo "${found%/task.md}"; return; fi
-  done
-}
 
 # why a conversation is on the list, in a word: mention (a teammate's comment names you), assigned, replied, unread
 reason() {
@@ -48,7 +40,7 @@ rows() {
     | [.id, (.updated_at | strflocaltime(if . >= $midnight then "%H:%M" else "%d %b" end)), .from, .subject // "(no subject)", .why // ""]
     | join("\u001f")' |
     while IFS=$'\x1f' read -r id when from subject why; do
-      task=$(replying "$id") word=$(reason "$why") color=$C_DIM
+      task=$(reply_to "$T_INBOX" "$id") word=$(reason "$why") color=$C_DIM
       if [ "$word" = mention ]; then color=$C_RED; fi       # the one tag that reaches you nowhere else
       if [ "${#from}" -gt 24 ]; then from=${from:0:23}…; fi
       if [ "${#subject}" -gt 44 ]; then subject=${subject:0:43}…; fi
@@ -67,7 +59,7 @@ pane() {
   echo "$C_BRIGHT$(subject_of "$1")$C_OFF"
   echo "$C_DIM$(jq -r '"\(.from) · \(.why)"' "$mail/$1/conv.json") · $(count "$messages" message), $(count "$comments" comment)$C_OFF"
   if [ -s "$mail/$1/gist" ]; then echo; cat "$mail/$1/gist"; fi
-  task=$(replying "$1")
+  task=$(reply_to "$T_INBOX" "$1")
   if [ -n "$task" ]; then echo; echo "${C_DIM}task $(task_num "$task")$C_OFF  $(standing "$task")"; fi
   echo
   thread_view "$mail/$1/thread.md"
@@ -87,21 +79,10 @@ keys() {
 
 # what key $1 does to conversation $2, as fzf actions
 act() {
-  local task id out
-  task=$(replying "$2")
+  local out
   case $(awk -v k="$1" '$2 == k { print $1; exit }' <<< "$INBOX_KEYS") in
-    comment)
-      echo "execute(t-inbox --write comment $2)+reload(CLICOLOR_FORCE=1 t-inbox --rows)" ;;
-    draft | write)
-      if [ -n "$task" ]; then
-        echo "change-footer~task $(task_num "$task") already replies to this one; it is on the board~"
-      elif [ "$1" = "$(key_of write)" ]; then
-        echo "execute(t-inbox --write reply $2)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
-      elif id=$(t-new -p reply +draft "Re: $(subject_of "$2")" - <<< "conversation: $T_INBOX $2" 2> "$mail/err"); then
-        echo "reload(CLICOLOR_FORCE=1 t-inbox --rows)+change-footer~task $(task_num "$id") drafts a reply, and holds on the board for you to sign it~"
-      else
-        echo "change-footer~$C_RED$(head -1 "$mail/err")$C_OFF~"
-      fi ;;
+    open)
+      echo "execute(t-thread $2)+reload(CLICOLOR_FORCE=1 t-inbox --rows)" ;;
     archive)
       if out=$("$T_ROOT/sources/$T_INBOX" archive "$2" 2>&1); then
         rm -rf "${mail:?}/$2"
@@ -118,21 +99,11 @@ act() {
   esac
 }
 
-# PIPELINE ID: a reply or a comment you write, its thread read now, then typed under it, where you sign it
-write() {
-  local id
-  id=$(t-new -p "$1" "Re: $(subject_of "$2")" - <<< "conversation: $T_INBOX $2") || return 0
-  t-run "$id" > /dev/null 2>&1 || true
-  flock -w 60 "$(tdir "$id")/lock" true               # a tick may have started it first
-  t-sign "$id" || read -rp "(Enter: back to the inbox) " _ < /dev/tty
-}
-
 case ${1:-} in
   --rows)  rows; exit ;;
   --pane)  pane "$2"; exit ;;
   --keys)  keys; exit ;;
   --key)   act "$2" "$3"; exit ;;
-  --write) write "$2" "$3"; exit ;;
 esac
 
 command -v fzf > /dev/null || die "the inbox needs fzf (sudo apt install fzf); what the watch keeps is in $mail"
@@ -141,6 +112,6 @@ while read -r _ key _; do
   binds+=(--bind "$key:transform:t-inbox --key '$key' {1}")
 done <<< "$INBOX_KEYS"
 CLICOLOR_FORCE=1 t-inbox --rows | fzf "${BOARD_FZF[@]}" --delimiter $'\t' --with-nth 2.. --prompt "$T_INBOX> " --info inline-right \
-  --footer "$(hint enter write "$(key draft)" "agent draft" "$(key comment)" comment "$(key archive)" archive "$(key keys)" keys esc back)" \
+  --footer "$(hint enter open "$(key archive)" archive "$(key keys)" keys esc back)" \
   --preview 'CLICOLOR_FORCE=1 t-inbox --pane {1}' --preview-window 'right,50%,wrap,border-left,<60(down,60%,border-top)' \
   "${PANE_SCROLL[@]}" "${binds[@]}" || true

@@ -60,8 +60,9 @@ how to change it.
 | a Google account | `~/.config/google/NAME/env` (its OAuth client), then `ln -s gmail sources/NAME` for its mail and `ln -s gcal calendars/NAME` for its calendar, and `t google login NAME`. The script knows its account by the name it runs as | no |
 | an inbox on the board | a pipeline whose one step is `steps/watch`, with `SOURCE=` and `POLL=` in its env; start it once with `t new -p NAME` | no |
 | a calendar on the board | a pipeline whose one step is `steps/agenda`, with `CALENDAR=` in its env | no |
+| a roadmap on the board | a pipeline whose one step is `steps/roadmap`, with `ROADMAP=` (a file in `roadmaps/`, with the verbs of `roadmaps/github`: `items`, `start`), `PROJECT=` and `POLL=` in its env | no |
 | a command | `bin/t-NAME`. Line 2 is its help line (`# t NAME ARGS — what`) | no |
-| a key on the board | a line in `lib/board.sh`: `ACTIONS` for what it does to a task, else `BOARD_KEYS`, `FORM_KEYS`, or a screen's own (`INBOX_KEYS`, `CAL_KEYS`). `t ui` binds it from there, and screens name it with `key NAME` | no |
+| a key on the board | a line in `lib/board.sh`: `ACTIONS` for what it does to a task, else `BOARD_KEYS`, `FORM_KEYS`, or a screen's own (`INBOX_KEYS`, `THREAD_KEYS`, `CAL_KEYS`, `ROADMAP_KEYS`). `t ui` binds it from there, and screens name it with `key NAME` | no |
 | the board's look | `lib/board.sh`: the `C_` greys and red, `T_FZF_COLORS`, and `BOARD_FZF`, which every fzf screen and `t doctor` use | no |
 | a setting | `etc/tick.conf`, as `: "${NAME:=default}"` | no |
 | a cron job that isn't a task | a pipe script in `jobs/`, plus a crontab line | no |

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t compose [t new's flags] — start a task on one screen: type the title, pick the pipeline, and see the task
+# t compose [--title TITLE] [t new's flags] — start a task on one screen: type the title, pick the pipeline, and see the task
 # it will make (t new --dry) while you can still change it; the keys at the bottom add details in $EDITOR,
 # pick the repo and the agent. Flags typed with the title work too: "Add proration -r amino".
 # Plain `t new` in a terminal with fzf opens this; on the board, a new task does the same in place.
@@ -11,11 +11,21 @@ if [ "${1:-}" = --dry ]; then           # the preview: pipeline $2, what you typ
   repo=$(cat "$T_NEW/repo") cli=$(cat "$T_NEW/cli" 2> /dev/null)
   exec t-new --dry -p "$2" ${repo:+-r "$repo"} ${cli:+--cli "$cli"} "${extra[@]}" "${flags[@]}" "$title"
 fi
+if [ "${1:-}" = --enter ]; then         # enter, unless it is a newline in a paste (after_paste): $2 is what you typed
+  printf '%s ' "$2" > "$T_NEW/entered"
+  after_paste 't-compose --entered "$FZF_QUERY"'
+  exit
+fi
+if [ "${1:-}" = --entered ]; then
+  if [ "$2" = "$(cat "$T_NEW/entered")" ]; then echo backward-delete-char+accept; fi
+  exit
+fi
 command -v fzf > /dev/null || die "t compose needs fzf (sudo apt install fzf); without it: t new \"what to do\""
 
-repo= pick= on= from= extra=()
+repo= pick= on= from= typed= extra=()
 while [ $# -gt 0 ]; do
   case $1 in
+    --title) typed=$2; shift ;;          # typed for you, as a screen that makes a task of something (t roadmap) knows it
     -r) repo=$2; shift ;;
     -p) pick=$2; shift ;;
     --on) on=$2; extra+=("$1" "$2"); shift ;;
@@ -53,9 +63,9 @@ done)
 pos=$(grep -n "^$pick " <<< "$rows" | cut -d: -f1)
 
 details=$(key_of details)
-out=$(printf '%s\n' "$rows" | fzf "${BOARD_FZF[@]}" --disabled --sync --prompt "$prompt" --info hidden \
+out=$(printf '%s\n' "$rows" | fzf "${BOARD_FZF[@]}" --disabled --sync --prompt "$prompt" --query "$typed" --info hidden \
   --footer "$(hint enter create "$(key details)" details "$(key repo)" repo "$(key agent)" agent esc cancel)" \
-  --print-query --expect "$details" --bind "start:pos(${pos:-1})" --preview 'CLICOLOR_FORCE=1 t-compose --dry {1} {q} 2>&1' \
+  --print-query --expect "$details" --bind "start:pos(${pos:-1})" --bind 'enter:transform:t-compose --enter {q}' --preview 'CLICOLOR_FORCE=1 t-compose --dry {1} {q} 2>&1' \
   --preview-window 'right,50%,border-left,wrap,<50(down,50%,border-top)' \
   --bind "$(key_of agent)"':execute-silent[. "$T_ROOT/lib/tick.sh"; next_cli "$(cat "$T_NEW/cli")" > "$T_NEW/c" && mv "$T_NEW/c" "$T_NEW/cli"]+refresh-preview' \
   --bind "$(key_of repo)"':execute(t-complete repos | fzf --prompt "repo> " --height 40% --reverse --delimiter : --nth 1 | cut -d: -f1 > "$T_NEW/r" && mv "$T_NEW/r" "$T_NEW/repo")+refresh-preview') || exit 0

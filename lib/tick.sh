@@ -11,6 +11,10 @@ export T_ROOT T_VAR T_TASKS PATH
 
 die() { echo "t: $*" >&2; exit 1; }
 
+# grep -q stops reading at the first match; under pipefail the writer's SIGPIPE then fails the
+# pipe though the line matched. Read to the end instead.
+matched() { grep "$@" > /dev/null; }
+
 # a task's number from its directory or id: .../tasks/0007 → 7
 task_num() { echo $((10#${1##*/})); }
 
@@ -185,7 +189,7 @@ task_dir() {
 
   matches=$(board -a | while IFS= read -r row; do     # the board shows names, so match the titles too
     read -r id _ <<< "$row"
-    if grep -qiF -- "$arg" < <(echo "$row"; title "$(tdir "$id")"); then echo "$row"; fi
+    if { echo "$row"; title "$(tdir "$id")"; } | matched -qiF -- "$arg"; then echo "$row"; fi
   done)
   [ -n "$matches" ] || die "${arg:+no task matches '$arg'}${arg:-there are no tasks yet; start one: t new}"
   choice=$matches
