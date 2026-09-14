@@ -531,6 +531,50 @@ or Slack's DMs, is a file beside it with the same verbs (`poll`, `thread`,
 `draft`, `send`, `archive`, `sent`), a pipeline like `front` with its own
 `SOURCE=`, and a word in `CORPUS_SOURCES`.
 
+## Google: mail and calendars, one account or many
+
+A Google account is a name, and what it has is a link under that name:
+`sources/NAME → gmail` for its mail, `calendars/NAME → gcal` for its calendar,
+or both. Each account keeps its login in `~/.config/google/NAME/`, so a second
+Workspace is a second name, and it shares nothing with the first, or with Front.
+
+1. In the account's Google Cloud console, turn on the Gmail and Calendar APIs
+   and make an OAuth client of type *Desktop app*. In a Workspace, make the
+   consent screen *Internal*: an *External* app still in testing loses its
+   login every 7 days.
+2. Write the client's id and secret, and link what the account has:
+
+   ```sh
+   mkdir -p ~/.config/google/work
+   printf 'GOOGLE_CLIENT_ID=…\nGOOGLE_CLIENT_SECRET=…\n' > ~/.config/google/work/env
+   chmod 600 ~/.config/google/work/env
+   ln -s gmail ~/git/tick/sources/work
+   ln -s gcal ~/git/tick/calendars/work
+   ```
+
+3. `t google login work` opens Google's consent page and keeps the refresh
+   token. It asks only for what the links need: `gmail.modify` for mail,
+   `calendar.events` for a calendar.
+4. Put it on the board, a pipeline for each:
+
+   ```sh
+   cd ~/git/tick/pipelines
+   mkdir work-mail work-cal
+   ln -s ../../steps/watch work-mail/10-watch && printf 'REPO=none\nSOURCE=work\n' > work-mail/env
+   ln -s ../../steps/agenda work-cal/10-agenda && printf 'REPO=none\nCALENDAR=work\n' > work-cal/env
+   t new -p work-mail "work inbox"
+   t new -p work-cal "work calendar"
+   ```
+
+The mail is a source like Front: its inbox, the replies you sign, `DELIVER=`,
+and the corpus (`CORPUS_SOURCES="front work"`) all work the same way.
+
+The calendar's row says the day (`2 left today · next 13:00 Standup · 1 to
+answer`), and Enter on it is `t cal`: the next 7 days (`DAYS=`), with the event
+you are on beside them. enter opens it in the browser; ^y accepts, ^t says
+maybe, ^x declines. An answer is the one thing there another person sees, so
+the key is the signature, and the organizer is told at once.
+
 ## How it works
 
 | idea | here | Linux equivalent |
@@ -581,6 +625,8 @@ t diff [TASK]              the files it changed, with the diff of each beside th
 t say [TASK] "notes"       back to implement, with your notes
 t sign [TASK]              read a reply in $EDITOR and sign it: then it leaves
 t inbox [TASK]             the mail a watch keeps: enter drafts a reply, ^o you write one, ^x archives
+t cal [TASK]               the week a calendar watch keeps: ^y accepts an invite, ^t maybe, ^x declines
+t google login NAME        log a Google account in, for its linked mail and calendar
 t attach [TASK]            resume the agent's conversation yourself
 t run [TASK]               run it now, in this terminal
 t hold [-f] [TASK] [why]   pause it after the running step; -f cancels that step now, agent and all
@@ -639,5 +685,7 @@ the crontab line and `rm -r ~/.tick/tasks/*/idle`, and tick is exactly as it was
 - `jobs/front-digest` and `sources/front` are tested only against a fake
   `curl`, whose answers follow Front's API docs rather than recorded
   responses: drafting, sending and archiving have not met the real Front yet.
+- So are `sources/gmail`, `calendars/gcal` and `t google login`, against a
+  fake `curl` and `nc` shaped by Google's API docs.
 - A stack merges, and doesn't rebase: the `sync` step brings the task below
   into the branch as a merge commit, so a stacked PR shows that merge.

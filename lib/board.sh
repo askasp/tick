@@ -245,7 +245,8 @@ rm      ctrl-x  delete it and its worktree
 path    -       print its worktree
 agent   ctrl-s  who solves every step from its next run: another agent, or the pipeline again
 sign    -       read the reply, change it, and sign it: then it leaves
-inbox   -       the mail it watches: read a conversation, reply to it, archive it'
+inbox   -       the mail it watches: read a conversation, reply to it, archive it
+cal     -       the calendar it watches: the week ahead, and invites to answer'
 
 # the board's keys besides the actions', and a form's (new, stack and say on the board, and t compose).
 # Every key is here once: t ui binds it from here, and what the screens say about it comes from here.
@@ -257,9 +258,14 @@ repo     ctrl-r  another repo'
 INBOX_KEYS='draft    enter   an agent drafts a reply, for you to read and sign
 write    ctrl-o  a reply you write, in $EDITOR
 archive  ctrl-x  archive it, where the mail lives'
+# t cal's: answering is the signature, so each answer is a key of its own
+CAL_KEYS='open     enter   open it in the browser
+accept   ctrl-y  accept the invite; the organizer is told
+maybe    ctrl-t  answer maybe
+decline  ctrl-x  decline it'
 
 # the key for $1 as fzf binds it (key_of agent → ctrl-s), and as the screens write it (key agent → ^s)
-key_of() { printf '%s\n' "$ACTIONS" "$BOARD_KEYS" "$FORM_KEYS" "$INBOX_KEYS" | awk -v n="$1" '$1 == n { print $2; exit }'; }
+key_of() { printf '%s\n' "$ACTIONS" "$BOARD_KEYS" "$FORM_KEYS" "$INBOX_KEYS" "$CAL_KEYS" | awk -v n="$1" '$1 == n { print $2; exit }'; }
 key() { keyname "$(key_of "$1")"; }
 
 # how t ui writes a key: ctrl-l as ^l, and a key an action hasn't (-) as nothing
@@ -278,6 +284,7 @@ offers() {
   case $(state "$1") in
     running) echo log diff cancel hold rm ;;
     ready)   if [ -f "$1/inbox" ]; then echo inbox log
+             elif [ -f "$1/calendar" ]; then echo cal log
              elif [ -s "$1/log/$(cat "$1/step").log" ]; then echo log run hold
              else echo run hold rm; fi ;;
     after*)  echo log rm ;;

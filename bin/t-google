@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# t google login NAME — log a Google account in, once, for what is linked under its name: sources/NAME (mail), calendars/NAME
+#
+# ~/.config/google/NAME/env holds the OAuth client to log in with (GOOGLE_CLIENT_ID=, GOOGLE_CLIENT_SECRET=): a Desktop
+# app in Google Cloud. Google asks you in the browser, sends the answer to a one-time listener on 127.0.0.1, and the
+# refresh token lands beside the env. It may do what the links need: gmail.modify for mail, calendar.events for a calendar.
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+. "$T_ROOT/lib/google.sh"
+set -euo pipefail
+[ "${1:-}" = login ] && [ -n "${2:-}" ] || die "usage: t google login NAME"
+account=$2 scopes=
+if [ -L "$T_ROOT/sources/$account" ]; then scopes+=" https://www.googleapis.com/auth/gmail.modify"; fi
+if [ -L "$T_ROOT/calendars/$account" ]; then scopes+=" https://www.googleapis.com/auth/calendar.events"; fi
+[ -n "$scopes" ] || die "$account has no mail or calendar to log in for; link one first: ln -s gmail $T_ROOT/sources/$account, or: ln -s gcal $T_ROOT/calendars/$account"
+google_client "$account"
+
+port=$((20000 + RANDOM % 20000))
+redirect=http://127.0.0.1:$port
+url="https://accounts.google.com/o/oauth2/v2/auth?client_id=$(uri "$GOOGLE_CLIENT_ID")&redirect_uri=$(uri "$redirect")"
+url+="&response_type=code&access_type=offline&prompt=consent&scope=$(uri "${scopes# }")"
+echo "t: log $account in, in your browser: $url" >&2
+if [ -t 1 ]; then xdg-open "$url" > /dev/null 2>&1 || true; fi
+
+request=$(printf 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\ntick has the login for %s; close this tab.\r\n' "$account" |
+  nc -l -N 127.0.0.1 "$port" | head -1)
+code=$(sed -n 's/^GET [^ ]*[?&]code=\([^& ]*\).*/\1/p' <<< "$request")
+[ -n "$code" ] || die "Google sent no login back (${request:-nothing}); try again: t google login $account"
+
+refresh=$(printf 'code=%s&client_id=%s&client_secret=%s&redirect_uri=%s&grant_type=authorization_code' \
+    "$code" "$(uri "$GOOGLE_CLIENT_ID")" "$(uri "$GOOGLE_CLIENT_SECRET")" "$(uri "$redirect")" |
+  curl -sfS --data-binary @- https://oauth2.googleapis.com/token | jq -r '.refresh_token // empty') || true
+[ -n "$refresh" ] || die "Google gave no refresh token for $account; try again: t google login $account"
+
+dir=$(google_dir "$account")
+(umask 077 && printf '%s\n' "$refresh" > "$dir/refresh_token.tmp")
+mv "$dir/refresh_token.tmp" "$dir/refresh_token"
+echo "t: $account is logged in for:${scopes//https:\/\/www.googleapis.com\/auth\//}" >&2

@@ -35,7 +35,7 @@ rows() {
   cat /dev/null "$mail"/*/conv.json | jq -rs --argjson midnight "$(date -d 00:00 +%s)" '
     sort_by(-.updated_at)[]
     | [.id, (.updated_at | strflocaltime(if . >= $midnight then "%H:%M" else "%d %b" end)), .from, .subject // "(no subject)"]
-    | join("")' |
+    | join("\u001f")' |
     while IFS=$'\x1f' read -r id when from subject; do
       task=$(replying "$id")
       if [ "${#from}" -gt 24 ]; then from=${from:0:23}…; fi

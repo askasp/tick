@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# calendars/gcal VERB … — the calendar of one Google account. Link it under the account's name (ln -s gcal calendars/work)
+# and it is that account's (~/.config/google/work/, t google login work); CALENDAR_ID= in its env picks one but primary.
+#   agenda FROM TO     the events from FROM to TO (epoch seconds), in order, a JSON line each: id, summary, start and end
+#                      (epoch seconds), all_day, answer (yours: needsAction, accepted, declined, tentative, or organizer),
+#                      organizer, where, link, meet, attendees ("Anna Ø: accepted" each), notes
+#   answer ID ANSWER   your answer to event ID, accepted, declined or tentative; the organizer is told
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+. "$T_ROOT/lib/google.sh"
+set -euo pipefail
+account=${0##*/}
+[ "$account" != gcal ] || die "calendars/gcal is one account's calendar, linked under its name: ln -s gcal $T_ROOT/calendars/NAME, then: t google login NAME"
+google_account "$account"
+api=https://www.googleapis.com/calendar/v3/calendars/$(uri "${CALENDAR_ID:-primary}")/events
+
+rfc3339() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
+
+agenda() {
+  local from=${1:?usage: calendars/$account agenda FROM TO} to=${2:?usage: calendars/$account agenda FROM TO} page token=
+  while :; do
+    page=$(google GET "$api?singleEvents=true&orderBy=startTime&maxResults=250&timeMin=$(rfc3339 "$from")&timeMax=$(rfc3339 "$to")${token:+&pageToken=$token}")
+    jq -c '
+      def offset: if test("[+-][0-9]{2}:[0-9]{2}$")
+                  then ((.[-5:-3] | tonumber) * 3600 + (.[-2:] | tonumber) * 60) * (if .[-6:-5] == "-" then -1 else 1 end)
+                  else 0 end;
+      def epoch: if .dateTime then (.dateTime[0:19] + "Z" | fromdateiso8601) - (.dateTime | offset)
+                 else (.date + "T00:00:00Z" | fromdateiso8601) - ((now | floor | localtime | mktime) - (now | floor)) end;
+      .items[]? | select(.status != "cancelled")
+      | {id, summary: (.summary // "(no title)"), start: (.start | epoch), end: (.end | epoch), all_day: (.start.date != null),
+         answer: (if .organizer.self then "organizer" else [.attendees[]? | select(.self) | .responseStatus][0] // "accepted" end),
+         organizer: (.organizer.displayName // .organizer.email // ""), where: (.location // ""), link: (.htmlLink // ""),
+         meet: (.hangoutLink // ""), attendees: [.attendees[]? | "\(.displayName // .email): \(.responseStatus)"],
+         notes: (.description // "")}' <<< "$page"
+    token=$(jq -r '.nextPageToken // empty' <<< "$page")
+    [ -n "$token" ] || return 0
+  done
+}
+
+answer() {
+  local id=${1:?usage: calendars/$account answer ID accepted|declined|tentative} to=${2:-} body
+  case $to in
+    accepted | declined | tentative) ;;
+    *) die "an answer is accepted, declined or tentative; not '$to'" ;;
+  esac
+  body=$(google GET "$api/$id" | jq -c --arg to "$to" '
+    if any(.attendees[]?; .self) then {attendees: [.attendees[] | if .self then .responseStatus = $to else . end]}
+    else error("you are not a guest of this event, so there is nothing to answer") end')
+  google PATCH "$api/$id?sendUpdates=all" <<< "$body" > /dev/null
+}
+
+case ${1:-} in
+  agenda | answer) verb=$1; shift; "$verb" "$@" ;;
+  *) die "usage: calendars/$account agenda FROM TO | answer ID accepted|declined|tentative" ;;
+esac

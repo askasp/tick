@@ -239,6 +239,7 @@ if [ "${1:-}" = --key ]; then
       path)   echo "change-footer~$(t-path "$id" 2>&1 | sed 's/^t: //')~" ;;
       agent)  echo "refresh-preview+change-footer~$(t-agent "$id" 2>&1 | sed 's/^t: //')   $(key agent):another~" ;;
       inbox)  echo "execute(t-inbox $id)+reload-sync~t-ui --rows~+refresh-preview" ;;   # its own screen, like diff
+      cal)    echo "execute(t-cal $id)+reload-sync~t-ui --rows~+refresh-preview" ;;
       sign)   echo "execute~t-sign $id || read -rp 'Enter: back to the board ' _~+reload-sync~t-ui --rows~+refresh-preview" ;;
     esac
   }

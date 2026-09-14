@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# sources/gmail VERB … — the mail of one Google account, as a source. Link it under the account's name
+# (ln -s gmail sources/work) and it is that account's (~/.config/google/work/, t google login work). sources/front's verbs:
+#   poll SINCE         inbox threads with mail since SINCE (epoch seconds), newest first, a JSON line each: id, subject,
+#                      from (who wrote last, not you), updated_at, why (inbox, unread)
+#   thread ID          the thread as markdown: its subject, then each message oldest first, without quoted lines or drafts
+#   draft ID [DRAFT]   the reply on stdin as a draft in the thread (a Gmail draft is yours alone), or into draft DRAFT
+#   send ID            the reply on stdin, sent as you in the thread
+#   archive ID         takes the thread out of the inbox
+#   sent SINCE         the mail you sent since SINCE, a JSON line each: id, to, subject, sent_at, text without quotes
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+. "$T_ROOT/lib/google.sh"
+set -euo pipefail
+account=${0##*/}
+[ "$account" != gmail ] || die "sources/gmail is one account's mail, linked under its name: ln -s gmail $T_ROOT/sources/NAME, then: t google login NAME"
+google_account "$account"
+api=https://gmail.googleapis.com/gmail/v1/users/me
+
+# jq for a Gmail message: a header by its lowercase name, when it came, its plain text, and an address out of "Name <a@b>"
+defs='
+  def header($name): [.payload.headers[]? | select(.name | ascii_downcase == $name)][0].value // "";
+  def when: .internalDate | tonumber / 1000 | floor;
+  def drafted: (.labelIds // []) | any(. == "DRAFT");
+  def base64url: gsub("-"; "+") | gsub("_"; "/") | (4 - length % 4) % 4 as $pad | . + ("===" | .[0:$pad]) | @base64d;
+  def text: [.. | objects | select(.mimeType? == "text/plain") | .body.data // empty][0] // "" | base64url | gsub("\r"; "");
+  def unquoted: split("\n") | map(select(startswith(">") | not)) | join("\n");
+  def address: capture("<(?<a>[^>]+)>").a // . | ascii_downcase;'
+
+listing() {   # URL KEY: every item under KEY, page after page, a JSON line each
+  local page token=
+  while :; do
+    page=$(google GET "$1${token:+&pageToken=$token}")
+    jq -c ".$2[]?" <<< "$page"
+    token=$(jq -r '.nextPageToken // empty' <<< "$page")
+    [ -n "$token" ] || return 0
+  done
+}
+
+me() { google GET "$api/profile" | jq -r '.emailAddress | ascii_downcase'; }
+
+poll() {
+  local since=${1:?usage: sources/$account poll SINCE} me id
+  me=$(me)
+  listing "$api/threads?maxResults=100&q=$(uri "in:inbox after:$since")" threads | jq -r .id | while read -r id; do
+    google GET "$api/threads/$id?format=metadata&metadataHeaders=Subject&metadataHeaders=From" | jq -c --arg me "$me" "$defs"'
+      [.messages[] | select(drafted | not)] as $mail
+      | {id, subject: ($mail[0] | header("subject")), updated_at: ($mail[-1] | when),
+         from: ([$mail[] | header("from") | address | select(. != $me)] | last // ""),
+         why: (if any($mail[]; (.labelIds // []) | any(. == "UNREAD")) then "inbox unread" else "inbox" end)}'
+  done | jq -sc 'sort_by(-.updated_at)[]'
+}
+
+thread() {
+  local id=${1:?usage: sources/$account thread ID}
+  google GET "$api/threads/$id?format=full" | jq -r "$defs"'
+    [.messages[] | select(drafted | not)]
+    | "# \(.[0] | header("subject") | if . == "" then "(no subject)" else . end)",
+      (.[] | "\n## email from \(header("from")), \(when | strflocaltime("%a %d %b %H:%M"))\n\n\(text | unquoted)")'
+}
+
+# the reply on stdin as Gmail takes it: a whole mail in thread $1, to whoever wrote its last message (unless that
+# was you: then to whom you wrote), with the headers that keep it in the thread
+reply_message() {
+  local id=$1 body me to subject parent references
+  body=$(cat)
+  grep -q '[^[:space:]]' <<< "$body" || die "the reply is empty; there is nothing to draft or send"
+  me=$(me)
+  { read -r to; read -r subject; read -r parent; read -r references; } < <(
+    google GET "$api/threads/$id?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Reply-To&metadataHeaders=Message-ID&metadataHeaders=References" |
+      jq -r --arg me "$me" "$defs"'
+        [.messages[] | select(drafted | not)] | last
+        | (if (header("from") | address) == $me then header("to") elif header("reply-to") != "" then header("reply-to") else header("from") end),
+          (header("subject") | if test("^re:"; "i") then . else "Re: " + . end),
+          header("message-id"),
+          ([header("references"), header("message-id")] | map(select(. != "")) | join(" "))')
+  {
+    printf 'To: %s\r\nSubject: =?UTF-8?B?%s?=\r\n' "$to" "$(printf %s "$subject" | base64 -w0)"
+    if [ -n "$parent" ]; then printf 'In-Reply-To: %s\r\nReferences: %s\r\n' "$parent" "$references"; fi
+    printf 'MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n%s\r\n' "$body"
+  } | base64 -w0 | tr '+/' '-_' | tr -d '=' | jq -Rc --arg thread "$id" '{threadId: $thread, raw: .}'
+}
+
+draft() {
+  local id=${1:?usage: sources/$account draft ID [DRAFT] < reply} message
+  message=$(reply_message "$id")
+  if [ -n "${2:-}" ]; then
+    jq -c --arg draft "$2" '{id: $draft, message: .}' <<< "$message" | google PUT "$api/drafts/$2"
+  else
+    jq -c '{message: .}' <<< "$message" | google POST "$api/drafts"
+  fi | jq -r .id
+}
+
+send() {
+  local id=${1:?usage: sources/$account send ID < reply} message
+  message=$(reply_message "$id")
+  google POST "$api/messages/send" <<< "$message" | jq -r .id
+}
+
+archive() {
+  local id=${1:?usage: sources/$account archive ID}
+  jq -nc '{removeLabelIds: ["INBOX"]}' | google POST "$api/threads/$id/modify" > /dev/null
+}
+
+sent() {
+  local since=${1:?usage: sources/$account sent SINCE} id
+  listing "$api/messages?maxResults=100&q=$(uri "in:sent after:$since")" messages | jq -r .id | while read -r id; do
+    google GET "$api/messages/$id?format=full" | jq -c "$defs"'
+      select(drafted | not) | {id, to: header("to"), subject: header("subject"), sent_at: when, text: (text | unquoted)}'
+  done
+}
+
+case ${1:-} in
+  poll | thread | draft | send | archive | sent) verb=$1; shift; "$verb" "$@" ;;
+  *) die "usage: sources/$account poll SINCE | thread ID | draft ID [DRAFT] < reply | send ID < reply | archive ID | sent SINCE" ;;
+esac

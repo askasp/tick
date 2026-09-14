@@ -75,7 +75,7 @@ said() {   # what conversations.history or replies ($2) answers: said '[{"ts": "
 calls() { grep -c "^$1\$" "$FAKE/slack.calls" 2> /dev/null || true; }
 
 test_scripts_parse() {
-  for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/sources/* "$root"/jobs/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
+  for f in "$root"/bin/* "$root"/steps/* "$root"/drivers/* "$root"/sources/* "$root"/calendars/* "$root"/jobs/* "$root"/test/fake/* "$root"/lib/*; do bash -n "$f"; done
 }
 
 test_run_runs_only_the_tests_its_pattern_names() {
@@ -1598,6 +1598,132 @@ test_a_draft_reads_what_you_wrote_to_the_same_person_before_anyone_else() {
   grep -q '^## Mail you wrote before, to bob@shop.example first' "$FAKE/read.prompts"
   grep -q 'Hei Bob, as always.' "$FAKE/read.prompts"
   not grep -q 'Dear Ann, newer.' "$FAKE/read.prompts"               # the newest, but to someone else
+}
+
+workspace() {   # Google account "work", logged in, its mail linked as sources/work and its calendar as calendars/work
+  export XDG_CONFIG_HOME=$tmp/config
+  mkdir -p "$tmp/config/google/work" "$FAKE/google"
+  printf 'GOOGLE_CLIENT_ID=id.apps\nGOOGLE_CLIENT_SECRET=secret\n' > "$tmp/config/google/work/env"
+  echo refresh-old > "$tmp/config/google/work/refresh_token"
+  echo '{"access_token": "tok", "refresh_token": "refresh-new", "expires_in": 3599}' > "$FAKE/google/token"
+  echo '{"emailAddress": "Me@work.example"}' > "$FAKE/google/gmail_v1_users_me_profile"
+  ln -s gmail "$tmp/tick/sources/work"
+  ln -s gcal "$tmp/tick/calendars/work"
+}
+gmail_message() {   # ID FROM TO SUBJECT EPOCH TEXT [LABELS]: one message, as Gmail's API gives it
+  jq -nc --arg id "$1" --arg from "$2" --arg to "$3" --arg subject "$4" --argjson at "$5" --arg text "$6" --arg labels "${7:-INBOX}" '
+    {id: $id, labelIds: ($labels | split(",")), internalDate: ($at * 1000 | tostring),
+     payload: {mimeType: "multipart/alternative",
+       headers: [{name: "From", value: $from}, {name: "To", value: $to}, {name: "Subject", value: $subject},
+                 {name: "Message-ID", value: "<\($id)@mail>"}],
+       parts: [{mimeType: "text/plain", body: {data: ($text | @base64 | gsub("\\+"; "-") | gsub("/"; "_") | gsub("="; ""))}},
+               {mimeType: "text/html", body: {data: "PGI-"}}]}}'
+}
+gmail_thread() {   # th_1: you wrote Bob, Bob answered, and a draft of yours sits under it
+  now=$(date +%s)
+  jq -nc '{threads: [{id: "th_1"}]}' > "$FAKE/google/gmail_v1_users_me_threads"
+  jq -nc --argjson m "[$(gmail_message m1 'Me <me@work.example>' bob@shop.example Invoice $((now - 120)) 'Here is the invoice.'),
+      $(gmail_message m2 'Bob <bob@shop.example>' me@work.example 'Re: Invoice' $((now - 60)) $'Can you resend it?\r\n> Here is the invoice.' INBOX,UNREAD),
+      $(gmail_message m3 'Me <me@work.example>' bob@shop.example 'Re: Invoice' "$now" 'half a thought' DRAFT)]" \
+    '{id: "th_1", messages: $m}' > "$FAKE/google/gmail_v1_users_me_threads_th_1"
+}
+unbase64url() { local s; s=$(tr -- '-_' '+/'); while [ $((${#s} % 4)) -ne 0 ]; do s+='='; done; base64 -d <<< "$s"; }
+
+test_gmail_reads_one_accounts_threads_the_way_front_does() {
+  workspace
+  gmail_thread
+  out=$("$tmp/tick/sources/work" poll $((now - 3600)))
+  eq "$(jq -r .from <<< "$out")" bob@shop.example                   # who wrote last that isn't you
+  eq "$(jq -r .updated_at <<< "$out")" $((now - 60))                # your draft is not news
+  eq "$(jq -r .why <<< "$out")" "inbox unread"
+  grep -q "in%3Ainbox%20after%3A$((now - 3600))" "$FAKE/curl.calls"
+  "$tmp/tick/sources/work" thread th_1 > "$tmp/thread.md"
+  eq "$(head -1 "$tmp/thread.md")" "# Invoice"
+  eq "$(grep '^## ' "$tmp/thread.md" | cut -d, -f1)" "$(printf '## email from Me <me@work.example>\n## email from Bob <bob@shop.example>')"
+  grep -qx 'Can you resend it?' "$tmp/thread.md"
+  not grep -q '^> \|half a thought' "$tmp/thread.md"
+  not "$tmp/tick/sources/gmail" poll 1 2> "$tmp/err"               # gmail itself is no account
+  grep -q 'ln -s gmail' "$tmp/err"
+}
+
+test_a_gmail_reply_is_a_draft_in_its_thread_to_whoever_wrote_last() {
+  workspace
+  gmail_thread
+  printf 'Sent it again.\n' | "$tmp/tick/sources/work" draft th_1 > /dev/null
+  body=$(grep -A1 '^POST /gmail/v1/users/me/drafts$' "$FAKE/google.calls" | tail -1)
+  eq "$(jq -r .message.threadId <<< "$body")" th_1
+  jq -r .message.raw <<< "$body" | unbase64url | tr -d '\r' > "$tmp/mail"
+  grep -qx 'To: Bob <bob@shop.example>' "$tmp/mail"
+  grep -qx "Subject: =?UTF-8?B?$(printf 'Re: Invoice' | base64 -w0)?=" "$tmp/mail"
+  grep -qx 'In-Reply-To: <m2@mail>' "$tmp/mail"                    # so it lands in the thread, for Bob too
+  grep -qx 'Sent it again.' "$tmp/mail"
+  printf 'Sent it again, really.\n' | "$tmp/tick/sources/work" draft th_1 d_1 > /dev/null
+  grep -q '^PUT /gmail/v1/users/me/drafts/d_1$' "$FAKE/google.calls"   # the same draft, rewritten
+  not grep -q '/messages/send' "$FAKE/google.calls"
+  printf 'Sent.\n' | "$tmp/tick/sources/work" send th_1 > /dev/null
+  grep -q '^POST /gmail/v1/users/me/messages/send$' "$FAKE/google.calls"
+}
+
+test_a_reply_to_a_gmail_thread_takes_the_same_road_as_one_to_front() {
+  workspace
+  gmail_thread
+  id=$(printf 'conversation: work th_1\n' | t new -p reply "Re: Invoice" - 2> /dev/null)
+  t run $id
+  grep -q 'Can you resend it?' "$(dir $id)/thread.md"
+  printf 'Sent it again.\n' > "$(dir $id)/answer.md"
+  sign $id
+  t run $id
+  eq "$(step $id)" done
+  grep -q '^POST /gmail/v1/users/me/drafts$' "$FAKE/google.calls"
+}
+
+calendar_event() {   # ID SUMMARY EPOCH MINUTES YOUR-ANSWER: an event Anna organizes, and you are invited to
+  jq -nc --arg id "$1" --arg summary "$2" --argjson at "$3" --argjson minutes "$4" --arg answer "$5" '
+    {id: $id, status: "confirmed", summary: $summary, htmlLink: "https://calendar.google.com/event?eid=\($id)",
+     start: {dateTime: ($at | todate)}, end: {dateTime: ($at + $minutes * 60 | todate)},
+     organizer: {email: "anna@work.example", displayName: "Anna"},
+     attendees: [{email: "anna@work.example", displayName: "Anna", responseStatus: "accepted", organizer: true},
+                 {email: "me@work.example", self: true, responseStatus: $answer}]}'
+}
+calendar_screen() { T_CALENDAR=work "$tmp/tick/bin/t-cal" "$@"; }
+
+test_a_calendar_says_its_day_on_one_row_and_an_answer_reaches_the_organizer() {
+  workspace
+  now=$(date +%s)
+  jq -nc --argjson items "[$(calendar_event ev_1 Standup $((now + 120)) 15 accepted), $(calendar_event ev_2 'RFC review' $((now + 7200)) 30 needsAction)]" \
+    '{items: $items}' > "$FAKE/google/calendar_v3_calendars_primary_events"
+  calendar_event ev_2 'RFC review' $((now + 7200)) 30 needsAction > "$FAKE/google/calendar_v3_calendars_primary_events_ev_2"
+  mkdir "$tmp/tick/pipelines/work-cal"
+  ln -s ../../steps/agenda "$tmp/tick/pipelines/work-cal/10-agenda"
+  printf 'REPO=none\nCALENDAR=work\n' > "$tmp/tick/pipelines/work-cal/env"
+  id=$(new -p work-cal "work calendar")
+  t run $id
+  eq "$(step $id)" 10-agenda                                        # a watch never ends
+  t ls | grep "^ *$((10#$id)) " | grep -q ' · next .*Standup · 1 to answer$'
+  eq "$(offered $id)" "cal log"                                     # enter on its row opens the week
+  calendar_screen --rows | grep -q $'^ev_2\t.*RFC review .*to answer'
+  calendar_screen --pane ev_2 | grep -q 'Anna: accepted'
+  calendar_screen --key "$(keyfor accept)" ev_2 > /dev/null
+  body=$(grep -A1 '^PATCH /calendar/v3/calendars/primary/events/ev_2$' "$FAKE/google.calls" | tail -1)
+  eq "$(jq -r '.attendees[] | select(.self) | .responseStatus' <<< "$body")" accepted
+  eq "$(jq -r '.attendees[] | select(.self | not) | .responseStatus' <<< "$body")" accepted   # Anna's own answer, untouched
+  grep -q 'events/ev_2?sendUpdates=all' "$FAKE/curl.calls"          # and she is told
+  calendar_screen --rows | grep $'^ev_2\t' > "$tmp/row"
+  not grep -q 'to answer' "$tmp/row"
+}
+
+test_logging_a_google_account_in_asks_only_for_what_its_links_need() {
+  workspace
+  rm "$tmp/tick/calendars/work" "$tmp/config/google/work/refresh_token"   # mail only, and never logged in
+  not "$tmp/tick/sources/work" poll 1 2> "$tmp/err"
+  grep -q 't google login work' "$tmp/err"
+  t google login work 2> "$tmp/err"
+  grep -q 'gmail.modify' "$tmp/err"
+  not grep -q 'calendar' "$tmp/err"
+  eq "$(cat "$tmp/config/google/work/refresh_token")" refresh-new
+  eq "$(stat -c %a "$tmp/config/google/work/refresh_token")" 600
+  not t google login home 2> "$tmp/err"                             # another account is another name
+  grep -q 'ln -s gmail' "$tmp/err"
 }
 
 test_slack_posts_a_task_once_and_edits_that_message_after_that() {

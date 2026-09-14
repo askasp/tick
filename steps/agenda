@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# agenda — a calendar as one row that never ends. Every POLL seconds (the pipeline's env) it reads the next DAYS days (7)
+# of calendars/$CALENDAR into $T_VAR/cal/$CALENDAR/events, a JSON line each, and puts the day on the board: meetings left
+# today, the next one, and the invites waiting for your answer. Between polls and after one it exits 75: not yet.
+set -euo pipefail
+: "${CALENDAR:?needs CALENDAR= in the pipeline env: the name of a link in calendars/}"
+cache=$T_VAR/cal/$CALENDAR
+mkdir -p "$cache"
+echo "$CALENDAR" > calendar.tmp && mv calendar.tmp calendar     # what the board opens on Enter
+
+if [ -f "$cache/events" ] && [ $(( $(date +%s) - $(stat -c %Y "$cache/events") )) -lt "${POLL:-300}" ]; then exit 75; fi
+
+# it runs every minute for as long as it lives, so its log keeps only the latest runs: cat, not mv, since the
+# runner is still appending to this file
+log=log/$(cat step).log
+if [ "$(wc -l < "$log")" -gt 1000 ]; then tail -n 200 "$log" > log.tmp; cat log.tmp > "$log"; rm log.tmp; fi
+
+rm -f note                                               # a poll that fails says so on the board, not the last day
+"$T_ROOT/calendars/$CALENDAR" agenda "$(date -d 'today 00:00' +%s)" "$(date -d "today 00:00 + ${DAYS:-7} days" +%s)" > "$cache/events.tmp"
+mv "$cache/events.tmp" "$cache/events"
+
+day=$(jq -rs --argjson now "$(date +%s)" --argjson midnight "$(date -d 'tomorrow 00:00' +%s)" '
+  map(select((.all_day | not) and .answer != "declined" and .end > $now)) as $ahead
+  | ($ahead | map(select(.start < $midnight)) | length) as $today
+  | ($ahead | map(select(.start > $now)) | first) as $next
+  | (map(select(.answer == "needsAction")) | length) as $invites
+  | ["\($today) left today",
+     (if $next then "next \($next.start | strflocaltime(if $next.start < $midnight then "%H:%M" else "%a %H:%M" end)) \($next.summary)" else empty end),
+     (if $invites > 0 then "\($invites) to answer" else empty end)]
+  | join(" · ")' "$cache/events")
+echo "$day" > note.tmp && mv note.tmp note
+echo "$CALENDAR: $day"
+exit 75
