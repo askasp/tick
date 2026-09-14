@@ -902,6 +902,7 @@ test_new_dry_shows_the_task_it_would_make() {
   t new --dry "$(printf 'x%.0s' {1..41})" > "$tmp/out"
   grep -q '^starts *next tick' "$tmp/out"
   grep -q 'an agent will pick a short one' "$tmp/out"
+  rm -f "$FAKE/crontab"                                   # the tasks below must not start runs that outlive the test
   new "add the widget" > /dev/null
   new "child work" --on 0001 > /dev/null
   t new --dry --on 1 "more child work" > "$tmp/out"            # compose's preview for a stack

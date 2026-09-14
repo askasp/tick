@@ -22,7 +22,7 @@ echo "t: log $account in, in your browser: $url" >&2
 if [ -t 1 ]; then xdg-open "$url" > /dev/null 2>&1 || true; fi
 
 request=$(printf 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\ntick has the login for %s; close this tab.\r\n' "$account" |
-  nc -l -N 127.0.0.1 "$port" | head -1)
+  nc -l -N 127.0.0.1 "$port" | head -1) || true   # head exits on the first line; the code check below is the guard
 code=$(sed -n 's/^GET [^ ]*[?&]code=\([^& ]*\).*/\1/p' <<< "$request")
 [ -n "$code" ] || die "Google sent no login back (${request:-nothing}); try again: t google login $account"
 

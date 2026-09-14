@@ -185,7 +185,7 @@ task_dir() {
 
   matches=$(board -a | while IFS= read -r row; do     # the board shows names, so match the titles too
     read -r id _ <<< "$row"
-    if { echo "$row"; title "$(tdir "$id")"; } | grep -qiF -- "$arg"; then echo "$row"; fi
+    if grep -qiF -- "$arg" < <(echo "$row"; title "$(tdir "$id")"); then echo "$row"; fi
   done)
   [ -n "$matches" ] || die "${arg:+no task matches '$arg'}${arg:-there are no tasks yet; start one: t new}"
   choice=$matches

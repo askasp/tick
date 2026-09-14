@@ -108,7 +108,7 @@ if [ -n "$repo" ]; then
 fi
 echo "$pipeline" > pipeline
 if [ -n "$opt" ]; then printf '%s\n' $opt > opt; fi     # the optional steps it asked for
-steps "$pipeline" "$opt" | head -1 > step
+steps "$pipeline" "$opt" | sed -n 1p > step    # sed reads to the end, so steps never meets a closed pipe
 mkdir log
 
 : > lock

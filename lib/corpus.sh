@@ -4,7 +4,7 @@
 
 # the files in $1 sent to an address matching $2, newest first
 mail_to() {
-  grep -il "^to: .*$(sed 's/[][\.*^$]/\\&/g' <<< "$2")" "$1"/*.md 2> /dev/null | xargs -r ls -t | head -50
+  grep -il "^to: .*$(sed 's/[][\.*^$]/\\&/g' <<< "$2")" "$1"/*.md 2> /dev/null | xargs -r ls -t | sed -n '1,50p'
 }
 
 # what you wrote in source $1: to $2 first, then to anyone at its domain, then the newest, as many as CORPUS_MAX
@@ -25,5 +25,5 @@ corpus_examples() {
       mail_to "$dir" "$address"
       mail_to "$dir" "@${address#*@}"
     fi
-    ls -t "$dir"/*.md 2> /dev/null | head -50)
+    ls -t "$dir"/*.md 2> /dev/null | sed -n '1,50p')
 }

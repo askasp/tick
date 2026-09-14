@@ -4,7 +4,7 @@
 # the thread is the one you read: else thread.md catches up, and the reply waits for you to read it again.
 set -euo pipefail
 [ -f signed ] || { echo "the reply isn't signed; sign it with: t sign $((10#${PWD##*/}))" >&2; exit 1; }
-read -r source id <<< "$(sed -n 's/^conversation: //p' task.md | head -1)"
+read -r source id <<< "$(sed -n '/^conversation: /{s/^conversation: //p;q}' task.md)"
 from() { "$T_ROOT/sources/$source" "$@"; }
 
 case ${DELIVER:-draft} in

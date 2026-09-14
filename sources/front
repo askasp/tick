@@ -50,7 +50,7 @@ notice='def notice: .recipient.handle == "hello@frontapp.com" and (.subject // "
 mentioned() {
   local email conv
   while read -r email; do
-    conv=$(results "/conversations/$email/messages" | jq -r .body | grep -o 'app\.frontapp\.com/open/cnv_[0-9a-z]*' | head -1)
+    conv=$(results "/conversations/$email/messages" | jq -r .body | grep -o 'app\.frontapp\.com/open/cnv_[0-9a-z]*' | sed -n 1p)
     [ -n "$conv" ] || continue
     call GET "/conversations/${conv##*/}" | jq -c '. + {why: "mention"}'
   done

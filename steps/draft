@@ -5,7 +5,7 @@
 # names the agent: drafter for a reply, commenter for a comment.
 set -euo pipefail
 . "$T_ROOT/lib/corpus.sh"
-read -r source id <<< "$(sed -n 's/^conversation: //p' task.md | head -1)"
+read -r source id <<< "$(sed -n '/^conversation: /{s/^conversation: //p;q}' task.md)"
 to=$(jq -r '.from // empty' "$T_VAR/mail/$source/$id/conv.json" 2> /dev/null || true)   # the watch read who wrote
 past=$(corpus_examples "$source" "$to")
 

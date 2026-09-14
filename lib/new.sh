@@ -37,7 +37,9 @@ question_and_answer() {
   cat "$1/answer.md"
 }
 
-has_cron_tick() { crontab -l 2> /dev/null | grep -q 'bin/t tick'; }
+# grep -q may leave crontab writing, and pipefail would take its SIGPIPE for a no: a subshell's
+# exit goes unwatched, so the match alone decides
+has_cron_tick() { grep -q 'bin/t tick' <(crontab -l 2> /dev/null); }
 
 # every task needs a repo, but for one whose pipeline says REPO=none and whose -r names none
 needs_repo() { [ -n "$repo" ] || [ -z "$pipeline" ] || ! no_repo "$pipeline"; }

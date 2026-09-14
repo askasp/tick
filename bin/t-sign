@@ -12,7 +12,7 @@ n=$(task_num "$task") step=$(cat "$task/step")
 [ "${step#*-}" = sign ] || die "task $n waits for no signature; it is at ${step#*-} (t show $n)"
 flock -n "$task/lock" true || die "task $n is running; sign it when it stops: t log $n -f"
 read -r kind deliver < <(load_env "$task" > /dev/null 2>&1; echo "${KIND:-reply} ${DELIVER:-draft}")
-source=$(sed -n 's/^conversation: \([^ ]*\).*/\1/p' "$task/task.md" | head -1)
+source=$(sed -n '/^conversation: /{s/^conversation: \([^ ]*\).*/\1/p;q}' "$task/task.md")
 case $kind/$deliver in
   comment/*) goes="is posted for your teammates" ask="post it for your teammates, now?" about=": internal, only your teammates see it" ;;
   */send)    goes="is sent as you" ask="send it as you, now?" about= ;;
