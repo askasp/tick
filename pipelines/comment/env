@@ -1,0 +1,7 @@
+# comment: a comment on one conversation, for your teammates only; task.md names it (conversation: front cnv_123).
+# Nothing is posted until you sign it (t sign). With +draft an agent writes it first, as agents/commenter.md.
+REPO=none
+OPTIONAL=draft
+CLI_draft=claude
+DRAFTER=commenter
+KIND=comment

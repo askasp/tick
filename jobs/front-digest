@@ -6,7 +6,7 @@
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 conf=${XDG_CONFIG_HOME:-$HOME/.config}/front/env
-[ -r "$conf" ] || die "no $conf; write FRONT_TOKEN=... and FRONT_EMAIL=... into it, then: chmod 600 $conf"
+[ -r "$conf" ] || die "no $conf; log in with: t front login"
 . "$conf"
 since=$(date -d "${1:-1 day} ago" +%s)
 tmp=$(mktemp -d)
@@ -15,7 +15,7 @@ touch "$tmp/mentioned" "$tmp/rest"
 
 get() {
   curl -sfS --retry 5 -H "Authorization: Bearer $FRONT_TOKEN" "https://api2.frontapp.com$1" ||
-    die "Front refused $1; check FRONT_TOKEN and FRONT_EMAIL in $conf"
+    die "Front refused $1; check FRONT_TOKEN and FRONT_EMAIL in $conf, or log in again: t front login"
 }
 
 search() {   # conversations that match a Front search and have activity since $since, one JSON per line

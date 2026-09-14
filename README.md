@@ -77,7 +77,9 @@ without its diff.
 The keys are all ctrl-, so typing still searches, and they reach the board
 over ssh from any terminal. `^l` turns the pane to the log (again: the raw
 log), `^r` holds the task (the prompt asks why) or resumes it, `^t` stacks a
-task on it, `^n` starts a new one, and `^x` deletes one. `^o` attaches to its
+task on it, `^n` starts a new one, and `^x` deletes one. `^g` deletes every
+task done, answered or held for 12 hours, once the pane has listed them and you
+press Enter. `^o` attaches to its
 agent, the one key that leaves the board, for the agent's own screen. Everything
 else is a word away: `?` lists every action in the pane, with the agent's
 session id, and you type the one you want, or its first letters, and press
@@ -115,7 +117,8 @@ which), and esc goes back. `^a`, `^e` and `^u` edit the line as in a shell.
 With cron installed the task starts at once; without it, `? run` on its row
 runs it. Flags typed with the title work too: `Add proration -r amino`.
 
-`^t` stacks a task on the one you're on the same way (`stack on 7>`), and
+`^t` stacks a task on the one you're on the same way (`stack on 7>`; on an
+answered question, `task from 7>` makes a task of it), and
 `? say` says something to it (`say to 7>`, and Enter on a held task): what you
 type goes to `feedback.md`, `tab` picks the step it restarts at, `^s` who
 solves it from then on, and the pane shows what will happen and its latest log.
@@ -171,7 +174,11 @@ t ask --now -r amino "How does checkout compute tax?"          # reads amino, ch
 t research --now "What changed in Postgres 18 upgrades?"       # searches the web, from anywhere
 t say 7 "and where is that tested?"                            # a follow-up
 t show 7                                                       # the question, the answer, the history
+t new --from 7 "Test the tax rounding"                         # make it a task (t stack 7, ^t on the board)
 ```
+
+A task made from a question works in its repo, with its repo's pipeline, and
+its details are the question, the follow-ups and the answer.
 
 These are ordinary pipelines with one step, `answer`. The step pipes the
 question to `agents/answerer.md` and writes `answer.md`, which `t show`
@@ -408,9 +415,9 @@ jobs/front-digest "3 days"   # after a holiday
 ```
 
 Conversations where a teammate @mentions you in a comment come first. The job
-reads `FRONT_TOKEN=` and `FRONT_EMAIL=` from `~/.config/front/env` (`chmod
-600` it), and the `summarizer` agent writes the digest. To get one every
-morning:
+reads `FRONT_TOKEN=` and `FRONT_EMAIL=` from `~/.config/front/env`, which `t
+front login` writes, and the `summarizer` agent writes the digest. To get one
+every morning:
 
 ```sh
 (crontab -l; echo '0 7 * * * $HOME/git/tick/jobs/front-digest > $HOME/digest.tmp 2> $HOME/digest.log && mv $HOME/digest.tmp $HOME/digest.md') | crontab -
@@ -485,11 +492,11 @@ already taken can run twice.
 
 Front comes into tick the way everything else does, as tasks and files. Mail
 arriving is not work: a thousand conversations cost the board one row, and only
-you add more. With `~/.config/front/env` written (the digest's), start the watch
-once:
+you add more. After `t front login` (it says which permissions the token needs,
+checks it, and keeps it), start the watch once:
 
 ```sh
-t new -p front "front inbox"
+t new -p front-inbox "front inbox"
 ```
 
 It is a task that never ends. Its one step, `watch`, asks Front what changed
@@ -505,6 +512,7 @@ beside the one you are on.
 | --- | --- |
 | enter | an agent drafts a reply: a task on pipeline `reply`, with `+draft` |
 | ^o | a reply you write: the thread is read, and `$EDITOR` opens on it |
+| ^t | a comment you write, for your teammates only: a task on pipeline `comment` |
 | ^x | archives the conversation in Front |
 
 A reply is `thread → +draft → sign → send`, and nothing leaves until you sign
@@ -517,6 +525,19 @@ it again. `DELIVER=` in `pipelines/reply/env` says what leaving is:
   once more and send from there. Signing again edits the same draft.
 - `send`: sent as you, and only while the thread is the one you read. If
   someone wrote since, the reply holds again, with the thread as it is now.
+
+Comments are Front's, and stay there: tick never keeps one of its own. In a
+thread they hang under the message they follow (`### └ comment by Ida K`), and
+the thread ends by saying who can't see them (`_2 comments: only your
+teammates see them, not Anna Ø._`), so what a colleague said never reads like
+something the customer was told. A draft reads them, does what they say, and
+never quotes them. A conversation that is there because a comment mentions
+you says `mention` in red, so typing `mention` in `t inbox` lists every one.
+The watch's first poll reads back a day (`SINCE=` in the pipeline's env), and
+each later one what changed since: a comment that mentions you tomorrow, on a
+thread from last year, brings that whole thread. A
+comment is a task of its own (`thread → +draft → sign → post`): it holds as
+`comment ready`, naming who won't see it, and is posted only once you sign it.
 
 A draft writes the way you do because of `jobs/mail-corpus`, which keeps the
 mail you sent as files in `~/.tick/corpus/` (its first run goes back
@@ -628,6 +649,7 @@ t sign [TASK]              read a reply in $EDITOR and sign it: then it leaves
 t inbox [TASK]             the mail a watch keeps: enter drafts a reply, ^o you write one, ^x archives
 t cal [TASK]               the week a calendar watch keeps: ^y accepts an invite, ^t maybe, ^x declines
 t google login NAME        log a Google account in, for its linked mail and calendar
+t front login              the Front API token: what to choose when you make it, then it is checked and kept
 t attach [TASK]            resume the agent's conversation yourself
 t run [TASK]               run it now, in this terminal
 t hold [-f] [TASK] [why]   pause it after the running step; -f cancels that step now, agent and all
@@ -636,6 +658,7 @@ t name [TASK] ["name"]     what the board calls it; left out, an agent picks a s
 t agent [TASK] [CLI]       who solves every step from its next run; left out, the next one
 t path [TASK]              its worktree:  cd "$(t path discount)"
 t rm [-f] [TASK]           delete the task and its worktree (the branch stays); -f stops its run first
+t clean [-n] [HOURS]       delete every task done, answered or held for 12 hours (or HOURS); -n lists them
 t doctor                   what's missing, and the pipelines
 t tick                     what cron runs
 ```

@@ -15,6 +15,7 @@ Start a task, from any directory (TAB completes -r, -p, --on and tasks):
   t new --cli claude "..."                     solve every step with claude instead
   t ask --now -r amino "How does X work?"      a question about a repo, answered right here
   t research --now "..."                       a question for the web
+  t new --from 7 "..."                         make question 7 into a task: its answer is the details
 
 Follow it:
   t                  the board: pick a task, then what to do with it

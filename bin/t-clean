@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# t clean [-n] [HOURS] — delete every task done, answered or held for 12 hours (or HOURS), worktrees and all; -n lists them
+. "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
+set -euo pipefail
+list=
+if [ "${1:-}" = -n ]; then list=1; shift; fi
+hours=${1:-12}
+[[ $hours =~ ^[0-9]+$ ]] || die "HOURS is a number: t clean 24"
+
+# the tasks done, answered or held for $hours, newest first: a task stacked on another goes before it
+stale() {
+  local task since now
+  now=$(printf '%(%s)T' -1)
+  for task in $(printf '%s\n' "$T_TASKS"/*/ | sort -r); do
+    task=${task%/}
+    [ -f "$task/step" ] || continue
+    case $(state "$task") in
+      done) since=$(stat -c %Y "$task/step") ;;
+      HOLD) since=$(stat -c %Y "$task/hold") ;;
+      *)    continue ;;
+    esac
+    if [ $((now - since)) -ge $((hours * 3600)) ]; then echo "$task"; fi
+  done
+}
+
+tasks=$(stale)
+if [ -z "$tasks" ]; then
+  echo "t: no task done, answered or held for ${hours}h"
+  exit 0
+fi
+if [ -n "$list" ]; then
+  while read -r task; do printf '%3s  %s  %s\n' "$(task_num "$task")" "$(name "$task")" "$(standing "$task")"; done <<< "$tasks"
+  exit 0
+fi
+failed=0
+while read -r task; do
+  t-rm "$task" < /dev/null || failed=1
+done <<< "$tasks"
+exit "$failed"

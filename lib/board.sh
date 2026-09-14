@@ -235,7 +235,7 @@ words() {
 ACTIONS='log     ctrl-l  its output, live; again: all of it, unfolded
 say     ctrl-y  send it back to a step with your notes
 attach  ctrl-o  take over the agent conversation (its own screen)
-stack   ctrl-t  start a task that branches from this one (waits for it to finish)
+stack   ctrl-t  start a task that branches from this one (waits for it to finish); on an answer, one made from it
 diff    -       the files it changed, with the diff of each beside them
 run     -       run it now
 hold    ctrl-r  pause it after this step, or unpause it when it is held
@@ -251,6 +251,7 @@ cal     -       the calendar it watches: the week ahead, and invites to answer'
 # the board's keys besides the actions', and a form's (new, stack and say on the board, and t compose).
 # Every key is here once: t ui binds it from here, and what the screens say about it comes from here.
 BOARD_KEYS='new      ctrl-n  a new task
+clean    ctrl-g  delete every task done, answered or held for 12 hours
 keys     ?       every action, in the pane'
 FORM_KEYS='details  ctrl-o  the details, in $EDITOR
 repo     ctrl-r  another repo
@@ -258,6 +259,7 @@ pipeline ctrl-p  the pipelines, to pick one'
 # t inbox's keys, on a screen of its own
 INBOX_KEYS='draft    enter   an agent drafts a reply, for you to read and sign
 write    ctrl-o  a reply you write, in $EDITOR
+comment  ctrl-t  a comment you write, for your teammates only
 archive  ctrl-x  archive it, where the mail lives'
 # t cal's: answering is the signature, so each answer is a key of its own
 CAL_KEYS='open     enter   open it in the browser
@@ -290,7 +292,7 @@ offers() {
              else echo run hold rm; fi ;;
     after*)  echo log rm ;;
     HOLD)    if [[ $(cat "$1/step") == *-sign ]]; then echo sign say rm; else echo say log attach hold; fi ;;
-    *)       if [ -f "$1/answer.md" ]; then echo say rm; else echo diff stack say rm; fi ;;
+    *)       if [ -f "$1/answer.md" ]; then echo say stack rm; else echo diff stack say rm; fi ;;
   esac
 }
 

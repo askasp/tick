@@ -8,11 +8,12 @@
 #   send ID            the reply on stdin, sent as you on conversation ID, which is left where it is (not archived)
 #   archive ID         archives conversation ID
 #   sent SINCE         the mail you sent since SINCE, a JSON line each: id, to, subject, sent_at, text without quotes
+#   comment ID         the text on stdin as your comment on conversation ID: internal, only your teammates see it
 # A source is to mail what a driver is to an AI CLI: another one is an executable here with the same verbs.
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 conf=${XDG_CONFIG_HOME:-$HOME/.config}/front/env
-[ -r "$conf" ] || die "no $conf; write FRONT_TOKEN=... and FRONT_EMAIL=... into it, then: chmod 600 $conf"
+[ -r "$conf" ] || die "no $conf; log in with: t front login"
 . "$conf"
 
 # one call: METHOD PATH, with a JSON body on stdin for anything but GET. Only a GET is retried: a POST
@@ -21,7 +22,7 @@ call() {
   local how=(--retry 5)
   if [ "$1" != GET ]; then how=(-X "$1" -H 'Content-Type: application/json' --data-binary @-); fi
   curl -sfS "${how[@]}" -H "Authorization: Bearer $FRONT_TOKEN" "https://api2.frontapp.com$2" ||
-    die "Front refused $1 $2; check FRONT_TOKEN and FRONT_EMAIL in $conf"
+    die "Front refused $1 $2; check FRONT_TOKEN and FRONT_EMAIL in $conf, or log in again: t front login"
 }
 
 # every result of a listing, one JSON per line, page after page
@@ -59,10 +60,17 @@ thread() {
   { results "/conversations/$id/messages?limit=100"; results "/conversations/$id/comments"; } | jq -rs "$unquoted"'
     def when: strflocaltime("%a %d %b %H:%M");
     def sender: [.recipients[]? | select(.role == "from") | .name // .handle][0] // "?";
-    map(select(.draft_mode == null)
-      | if has("posted_at") then {t: .posted_at, s: "## comment by \(.author.first_name) \(.author.last_name), \(.posted_at | when)\n\n\(.body)"}
-        else {t: .created_at, s: "## \(.type) from \(sender), \(.created_at | when)\n\n\(.text // "" | unquoted)"} end)
-    | sort_by(.t)[] | "\n" + .s'
+    def plural($n; $word): if $n == 1 then "1 \($word)" else "\($n) \($word)s" end;
+    map(select(.draft_mode == null)) as $all
+    | ([$all[] | select(has("posted_at") | not) | select(.is_inbound == true) | sender] | unique | join(", ")) as $outside
+    | ($all | map(select(has("posted_at"))) | length) as $comments
+    | ($all
+       | map(if has("posted_at") then {t: .posted_at, s: "### └ comment by \(.author.first_name) \(.author.last_name), \(.posted_at | when)\n\n\(.body)"}
+             else {t: .created_at, s: "## \(.type) from \(sender), \(.created_at | when)\n\n\(.text // "" | unquoted)"} end)
+       | sort_by(.t)[] | "\n" + .s),
+      (if $comments > 0
+       then "\n_\(plural($comments; "comment")): only your teammates see \(if $comments == 1 then "it" else "them" end)\(if $outside != "" then ", not \($outside)" else "" end)._"
+       else empty end)'
 }
 
 # the reply on stdin as Front takes it: HTML, by you, from the channel of the inbox the conversation is in
@@ -108,7 +116,14 @@ sent() {
   done
 }
 
+comment() {
+  local id=${1:?usage: sources/front comment ID < text} body
+  body=$(jq -Rsc --arg me "$(my_id)" '{body: sub("\n+$"; ""), author_id: $me}')
+  [ "$(jq -r '.body | gsub("\\s"; "")' <<< "$body")" != "" ] || die "the comment is empty; there is nothing to post"
+  call POST "/conversations/$id/comments" <<< "$body" | jq -r .id
+}
+
 case ${1:-} in
-  poll | thread | draft | send | archive | sent) verb=$1; shift; "$verb" "$@" ;;
-  *) die "usage: sources/front poll SINCE | thread ID | draft ID [DRAFT] < reply | send ID < reply | archive ID | sent SINCE" ;;
+  poll | thread | draft | send | archive | sent | comment) verb=$1; shift; "$verb" "$@" ;;
+  *) die "usage: sources/front poll SINCE | thread ID | draft ID [DRAFT] < reply | send ID < reply | archive ID | sent SINCE | comment ID < text" ;;
 esac

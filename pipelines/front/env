@@ -1,6 +1,0 @@
-# front: your Front inbox, as one row on the board that never ends. Every POLL seconds it reads what changed into
-# ~/.tick/mail/front/, and an agent writes each conversation a one-line gist. Start it once: t new -p front "front inbox"
-REPO=none
-SOURCE=front
-POLL=300
-CLI_watch=opencode
