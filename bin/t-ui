@@ -59,8 +59,8 @@ if [ "${1:-}" = --pipelines ]; then
   exit
 fi
 
-# a reload reruns the pane, which loses your place in it: reload as soon as a task moves or its
-# stats change, and for what the agents are doing only every 14 seconds
+# a reload reruns the pane, which loses your place in it: reload as soon as a task moves, and for
+# what the agents are doing and the board's stats only every 14 seconds
 if [ "${1:-}" = --changed ]; then
   moves() {
     local t
@@ -72,8 +72,8 @@ if [ "${1:-}" = --changed ]; then
   while sleep 2; do
     i=$((i + 1))
     if [ "$(moves)" != "$was" ]; then break; fi
-    if [ "$(board_stats)" != "$stats" ]; then break; fi
     if [ $((i % 7)) -eq 0 ] && [ "$(board -a)" != "$all" ]; then break; fi
+    if [ $((i % 7)) -eq 0 ] && [ "$(board_stats)" != "$stats" ]; then break; fi
   done
   board_rows
   exit
