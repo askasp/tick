@@ -44,8 +44,8 @@ neighbour() {
 
 if [ "${1:-}" = --rows ]; then board_rows; exit; fi
 
-# a reload reruns the pane, which loses your place in it: reload as soon as a task moves, and for
-# what the agents are doing only every 14 seconds
+# a reload reruns the pane, which loses your place in it: reload as soon as a task moves or its
+# stats change, and for what the agents are doing only every 14 seconds
 if [ "${1:-}" = --changed ]; then
   moves() {
     local t
@@ -53,10 +53,11 @@ if [ "${1:-}" = --changed ]; then
       if [ -f "$t/step" ]; then echo "$t $(cat "$t/step") $(state "$t")"; fi
     done
   }
-  was=$(moves) all=$(board -a) i=0
+  was=$(moves) all=$(board -a) stats=$(board_stats) i=0
   while sleep 2; do
     i=$((i + 1))
     if [ "$(moves)" != "$was" ]; then break; fi
+    if [ "$(board_stats)" != "$stats" ]; then break; fi
     if [ $((i % 7)) -eq 0 ] && [ "$(board -a)" != "$all" ]; then break; fi
   done
   board_rows
@@ -166,7 +167,13 @@ if [ "${1:-}" = --key ]; then
   key=$2 id=$3 q=${4:-} pick=$(cat "$T_UI/pick")
   read -r mode target < "$T_UI/mode"
   named() { printf '%s\n' "$@" | awk -v k="$key" '$2 == k { print $1; exit }'; }   # what $key is in tables $@
-  footer() { if [ -z "$1" ]; then hint "$(key new)" new; else t-keys "$1" 2> /dev/null; fi; }
+  footer() {   # the board's bottom line: the keys for task $1, and the board's stats, if available
+    local f stats
+    if [ -z "$1" ]; then f=$(hint "$(key new)" new); else f=$(t-keys "$1" 2> /dev/null); fi
+    stats=$(board_stats)
+    if [ -n "$stats" ]; then f="${f:+$f  }$stats"; fi
+    echo "$f"
+  }
   back() {   # to the board: its prompt, search and list, and the keys of task $1 (the cursor goes there on load)
     echo board > "$T_UI/mode"
     echo "change-prompt(task> )+enable-search+change-query()+change-preview-window(~2)+reload-sync~t-ui --rows~+refresh-preview+change-footer~$(footer "${1-$id}")~"

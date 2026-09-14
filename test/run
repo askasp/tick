@@ -1224,6 +1224,8 @@ test_a_key_does_one_thing_on_the_board_and_one_in_a_form() {
 
 test_the_live_board_draws_its_rows_and_the_keys_at_the_bottom() {
   command -v tmux > /dev/null && command -v fzf > /dev/null || return 0
+  printf '#!/usr/bin/env bash\necho "45, 8192, 16384"\n' > "$tmp/tick/test/fake/nvidia-smi"
+  chmod +x "$tmp/tick/test/fake/nvidia-smi"
   new "add the widget" > /dev/null
   server=tick-${tmp##*/}
   tmux -f /dev/null -L "$server" new-session -d -x 160 -y 16 t
@@ -1243,7 +1245,33 @@ test_the_live_board_draws_its_rows_and_the_keys_at_the_bottom() {
   grep -q '^[│ ]*task> ' "$tmp/screen"
   grep -qE '^[│ ]*> +1 +(repo +)?add the widget +0/3 +next tick' "$tmp/screen"   # fzf's pointer
   grep -q 'implement · next tick' "$tmp/screen"                      # the pane on it
-  grep -qE 'enter:run .*:keys' "$tmp/screen"
+  grep -qE 'enter:run .*:keys +GPU 45% 8.0/16.0GiB' "$tmp/screen"    # the footer: the keys, and the board's stats
+}
+
+test_the_live_board_says_its_stats_in_the_footer() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  printf '#!/usr/bin/env bash\necho "45, 8192, 16384"\n' > "$tmp/tick/test/fake/nvidia-smi"
+  chmod +x "$tmp/tick/test/fake/nvidia-smi"
+  id=$(new "add the widget")
+  (exec 9> "$(dir $id)/lock"; flock 9; sleep 30) &
+  pid=$!
+  sleep 0.5
+  mkdir -p "$(dir $id)/log"
+  printf '=== %s 10-implement, run 1\n  · Read foo.ts\ntokens/s: 100\n' "$(date '+%F %T')" > "$(dir $id)/log/10-implement.log"
+  t ui --key focus "$id" '' | grep -qE 'change-footer~.*:keys  GPU 45% 8.0/16.0GiB  tokens/s: 100'
+  kill $pid 2> /dev/null || true
+}
+
+test_the_live_board_reloads_when_its_stats_change() {
+  cat > "$tmp/tick/test/fake/nvidia-smi" <<'EOF'
+#!/usr/bin/env bash
+if [ -f "$FAKE/gpu" ]; then echo "45, 8192, 16384"; rm -f "$FAKE/gpu"
+else echo "55, 8192, 16384"; touch "$FAKE/gpu"
+fi
+EOF
+  chmod +x "$tmp/tick/test/fake/nvidia-smi"
+  timeout 15 t ui --changed > /dev/null || { echo "the live board never reloaded for a stats change" >&2; return 1; }
 }
 
 test_the_board_changes_who_solves_a_task_it_already_has() {

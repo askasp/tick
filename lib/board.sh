@@ -90,6 +90,19 @@ token_rate() {
   grep -E 'tokens(/s)?:' "$log" 2>/dev/null | tail -1
 }
 
+# the line the boards draw under their rows: the GPU stats, and the token rate of the running tasks, if available
+board_stats() {
+  local t stats= rate
+  stats=$(gpu_stats | awk 'NF { printf "%s%s", (n ? "  " : ""), $0; n++ }')
+  for t in "$T_TASKS"/*/; do
+    [ -f "$t/step" ] || continue
+    [ "$(state "$t")" = running ] || continue
+    rate=$(token_rate "$t")
+    [ -n "$rate" ] && stats="${stats:+$stats  }$rate"
+  done
+  echo "$stats"
+}
+
 # where a task stands, in a word or two: held and why, after 7, answered, done, else the step it is on.
 # What its agent is doing this second is status's business; a pushed message has no use for it.
 standing() {
