@@ -37,7 +37,7 @@ question_and_answer() {
   cat "$1/answer.md"
 }
 
-has_cron_tick() { crontab -l 2> /dev/null | grep -q 'bin/t tick'; }
+has_cron_tick() { crontab -l 2> /dev/null | matched 'bin/t tick'; }
 
 # every task needs a repo, but for one whose pipeline says REPO=none and whose -r names none
 needs_repo() { [ -n "$repo" ] || [ -z "$pipeline" ] || ! no_repo "$pipeline"; }

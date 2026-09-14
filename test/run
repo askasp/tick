@@ -876,6 +876,16 @@ test_new_dry_shows_the_task_it_would_make() {
   grep -q 'task 2 is already stacked here' "$tmp/out"
 }
 
+test_new_says_next_tick_when_the_crontab_lingers() {
+  # a crontab that keeps the pipe open after the tick line: grep -q would stop reading there, and
+  # the writer's SIGPIPE would lose the match under pipefail
+  echo "* * * * * $tmp/tick/bin/t tick" > "$FAKE/crontab"
+  mkdir -p "$FAKE/slow"
+  printf '#!/usr/bin/env bash\n[ "${1:-}" = -l ] && { cat "$FAKE/crontab"; sleep 0.5; echo; exit 0; }\nexit 1\n' > "$FAKE/slow/crontab"
+  chmod +x "$FAKE/slow/crontab"
+  PATH="$FAKE/slow:$PATH" t new --dry "add the widget" | grep -q '^starts *next tick'
+}
+
 test_a_stray_file_among_the_tasks_does_not_stop_new_ones() {
   mkdir -p "$T_VAR/tasks" && : > "$T_VAR/tasks/lock"
   t new --dry "add the widget" | grep -q '^branch *t/0001-add-the-widget$'
