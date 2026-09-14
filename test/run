@@ -1877,6 +1877,26 @@ test_the_inbox_lists_what_the_watch_keeps_and_enter_opens_the_thread() {
   eq "$(inbox --key "$(keyfor open)" cnv_x)" "execute(t-thread cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
 }
 
+test_the_inbox_shows_a_long_thread_at_its_newest_message_under_its_subject() {
+  command -v tmux > /dev/null && command -v fzf > /dev/null || return 0
+  mkdir -p "$T_VAR/mail/front/cnv_x"
+  echo '{"id": "cnv_x", "subject": "Invoice question", "from": "Bob", "why": "unread", "updated_at": 100}' > "$T_VAR/mail/front/cnv_x/conv.json"
+  { echo "# Invoice question"; for i in $(seq 30); do printf '\n## email from Bob, Mon 01 Jan 10:00\n\nmessage number %s\n' "$i"; done; } \
+    > "$T_VAR/mail/front/cnv_x/thread.md"
+  server=tick-${tmp##*/}
+  tmux -f /dev/null -L "$server" new-session -d -x 160 -y 16 'T_INBOX=front t inbox'
+  for i in $(seq 100); do
+    tmux -L "$server" capture-pane -p > "$tmp/screen"
+    if grep -q 'message number 30' "$tmp/screen"; then break; fi
+    sleep 0.1
+  done
+  tmux -L "$server" kill-server
+  cat "$tmp/screen" >&2
+  grep -q 'message number 30' "$tmp/screen"                          # the newest, as a chat opens
+  not grep -qE 'message number 1( |$)' "$tmp/screen"
+  eq "$(grep -o 'Invoice question' "$tmp/screen" | wc -l)" 2          # its row, and the subject kept over the pane
+}
+
 test_what_you_type_under_a_thread_holds_on_the_board_until_you_sign_it() {
   conversation
   watched > /dev/null
