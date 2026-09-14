@@ -621,6 +621,21 @@ test_the_board_cleans_after_listing_what_goes() {
   [ ! -e "$(dir $id)" ]
 }
 
+test_the_board_stays_on_clean_and_says_what_it_could_not_delete() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  parent=$(new "parent work")
+  t run $parent
+  child=$(new "child work" --on $parent)
+  touch -d '2 days ago' "$(dir $parent)/step"
+  t ui --key "$(keyfor clean)" 1 '' > /dev/null
+  out=$(t ui --key enter 1 '')
+  not grep -q 'change-prompt(task> )' <<< "$out"
+  grep -q "change-footer~.*task $((10#$child)) is stacked on $((10#$parent))" <<< "$out"
+  eq "$(cat "$T_UI/mode")" "clean -"
+  [ -d "$(dir $parent)" ]
+}
+
 test_ctrl_x_is_offered_for_a_running_task() {
   id=$(new "add the widget")
   ( exec 9> "$(dir $id)/lock"; flock 9; sleep 30 ) &

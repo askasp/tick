@@ -280,7 +280,7 @@ if [ "${1:-}" = --key ]; then
             back "$cursor" ;;
       clean) [ "$how" = enter ] || exit 0
             t-clean 2>&1 > /dev/null | grep -v '^t: removed ' > "$T_UI/err" || true
-            if [ -s "$T_UI/err" ]; then echo "$(back "")+$(failed)"; else back ""; fi ;;
+            if [ -s "$T_UI/err" ]; then echo "refresh-preview+$(failed)"; else back ""; fi ;;
       say)  [ "$how" = enter ] && [ -n "$q" ] || exit 0
             t-agent "$target" "$(cat "$T_UI/cli")" > /dev/null   # the agent picked here solves it from now on
             t-say "$target" "$q" "$pick" > /dev/null 2> "$T_UI/err" || failed
