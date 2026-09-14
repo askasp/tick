@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# post — the comment you signed goes up on the conversation, where it lives: for your teammates, and nobody outside.
+set -euo pipefail
+[ -f signed ] || { echo "the comment isn't signed; sign it with: t sign $((10#${PWD##*/}))" >&2; exit 1; }
+read -r source id <<< "$(sed -n 's/^conversation: //p' task.md | head -1)"
+"$T_ROOT/sources/$source" comment "$id" < answer.md > comment_id.tmp
+mv comment_id.tmp comment_id
+rm signed

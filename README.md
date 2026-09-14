@@ -414,9 +414,9 @@ jobs/front-digest "3 days"   # after a holiday
 ```
 
 Conversations where a teammate @mentions you in a comment come first. The job
-reads `FRONT_TOKEN=` and `FRONT_EMAIL=` from `~/.config/front/env` (`chmod
-600` it), and the `summarizer` agent writes the digest. To get one every
-morning:
+reads `FRONT_TOKEN=` and `FRONT_EMAIL=` from `~/.config/front/env`, which `t
+front login` writes, and the `summarizer` agent writes the digest. To get one
+every morning:
 
 ```sh
 (crontab -l; echo '0 7 * * * $HOME/git/tick/jobs/front-digest > $HOME/digest.tmp 2> $HOME/digest.log && mv $HOME/digest.tmp $HOME/digest.md') | crontab -
@@ -491,11 +491,11 @@ already taken can run twice.
 
 Front comes into tick the way everything else does, as tasks and files. Mail
 arriving is not work: a thousand conversations cost the board one row, and only
-you add more. With `~/.config/front/env` written (the digest's), start the watch
-once:
+you add more. After `t front login` (it says which permissions the token needs,
+checks it, and keeps it), start the watch once:
 
 ```sh
-t new -p front "front inbox"
+t new -p front-inbox "front inbox"
 ```
 
 It is a task that never ends. Its one step, `watch`, asks Front what changed
@@ -511,6 +511,7 @@ beside the one you are on.
 | --- | --- |
 | enter | an agent drafts a reply: a task on pipeline `reply`, with `+draft` |
 | ^o | a reply you write: the thread is read, and `$EDITOR` opens on it |
+| ^t | a comment you write, for your teammates only: a task on pipeline `comment` |
 | ^x | archives the conversation in Front |
 
 A reply is `thread → +draft → sign → send`, and nothing leaves until you sign
@@ -523,6 +524,19 @@ it again. `DELIVER=` in `pipelines/reply/env` says what leaving is:
   once more and send from there. Signing again edits the same draft.
 - `send`: sent as you, and only while the thread is the one you read. If
   someone wrote since, the reply holds again, with the thread as it is now.
+
+Comments are Front's, and stay there: tick never keeps one of its own. In a
+thread they hang under the message they follow (`### └ comment by Ida K`), and
+the thread ends by saying who can't see them (`_2 comments: only your
+teammates see them, not Anna Ø._`), so what a colleague said never reads like
+something the customer was told. A draft reads them, does what they say, and
+never quotes them. A conversation that is there because a comment mentions
+you says `mention` in red, so typing `mention` in `t inbox` lists every one.
+The watch's first poll reads back a day (`SINCE=` in the pipeline's env), and
+each later one what changed since: a comment that mentions you tomorrow, on a
+thread from last year, brings that whole thread. A
+comment is a task of its own (`thread → +draft → sign → post`): it holds as
+`comment ready`, naming who won't see it, and is posted only once you sign it.
 
 A draft writes the way you do because of `jobs/mail-corpus`, which keeps the
 mail you sent as files in `~/.tick/corpus/` (its first run goes back
@@ -634,6 +648,7 @@ t sign [TASK]              read a reply in $EDITOR and sign it: then it leaves
 t inbox [TASK]             the mail a watch keeps: enter drafts a reply, ^o you write one, ^x archives
 t cal [TASK]               the week a calendar watch keeps: ^y accepts an invite, ^t maybe, ^x declines
 t google login NAME        log a Google account in, for its linked mail and calendar
+t front login              the Front API token: what to choose when you make it, then it is checked and kept
 t attach [TASK]            resume the agent's conversation yourself
 t run [TASK]               run it now, in this terminal
 t hold [-f] [TASK] [why]   pause it after the running step; -f cancels that step now, agent and all

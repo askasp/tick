@@ -1,7 +1,17 @@
 #!/usr/bin/env bash
-# sign — nothing leaves until you have read it. Until `t sign` marks the reply signed, the task holds: "draft
-# ready" when there is one to read, else "write your reply".
+# sign — nothing another person sees leaves until you have read it. Until `t sign` marks it signed, the task holds:
+# "draft ready" when there is one to read, else "write your reply". A comment (KIND=comment) says so, and names
+# who won't see it.
 set -euo pipefail
 if [ -f signed ] && [ -s answer.md ]; then exit 0; fi
-if [ -s answer.md ]; then echo "draft ready" > hold; else echo "write your reply" > hold; fi
+if [ "${KIND:-reply}" = comment ]; then
+  read -r source id <<< "$(sed -n 's/^conversation: //p' task.md | head -1)"
+  outside=$(jq -r '.from // empty' "$T_VAR/mail/$source/$id/conv.json" 2> /dev/null || true)   # the watch read who wrote
+  ready="comment ready: internal, ${outside:-nobody outside your team} will not see it"
+  if [ -z "$outside" ]; then ready="comment ready: internal, for your teammates only"; fi
+  empty="write your comment"
+else
+  ready="draft ready" empty="write your reply"
+fi
+if [ -s answer.md ]; then echo "$ready" > hold; else echo "$empty" > hold; fi
 exit 75
