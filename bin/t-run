@@ -20,6 +20,11 @@ id=${task##*/} n=$(task_num "$task")
 exec 9> lock
 flock -n 9 || exit 0
 
+# what the run's programs put in $TMPDIR goes with it; a run killed with -9 leaves it to the next one
+export TMPDIR=$task/tmp
+rm -rf "$TMPDIR" && mkdir "$TMPDIR"
+trap 'rm -rf "$TMPDIR"' EXIT
+
 unset T_UI T_NEW    # the board's, when t ui started us: plan's t new would write into it after it closed
 set -a
 load_env "$task"

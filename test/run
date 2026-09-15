@@ -202,6 +202,20 @@ test_an_unknown_mindset_names_the_ones_there_are() {
   grep -q "asks for the mindset 'nosuch'" "$tmp/out"
 }
 
+test_a_run_leaves_no_temporary_files_even_when_it_was_killed() {
+  mkdir "$tmp/tick/pipelines/scratch"
+  echo REPO=none > "$tmp/tick/pipelines/scratch/env"
+  printf '#!/usr/bin/env bash\nmktemp >> made\nif [ ! -e killed ]; then touch killed; kill -9 $PPID; fi\n' > "$tmp/tick/pipelines/scratch/10-scratch"
+  chmod +x "$tmp/tick/pipelines/scratch/10-scratch"
+  id=$(new "scribble" -p scratch)
+  not t run $id
+  flock -w 5 "$(dir $id)/lock" true
+  t run $id
+  eq "$(step $id)" done
+  eq "$(wc -l < "$(dir $id)/made")" 2
+  while read -r made; do [ ! -e "$made" ]; done < "$(dir $id)/made"
+}
+
 test_failing_tests_go_back_to_the_implementer() {
   printf 'BROKEN\nfixed\n' > "$FAKE/impl"
   id=$(new "add the widget")
@@ -2918,6 +2932,8 @@ names=$(declare -F | awk '{ print $3 }' | grep '^test_' | grep -- "${1:-.}")
 [ -n "$names" ] || { echo "no test matches ${1:-.}; run test/run with no pattern for all of them" >&2; exit 1; }
 limit=${TEST_SECONDS:-60}
 logs=$(mktemp -d)
+trap 'rm -rf "$logs"' EXIT
+export TMPDIR=$logs      # a test stopped with -9 can't remove its own files
 for name in $names; do
   while [ "$(jobs -rp | wc -l)" -ge "$(nproc)" ]; do wait -n; done
   (

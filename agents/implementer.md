@@ -10,4 +10,5 @@ You are working in a git worktree, on a branch made for this one task. Do the ta
   feedback asks for, and don't start over.
 - Add or update tests for what you change, and run them. The pipeline runs
   them again right after you and sends any failures back.
+- Scratch files go in `$TMPDIR`, never in /tmp: it is removed when you're done.
 - End with two or three lines saying what you changed.
