@@ -568,17 +568,17 @@ test_each_step_runs_on_the_cli_its_pipeline_names() {
   id=$(new "add the widget" -p amino-feature +plan)             # the planner is named; the rest take the default
   t run $id
   eq "$(step $id)" done
-  eq "$(grep -c . "$FAKE/claude.calls")" 7              # plan, implement, and a review pass per mindset
+  eq "$(grep -c . "$FAKE/claude.calls")" 6              # plan, implement, and a review pass per mindset
   grep -q -- '--model vllm/test-model' "$FAKE/claude.calls"    # the step's model went with it
   grep -q -- '--model opus --effort max' "$FAKE/claude.calls"
   [ ! -e "$FAKE/opencode.calls" ]
   t show $id | grep -q '^pipeline  amino-feature · claude$'
   id=$(new "add the gadget" -p amino-feature +plan --cli claude)   # --cli, on every step
   t run $id
-  eq "$(grep -c . "$FAKE/claude.calls")" 14
+  eq "$(grep -c . "$FAKE/claude.calls")" 12
   eq "$(grep -c -- '--model vllm/test-model' "$FAKE/claude.calls")" 2   # the step's model, on both implementers
   eq "$(grep -c -- '--effort max' "$FAKE/claude.calls")" 2     # both planners, as amino asks
-  eq "$(grep -c -- '--effort high' "$FAKE/claude.calls")" 12   # implement and the five reviews: T_EFFORT
+  eq "$(grep -c -- '--effort high' "$FAKE/claude.calls")" 10   # implement and the four reviews: T_EFFORT
 }
 
 test_a_worktree_has_a_name_of_its_own_and_teardown_follows_tests() {

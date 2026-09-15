@@ -306,10 +306,12 @@ While it reads, the board says which pass it is on and of how many
 | `data` | what happens at a thousand times the data? |
 | `trust` | who could see or do what they shouldn't? |
 
-`amino-feature` names the first five, and `mono-feature` adds `house-rules`. A small local model answers five narrow
-questions better than one wide one, and a stacked pull request gets no review
-from GitHub's bot at all, so this is the only review it will get. `data` and
-`trust` are left to `jobs/idle-review`, which has all the time in the world.
+`amino-feature` names the first four, and `mono-feature` adds `house-rules`. One narrow
+question makes the reviewer read what a wide one skims past, like the callers
+outside the diff, and a stacked pull request gets no review from GitHub's bot at
+all, so this is the only review it will get. `craft`, `data` and `trust` are left
+to `jobs/idle-review`, which has all the time in the world: taste blocked more
+rounds than any bug did.
 
 `tick-feature` works in a worktree of its own, like `amino-feature`, but branches from tick's
 local `main` (`TRUNK=main` in its env) and ends with `merge`. That step merges

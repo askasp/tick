@@ -10,8 +10,9 @@ MODEL_plan=opus
 EFFORT_plan=max
 
 # The review reads the diff once per mindset named here, each time for one thing only: a name is a
-# file in mindsets/, and a small local model is better at five narrow questions than one wide one.
-# data and trust are left to jobs/idle-review, which has all the time in the world.
-MINDSETS="intent defects blast-radius tests craft"
-# From the third round on, only these may still send the task back: tests and craft always find more.
+# file in mindsets/, and one narrow question makes the reviewer read what a wide one skims past, like
+# the callers outside the diff. craft, data and trust are left to jobs/idle-review: taste blocked more
+# rounds than any bug did.
+MINDSETS="intent defects blast-radius tests"
+# From the third round on, only these may still send the task back: tests always find more.
 LATE_MINDSETS="intent defects"

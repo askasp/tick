@@ -12,7 +12,7 @@ MODEL_plan=opus
 EFFORT_plan=max
 
 # The review reads the diff once per mindset named here, each time for one thing only (mindsets/).
-# data and trust are left to jobs/idle-review.
-MINDSETS="intent house-rules defects blast-radius tests craft"
+# craft, data and trust are left to jobs/idle-review.
+MINDSETS="intent house-rules defects blast-radius tests"
 # From the third round on, only these may still send the task back: a broken house rule still does.
 LATE_MINDSETS="intent house-rules defects"
