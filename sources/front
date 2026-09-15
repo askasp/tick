@@ -86,7 +86,7 @@ thread() {
     | ($all | map(select(has("posted_at"))) | length) as $comments
     | ($all
        | map(. as $c | if has("posted_at") then {t: .posted_at, s: "### └ comment by \(.author.first_name) \(.author.last_name), \(.posted_at | when)\n\(.posted_at | at($c.author.email))\n\n\(.body)"}
-             else {t: .created_at, s: "## \(.type) from \(sender), \(.created_at | when)\n\(.created_at | at([$c.recipients[]? | select(.role == "from") | .handle][0]))\n\n\(.text // "" | unquoted)"} end)
+             else {t: .created_at, s: "## \(.type) from \(sender), \(.created_at | when)\n\(.created_at | at(if $c.author then $c.author.email else [$c.recipients[]? | select(.role == "from") | .handle][0] end))\n\n\(.text // "" | unquoted)"} end)
        | sort_by(.t)[] | "\n" + .s),
       (if $comments > 0
        then "\n_\(plural($comments; "comment")): only your teammates see \(if $comments == 1 then "it" else "them" end)\(if $outside != "" then ", not \($outside)" else "" end)._"

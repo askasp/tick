@@ -2297,7 +2297,7 @@ test_opening_a_thread_marks_it_read_and_the_inbox_counts_what_others_wrote_since
   thread --fresh > /dev/null
   not grep -q 'unread\|new' <(inbox --rows)
   asks '[{"type": "email", "created_at": 100, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob"}], "text": "Can you resend the invoice?"},
-         {"type": "email", "created_at": 200, "draft_mode": null, "recipients": [{"role": "from", "handle": "Me@example.com"}], "text": "Sent it again."},
+         {"type": "email", "created_at": 200, "draft_mode": null, "recipients": [{"role": "from", "handle": "support@example.com"}], "author": {"id": "tea_me", "email": "Me@example.com"}, "text": "Sent it again."},
          {"type": "email", "created_at": 300, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob"}], "text": "Got it, thanks!"}]'
   front_source thread cnv_x > "$T_VAR/mail/front/cnv_x/thread.md"   # as the watch keeps it
   inbox --rows | grep -q $'^cnv_x\t.*Invoice question .* 1 new'     # your own reply is no news
