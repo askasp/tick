@@ -34,6 +34,9 @@ if crontab -l 2> /dev/null | grep -q 'bin/t tick'; then ok "cron ticks every min
 else fix "no cron line, so tasks only move when you run them" "(crontab -l; echo '* * * * * $T_ROOT/bin/t tick') | crontab -"; fi
 if grep -qs 'completions/t.zsh' ~/.zshrc; then ok "tab completion in zsh"
 else echo "  · no tab completion: add to ~/.zshrc: source $T_ROOT/completions/t.zsh"; fi
+if [ -n "${TMUX:-}" ] && ! tmux display-message -p '#{client_termfeatures}' | grep -q hyperlinks; then
+  echo "  · tmux drops links, so the board's can't be clicked: add to ~/.tmux.conf: set -as terminal-features ',*:hyperlinks'"
+fi
 if mkdir -p "$T_TASKS" 2> /dev/null && [ -w "$T_TASKS" ]; then ok "state in $T_VAR"; else fix "can't write $T_TASKS" "set T_VAR in $T_ROOT/etc/tick.conf"; fi
 
 echo "repos   (t new -r NAME; a directory in $T_REPOS works too)"

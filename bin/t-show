@@ -26,11 +26,22 @@ rendered() {   # glow writes into less, not a terminal: force its style and colo
 field() { printf '%s%-10s%s%s\n' "$C_FAINT" "$1" "$C_OFF" "$2"; }
 home() { echo "${1/#"$HOME"/\~}"; }
 
+# a URL the terminal can click, even where the pane wraps it: an OSC 8 hyperlink, when there is color
+link() {
+  if [ -n "$C_OFF" ]; then printf '\e]8;;%s\e\\%s\e]8;;\e\\' "$1" "$1"; else printf %s "$1"; fi
+}
+
 # what +preview put online, a link a line, whole, to click or select: preview   App        https://…
+# A URL too long for that goes on a line of its own, so the pane doesn't wrap it.
 preview_links() {
   local label=preview surface url
   while read -r surface url; do
-    field "$label" "$(printf '%-11s%s' "$surface" "$url")"
+    if [ $((21 + ${#url})) -gt "$width" ]; then
+      field "$label" "$surface"
+      field "" "$(link "$url")"
+    else
+      field "$label" "$(printf '%-11s%s' "$surface" "$(link "$url")")"
+    fi
     label=
   done < "$task/preview"
 }
@@ -144,7 +155,7 @@ show() {
     field base "$(base_on)"
   fi
   if [ -e "$task/work" ]; then echo "${C_FAINT}worktree  $(home "$(readlink -f "$task/work")")$C_OFF"; fi
-  if [ -f "$task/pr" ]; then field pr "$(cat "$task/pr")"; fi
+  if [ -f "$task/pr" ]; then field pr "$(link "$(cat "$task/pr")")"; fi
   if [ -s "$task/preview" ]; then preview_links; fi
   if [ -s "$task/feedback.md" ]; then field feedback "$(grep -m1 . "$task/feedback.md" | cut -c1-90)"; fi
   if [ -n "$waits_for" ]; then
