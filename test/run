@@ -1987,6 +1987,22 @@ test_the_inbox_lists_what_the_watch_keeps_and_enter_opens_the_thread() {
   eq "$(inbox --key "$(keyfor open)" cnv_x)" "execute(t-thread cnv_x)+reload(CLICOLOR_FORCE=1 t-inbox --rows)"
 }
 
+test_an_open_inbox_shows_a_mention_the_watch_brings_in_later() {
+  conversation
+  watched > /dev/null
+  inbox --changed > "$tmp/rows" &
+  mentioned() {   # the watch writes a conversation, as a new comment that mentions you on an old thread makes it do
+    mkdir -p "$T_VAR/mail/front/cnv_old"
+    echo "{\"id\": \"cnv_old\", \"subject\": \"Blood tests\", \"updated_at\": $(date +%s), \"why\": \"mention\"}" > "$tmp/conv.json"
+    mv "$tmp/conv.json" "$T_VAR/mail/front/cnv_old/conv.json"
+    [ -s "$tmp/rows" ]
+  }
+  eventually mentioned
+  wait
+  grep -q $'^cnv_old\t.*Blood tests .*mention' "$tmp/rows"
+  grep -q $'^cnv_x\t' "$tmp/rows"
+}
+
 test_the_inbox_shows_a_long_thread_at_its_newest_message_under_its_subject() {
   command -v tmux > /dev/null && command -v fzf > /dev/null || return 0
   mkdir -p "$T_VAR/mail/front/cnv_x"
