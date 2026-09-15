@@ -2167,6 +2167,24 @@ test_the_slack_inbox_puts_what_involves_you_above_a_rule_and_the_channels_under_
   eq "$(offered 0001)" "inbox log"                                  # while it polls, enter still opens the inbox
 }
 
+test_a_slack_channel_read_once_says_new_again_when_someone_writes_in_it() {
+  slack_workspace
+  dim=$(. "$tmp/tick/lib/tick.sh"; printf %s "$C_DIM")
+  opened C2
+  thread --fresh > /dev/null
+  T_INBOX=slack-work CLICOLOR_FORCE=1 "$tmp/tick/bin/t-inbox" --rows | grep '^C2' > "$tmp/row"
+  grep -qF "${dim}2 unread" "$tmp/row"                              # Slack still counts it, but you read it here
+  not grep -q ' new' "$tmp/row"
+  channel_says C2 "[{\"ts\": \"$((now + 60)).000100\", \"user\": \"U0IDA001\", \"text\": \"kaffe?\"},
+                    {\"ts\": \"$((now - 800)).000100\", \"bot_profile\": {\"name\": \"CRM\"}, \"text\": \"new lead\"}]"
+  touch -d '1 hour ago' "$T_VAR/mail/slack-work/polled"
+  t run 1 > /dev/null 2>&1
+  [ ! -e "$T_VAR/mail/slack-work/C2/thread.md" ]                    # the poll keeps it as a count again
+  T_INBOX=slack-work CLICOLOR_FORCE=1 "$tmp/tick/bin/t-inbox" --rows | grep '^C2' > "$tmp/row"
+  grep -q 'new' "$tmp/row"
+  not grep -qF "${dim}2 unread" "$tmp/row"                          # not dimmed as read
+}
+
 test_a_slack_reply_goes_into_the_thread_the_prompt_is_under_or_to_the_whole_channel() {
   slack_workspace
   opened C1

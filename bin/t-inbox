@@ -36,10 +36,16 @@ reason() {
 }
 
 # what conversation $1 has that you haven't read: unread if t thread never opened it, else how many messages others
-# wrote since it did (2 new), else nothing
+# wrote since it did (2 new), else nothing. A channel the watch keeps only as a count has no thread to count in: new
+# if something came in after you opened it
 news() {
   local thread=$mail/$1/thread.md n
-  [ -f "$thread" ] || return 0
+  if [ ! -f "$thread" ]; then
+    if [ -f "$mail/$1/read" ] && jq -e --argjson read "$(cat "$mail/$1/read")" '(.updated_at // 0) > $read' "$mail/$1/conv.json" > /dev/null; then
+      echo new
+    fi
+    return 0
+  fi
   if [ ! -f "$mail/$1/read" ]; then
     if [ "$(said_since "$thread" 0)" -gt 0 ]; then echo unread; fi
     return 0
