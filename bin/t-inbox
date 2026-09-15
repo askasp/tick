@@ -5,7 +5,7 @@
 # row opens this. Enter here is t thread: the conversation the width of the screen, with what you write typed under it,
 # which holds on the board until you sign it. What involves you comes first; under a rule, channels that don't, as a
 # count. The list is what the watch last read, and ^x archives (in Slack: marks read) where it lives.
-# fzf runs t-inbox for what changes: --rows, --pane ID, --keys, --key KEY ID (what KEY does to it)
+# fzf runs t-inbox for what changes: --rows, --changed (the rows once the watch writes), --pane ID, --keys, --key KEY ID (what KEY does to it)
 . "$(dirname "$(readlink -f "$0")")/../lib/tick.sh"
 set -euo pipefail
 shopt -s nullglob
@@ -55,6 +55,16 @@ rows() {
       printf '%s\t%s%-6s%s  %s  %s  %s%s\n' "$id" "$C_DIM" "$when" "$C_OFF" "$(pad 24 "$where")" "$(pad 44 "$about")" \
         "$(pad 8 "$word" "$color$word$C_OFF")" "${task:+  ${C_DIM}task $(task_num "$task")$C_OFF}"
     done
+}
+
+# the rows, once the watch has written a conversation or dropped one: an inbox left open shows what came in since
+changed() {
+  local was
+  was=$(stat -c '%n %y' "$mail" "$mail"/*/)
+  while sleep 1; do
+    if [ "$(stat -c '%n %y' "$mail" "$mail"/*/)" != "$was" ]; then break; fi
+  done
+  rows
 }
 
 count() { if [ "$1" = 1 ]; then echo "1 $2"; else echo "$1 ${2}s"; fi; }
@@ -114,6 +124,7 @@ act() {
 
 case ${1:-} in
   --rows)  rows; exit ;;
+  --changed) changed; exit ;;
   --pane)  pane "$2"; exit ;;
   --keys)  keys; exit ;;
   --key)   act "$2" "$3"; exit ;;
@@ -124,7 +135,8 @@ binds=()
 while read -r _ key _; do
   binds+=(--bind "$key:transform:t-inbox --key '$key' {1}")
 done <<< "$INBOX_KEYS"
-CLICOLOR_FORCE=1 t-inbox --rows | fzf "${BOARD_FZF[@]}" --delimiter $'\t' --with-nth 2.. --prompt "$T_INBOX> " --info inline-right \
+CLICOLOR_FORCE=1 t-inbox --rows | fzf "${BOARD_FZF[@]}" --delimiter $'\t' --with-nth 2.. --prompt "$T_INBOX> " --info inline-right --track \
+  --bind 'load:reload-sync(CLICOLOR_FORCE=1 t-inbox --changed)' \
   --footer "$(hint enter open "$(key archive)" "$archive" "$(key keys)" keys esc back)" \
   --preview 'CLICOLOR_FORCE=1 t-inbox --pane {1}' --preview-window 'right,50%,follow,wrap,~2,border-left,<60(down,60%,border-top)' \
   "${PANE_SCROLL[@]}" "${binds[@]}" || true
