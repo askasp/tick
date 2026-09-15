@@ -734,6 +734,19 @@ test_esc_in_a_form_clears_the_words_before_going_back() {
   eq "$(cat "$T_UI/mode")" board
 }
 
+test_enter_in_a_form_reloads_the_board_at_once() {
+  export T_UI=$tmp/ui T_NEW=$tmp/ui
+  mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
+  new "add the widget" > /dev/null
+  t ui --key "$(keyfor keys)" 1 '' > /dev/null
+  form_enter 1 name > /dev/null
+  timeout 5 t ui --changed > /dev/null                       # the do form's enter reloads too
+  timeout 5 t ui --changed > "$tmp/rows" &                   # a rename moves no task: unasked, it reloads after 14 seconds
+  form_enter 1 Widget > /dev/null
+  wait $! || { echo "the board never reloaded after enter in a form" >&2; return 1; }
+  grep -q Widget "$tmp/rows"
+}
+
 test_clean_deletes_what_is_done_answered_or_held_for_12_hours() {
   old=$(new "old done")
   t run $old

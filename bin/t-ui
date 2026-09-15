@@ -94,10 +94,12 @@ if [ "${1:-}" = --changed ]; then
   put_stats() { [ -n "${T_UI:-}" ] && echo "$1" > "$T_UI/stats.tmp" && mv "$T_UI/stats.tmp" "$T_UI/stats"; }
   was=$(moves) all=$(board -a; t-later --row) i=0
   stats=$(board_stats); put_stats "$stats"
-  while sleep 2; do
+  while sleep 0.2; do
     i=$((i + 1))
+    if [ -e "$T_UI/changed" ]; then rm -f "$T_UI/changed"; break; fi   # a form enter sent (see --key entered)
+    if [ $((i % 10)) -ne 0 ]; then continue; fi
     if [ "$(moves)" != "$was" ]; then break; fi
-    if [ $((i % 7)) -ne 0 ]; then continue; fi
+    if [ $((i % 70)) -ne 0 ]; then continue; fi
     fresh=$(board_stats); put_stats "$fresh"
     [ "$(board -a; t-later --row)" = "$all" ] && [ "$fresh" = "$stats" ] || break
   done
@@ -411,6 +413,7 @@ if [ "${1:-}" = --key ]; then
             else printf '%s ' "$q" > "$T_UI/entered"; after_paste 't-ui --key entered - "$FZF_QUERY"'; fi ;;
     entered) if [ "$q" = "$(cat "$T_UI/entered" 2> /dev/null)" ]; then   # no paste went on after enter
                q=${q% } did=$(submit enter)
+               if [ -n "$did" ]; then touch "$T_UI/changed"; fi   # fzf runs no reload that comes from a bg-transform: --changed does
                echo "backward-delete-char${did:++$did}"
              fi ;;
     *)      case $(named "$FORM_KEYS" "$BOARD_KEYS" "$ACTIONS") in
