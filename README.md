@@ -269,7 +269,13 @@ behind three Cloudflare quick tunnels (app, backoffice, API), builds both
 frontends against the API's link, and prints the links only once each answers
 through its tunnel and both bundles name that API. Quick tunnels need no
 Cloudflare account; the random `trycloudflare.com` links are the only lock, and
-they change when a test run's teardown closes the tunnels.
+they change when a test run's teardown closes the tunnels. Those checks use
+curl, which rejects a bad certificate, so a link that shows up has a valid one
+(`*.trycloudflare.com`, from Google Trust Services). If a browser says the
+certificate is for some other name, something between that browser and
+Cloudflare answered instead. Usually it's a DNS filter or antivirus that blocks
+`trycloudflare.com`, because phishing sites use quick tunnels too. Don't click
+through the warning. Open the link from a network without that filter.
 
 ### Mindsets: reviewing once per thing
 
