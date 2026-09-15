@@ -120,7 +120,7 @@ for want in "${wants[@]}"; do
     printf '# %s: the %s of the Google account %s, as one row on the board (t google login %s)\nREPO=none\n%s=%s\n' \
       "$pipeline" "$want" "$account" "$account" "$setting" "$account" > "$T_ROOT/pipelines/$pipeline/env"
     if [ "$want" = mail ]; then
-      printf 'POLL=300\nCLI_watch=opencode\n# only the mail that matters to you, in Gmail'"'"'s search words:\n# SEARCH='"'"'("native app" OR aksel)'"'"'\n' \
+      printf 'POLL=300\n# only the mail that matters to you, in Gmail'"'"'s search words:\n# SEARCH='"'"'("native app" OR aksel)'"'"'\n' \
         >> "$T_ROOT/pipelines/$pipeline/env"
     fi
   fi

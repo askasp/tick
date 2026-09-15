@@ -163,18 +163,21 @@ load_env() {
   done < <(env_files "$1")
 }
 
-# the CLI that step $2 of pipeline $1 runs on, when the pipeline names one (CLI_<step>=);
-# given a task directory as $3, its repo's settings and its own `t new --cli` count too
+# the CLI that step $2 of pipeline $1 runs on: CLI_<step>= in the pipeline's env, else the default
+# T_CLI; given a task directory as $3, its repo's settings and its own `t new --cli` count too.
+# A step that runs no agent has no CLI.
 solver() {
-  local var=CLI_${2//[^a-zA-Z0-9_]/_}
+  local var=CLI_${2//[^a-zA-Z0-9_]/_} step
   (
     if [ -f "$T_ROOT/pipelines/$1/env" ]; then . "$T_ROOT/pipelines/$1/env" > /dev/null 2>&1; fi
     if [ -n "${3:-}" ]; then load_env "$3" > /dev/null 2>&1; fi
-    if [ -n "${!var:-}" ]; then echo "${AGENT_CLI:-${!var}}"; fi
+    step=$(ls "$T_ROOT/pipelines/$1" 2> /dev/null | grep -E "^[0-9]+-${2}\$")
+    grep -q "agent " "$T_ROOT/pipelines/$1/$step" 2> /dev/null || exit 0
+    echo "${AGENT_CLI:-${!var:-$T_CLI}}"
   )
 }
 
-# a pipeline's steps with their solvers: implement (opencode) → test → review (opencode).
+# a pipeline's steps with their solvers: implement (claude) → test → review (claude).
 # An optional step is marked +plan, unless $2 says which of them a task asked for.
 flow() {
   local s name who out= mark=

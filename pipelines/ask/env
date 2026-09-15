@@ -1,2 +1,1 @@
 # ask: a question about the repo you're in (or -r REPO). The answer comes from reading it; nothing changes.
-CLI_answer=opencode

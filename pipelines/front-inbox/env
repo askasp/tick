@@ -3,4 +3,3 @@
 REPO=none
 SOURCE=front
 POLL=300
-CLI_watch=opencode

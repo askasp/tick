@@ -44,7 +44,7 @@ if [ ! -e "$source" ]; then ln -s slack "$source"; fi
 if [ ! -e "$pipeline" ]; then
   mkdir "$pipeline"
   ln -s ../../steps/watch "$pipeline/10-watch"
-  printf '# %s: the Slack workspace %s, as one row on the board that never ends (t slack login %s)\nREPO=none\nSOURCE=%s\nPOLL=300\nCLI_watch=opencode\n' \
+  printf '# %s: the Slack workspace %s, as one row on the board that never ends (t slack login %s)\nREPO=none\nSOURCE=%s\nPOLL=300\n' \
     "$name" "$team" "$name" "$name" > "$pipeline/env"
 fi
 echo "t: logged in to Slack at $team as $(jq -r .user <<< "$who"); kept in $dir/env" >&2

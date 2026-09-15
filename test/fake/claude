@@ -4,6 +4,9 @@
 #     (default "change"; the line "noop" changes nothing)
 #   read mode: replies "VERDICT: <next line of $FAKE/verdicts>" (default approve)
 #   agents/planner: replies $FAKE/plan once (default one part, "PART: as asked")
+#   agents/namer: replies the next line of $FAKE/names (default "Widget work")
+#   agents/merger: strips the conflict markers, unless $FAKE/merges says noop (leaves them)
+#   FAKE_RUN is a command the agent runs, the way a real one runs tests in the worktree
 #   FAKE_REPLAY=FILE prints a recorded real stream instead; FAKE_SLEEP=N takes N seconds
 set -eu
 pop() {
@@ -21,12 +24,21 @@ sid=none
 for ((i = 1; i < $#; i++)); do [ "${!i}" != --session-id ] || { j=$((i + 1)); sid=${!j}; }; done
 
 [ -z "${FAKE_SLEEP:-}" ] || sleep "$FAKE_SLEEP"
+[ -z "${FAKE_RUN:-}" ] || bash -c "$FAKE_RUN" >&2
 if [ -n "${FAKE_REPLAY:-}" ]; then cat "$FAKE_REPLAY"; exit 0; fi
 
-if [ $mode = edit ]; then
+if [ $mode = edit ] && [[ $prompt == *"## Conflicts merging"* ]]; then
+  if [ "$(pop merges resolve)" != noop ]; then
+    awk 'f && /^- / { print substr($0, 3) } /^## Conflicts merging/ { f = 1 }' <<< "$prompt" |
+      while IFS= read -r f; do sed -i '/^\(<<<<<<<\|=======\|>>>>>>>\)/d' "$f"; done
+  fi
+  tool=Edit text="Kept both sides."
+elif [ $mode = edit ]; then
   line=$(pop impl change)
   [ "$line" = noop ] || echo "$line" >> impl.txt
   tool=Edit text="Edited impl.txt."
+elif [[ $prompt == "Name this task"* ]]; then
+  tool=Read text=$(pop names "Widget work")
 elif [[ $prompt == "Decide how many pull requests"* ]]; then
   tool=Read text="PART: as asked"
   if [ -f "$FAKE/plan" ]; then text=$(cat "$FAKE/plan"); rm "$FAKE/plan"; fi

@@ -2,4 +2,3 @@
 REPO=none
 SOURCE=slack-amino
 POLL=300
-CLI_watch=opencode

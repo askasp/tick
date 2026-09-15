@@ -2,6 +2,3 @@
 # TRUNK is the branch tasks start from and merge lands on; the merger agent resolves conflicts with it.
 REPO=tick
 TRUNK=main
-CLI_implement=opencode
-CLI_review=opencode
-CLI_merge=opencode

@@ -141,7 +141,7 @@ $ t show 2
 Rename cart to basket everywhere
 
 state     held  implement ran 3 times without getting past it
-pipeline  shop · opencode
+pipeline  shop · claude
           1 implement  2 test  3 review
 repo      ~/git/shop
 branch    t/0002-rename-cart-to-basket-everywhere
@@ -217,10 +217,10 @@ A pipeline is a directory of numbered links to scripts in `steps/`, like
 
 | pipeline | steps |
 | --- | --- |
-| `amino-feature` (the default) | +plan (claude) → implement (opencode) → test → review (opencode) → sync → pr → +preview → +ci |
-| `mono-feature` | +plan (claude) → implement (opencode) → test → review (opencode) → sync → pr → +ci: mono only, from any directory |
-| `tick-feature` | implement (opencode) → test → review (opencode) → merge (opencode): tick only, from any directory; lands on its `main` |
-| `ask` | answer (opencode): reads the repo you're in and changes nothing |
+| `amino-feature` (the default) | +plan (claude) → implement (claude) → test → review (claude) → sync (claude) → pr → +preview → +ci |
+| `mono-feature` | +plan (claude) → implement (claude) → test → review (claude) → sync (claude) → pr → +ci: mono only, from any directory |
+| `tick-feature` | implement (claude) → test → review (claude) → merge (claude): tick only, from any directory; lands on its `main` |
+| `ask` | answer (claude): reads the repo you're in and changes nothing |
 | `research` | answer (claude): searches the web; needs no repo |
 
 You pick one per task with `t new -p amino-feature "…"`, and a repo can name its own
@@ -320,15 +320,14 @@ your uncommitted work, so while it's in the way, the step waits.
 
 ### Who solves each step
 
-Each agent step's solver is set in its pipeline's `env`, by the step's name:
+Every agent step runs the default CLI; a pipeline's `env` names one for a step
+when it should be another:
 
 ```sh
 # pipelines/amino-feature/env
 CLI_plan=claude
 MODEL_plan=opus                          # the latest Opus: planning is worth it
 EFFORT_plan=max                          # and let it think as hard as it can
-CLI_implement=opencode
-CLI_review=opencode
 # MODEL_implement=vllm/qwen3-coder-next  # optional: pin a model for that step
 ```
 
@@ -353,7 +352,7 @@ The first one set wins:
 
 1. `t new --cli claude "…"`, or later `t agent 7 claude`: every step of that one task.
 2. `CLI_<step>=` in the pipeline's `env`: that step, in every task.
-3. `T_CLI` in `etc/tick.conf` (opencode): any step the pipeline doesn't name.
+3. `T_CLI` in `etc/tick.conf` (claude): any step the pipeline doesn't name.
 
 A pipeline can review twice with different solvers, because the key is the
 link's name, not the script's: add `ln -s ../../steps/review 35-second-review`

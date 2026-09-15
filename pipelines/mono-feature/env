@@ -4,14 +4,12 @@
 # small ones; with +ci, the task waits for the PR's checks and fixes them.
 REPO=mono
 OPTIONAL="plan ci"
-# Who solves each agent step (claude or opencode). MODEL_<step>= pins a model for it, and
-# EFFORT_<step>= how hard claude thinks; every other step thinks at T_EFFORT (etc/tick.conf).
+# Who solves each agent step (claude or opencode): the planner is named, the rest take the default T_CLI.
+# MODEL_<step>= pins a model for a step, and EFFORT_<step>= how hard claude thinks; every other step
+# thinks at T_EFFORT (etc/tick.conf).
 CLI_plan=claude                        # the planner gets the latest Opus, thinking as hard as it can
 MODEL_plan=opus
 EFFORT_plan=max
-CLI_implement=opencode
-CLI_review=opencode
-CLI_sync=opencode                      # the merger, when the base moved on
 
 # The review reads the diff once per mindset named here, each time for one thing only (mindsets/).
 # data and trust are left to jobs/idle-review.
