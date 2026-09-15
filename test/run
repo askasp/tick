@@ -713,6 +713,7 @@ test_ctrl_x_deletes_a_task_in_place() {
   new "add the widget" > /dev/null
   new "fix the gadget" > /dev/null
   new "mend the gizmo" > /dev/null
+  t ui --rows > /dev/null                                            # what fzf shows first
   eq "$(keyfor rm)" ctrl-x
   t ui --key "$(keyfor rm)" 2 '' | grep -q 'change-prompt(task> )'   # no asking: gone, and still on the board
   gone "$(dir 0002)"
@@ -728,7 +729,9 @@ test_ctrl_x_leaves_the_board_before_the_teardown_ends() {
   printf 'TEARDOWN="until [ -e %s/go ]; do sleep 0.05; done"\n' "$tmp" >> "$tmp/tick/pipelines/local/env"
   id=$(new "add the widget")
   touch "$tmp/go"; t run $id; rm "$tmp/go"                  # the teardown after its tests goes right through
+  t ui --rows > /dev/null
   t ui --key "$(keyfor rm)" $id '' | grep -q 'change-prompt(task> )'
+  not grep -q widget "$T_UI/rows"                            # the row goes from what fzf reloads, too
   not grep -q widget <<< "$(t ls -a 2>&1)"
   [ -d "$(dir $id)" ]                                        # its teardown still waits
   touch "$tmp/go"
@@ -1469,6 +1472,7 @@ test_the_board_holds_renames_and_deletes_in_place() {
   mkdir "$T_UI"; echo board > "$T_UI/mode"; touch "$T_UI"/{pane,pick,def,args,repo,cli}
   new "add the widget" > /dev/null
   new "fix the gadget" > /dev/null
+  t ui --rows > /dev/null
   t ui --key "$(keyfor hold)" 1 '' | grep -q 'change-prompt(hold 1 because> )'
   form_enter 1 'waiting on design' > /dev/null
   grep -q 'waiting on design' "$(dir 0001)/hold"

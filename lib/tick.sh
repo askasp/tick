@@ -24,16 +24,16 @@ tdir() { echo "$T_TASKS/$(printf %04d "$((10#$1))")"; }
 title() { sed -n '1s/^# //p' "$1/task.md"; }
 
 # what the board calls a task: the short name `t name` gave it, else its title
-name() { cat "$1/name" 2> /dev/null || title "$1"; }
+name() { if [ -f "$1/name" ]; then echo "$(< "$1/name")"; else title "$1"; fi; }
 
 # done | HOLD | after ID | running | ready
 state() {
   local parent
-  if [ "$(cat "$1/step")" = done ]; then echo done; return; fi
+  if [ "$(< "$1/step")" = done ]; then echo done; return; fi
   if [ -e "$1/hold" ]; then echo HOLD; return; fi
   if [ -f "$1/after" ]; then
-    parent=$(cat "$1/after")
-    if [ "$(cat "$T_TASKS/$parent/step" 2> /dev/null)" != done ]; then echo "after $(task_num "$parent")"; return; fi
+    parent=$(< "$1/after")
+    if [ ! -f "$T_TASKS/$parent/step" ] || [ "$(< "$T_TASKS/$parent/step")" != done ]; then echo "after $(task_num "$parent")"; return; fi
   fi
   if flock -n -s "$1/lock" true 2> /dev/null; then echo ready; else echo running; fi   # shared: two lookers never see each other
 }

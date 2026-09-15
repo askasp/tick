@@ -70,13 +70,13 @@ thread_view() {
 }
 
 # whether the step a task is on has begun: it runs, ran, or was held there
-started() { [ -e "$1/log/$(cat "$1/step").log" ] || [ -e "$1/hold" ]; }
+started() { [ -e "$1/log/$(< "$1/step").log" ] || [ -e "$1/hold" ]; }
 
 # how far a task is: the step it is on of its pipeline's steps (2/4), or while that one hasn't begun,
 # the steps behind it (0/4 before the first; 4/4 done)
 fraction() {
   local step all at=0 s
-  step=$(cat "$1/step") all=$(steps "$(cat "$1/pipeline")" "$1")
+  step=$(< "$1/step") all=$(steps "$(< "$1/pipeline")" "$1")
   for s in $all; do
     at=$((at + 1))
     [ "$s" = "$step" ] || continue
@@ -152,7 +152,7 @@ board_stats() {
 # where a task stands, in a word or two: held and why, after 7, answered, done, else the step it is on.
 standing() {
   local st step
-  st=$(state "$1") step=$(cat "$1/step")
+  st=$(state "$1") step=$(< "$1/step")
   case $st in
     HOLD)   echo "held  $(head -1 "$1/hold")" ;;
     after*) echo "$st" ;;
@@ -168,7 +168,7 @@ standing() {
 status() {
   local st step line mindset
   if [ -s "$1/note" ]; then head -1 "$1/note"; return; fi
-  st=$(state "$1") step=$(cat "$1/step")
+  st=$(state "$1") step=$(< "$1/step")
   case $st in ready | running) ;; *) standing "$1"; return ;; esac
   line=$(doing "$(last_words "$1/log/$step.log")")
   if [ "$st" = running ]; then
@@ -227,8 +227,8 @@ rows() {
   if [ -z "${T_COLOR:-}" ]; then local C_TEXT= C_MID= C_DIM= C_FAINT= C_RED= C_OFF=; fi
   numbers=$C_DIM st=$(state "$t")
   if [ -f "$t/repo" ]; then
-    repo=$(profile_of "$(cat "$t/repo")")
-    repo=${repo:-$(basename "$(cat "$t/repo")")}
+    repo=$(profile_of "$(< "$t/repo")")
+    repo=${repo:-$(basename "$(< "$t/repo")")}
   fi
   title=$indent$(name "$t") since=$(age "$t")
   says=$(status "$t")
@@ -243,7 +243,8 @@ rows() {
 
   if [ -z "$indent" ]; then under="└ "; else under="  $indent"; fi
   for child in "$T_TASKS"/*/after; do
-    if [ "$(cat "$child" 2> /dev/null)" = "${t##*/}" ] && [[ $(state "${child%/after}") == after* ]]; then
+    [ -f "$child" ] || continue
+    if [ "$(< "$child")" = "${t##*/}" ] && [[ $(state "${child%/after}") == after* ]]; then
       rows "${child%/after}" "$under"
     fi
   done
@@ -446,10 +447,10 @@ offers() {
   case $(state "$1") in
     running) if [ -n "$screen" ]; then echo "$screen log"; else echo log diff cancel hold rm; fi ;;   # a watch polling is still its screen
     ready)   if [ -n "$screen" ]; then echo "$screen log"
-             elif [ -s "$1/log/$(cat "$1/step").log" ]; then echo log run hold
+             elif [ -s "$1/log/$(< "$1/step").log" ]; then echo log run hold
              else echo run hold rm; fi ;;
     after*)  echo log rm ;;
-    HOLD)    case $(cat "$1/step") in
+    HOLD)    case $(< "$1/step") in
                *-sign) echo sign say rm ;;
                *-do)   echo hold rm ;;                  # resuming it is saying you did it
                *)      echo say log attach hold ;;

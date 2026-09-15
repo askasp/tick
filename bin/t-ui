@@ -25,24 +25,29 @@ list_width() {
   echo "$cols"
 }
 
-# the tasks, then your own list as one row under them
+# the tasks, then your own list as one row under them; $T_UI/rows keeps what fzf was given last
 board_rows() {
-  local cols
+  local cols rows
   cols=$(list_width)
-  T_COLOR=1 T_COLS=$cols board -a
-  T_COLS=$cols CLICOLOR_FORCE=1 t-later --row
+  rows=$(T_COLOR=1 T_COLS=$cols board -a; T_COLS=$cols CLICOLOR_FORCE=1 t-later --row)
+  rows=${rows:+$rows$'\n'}
+  if [ -n "${T_UI:-}" ]; then printf %s "$rows" > "$T_UI/rows.tmp" && mv "$T_UI/rows.tmp" "$T_UI/rows"; fi
+  printf %s "$rows"
 }
+
+# the first column of the rows fzf has: task numbers, and later for your own list
+shown_ids() { sed 's/\x1b\[[0-9;]*m//g' "$T_UI/rows" | awk '{ print $1 }'; }
 
 # the step task $1 starts over at, by name
 first_step() { local s; s=$(steps "$(cat "$1/pipeline")" "$1" | head -1); echo "${s#*-}"; }
 
 # the line task $1 is on in the board's list
-row_of() { board -a | awk -v n="$(task_num "$1")" '$1 == n { print NR; exit }'; }
+row_of() { shown_ids | awk -v n="$1" '$1 == n { print NR; exit }'; }
 
 # where the cursor goes when task $1 is deleted: the row above it, else the one below
 neighbour() {
   local ids i
-  ids=($(board -a | awk '{ print $1 }'))
+  ids=($(shown_ids))
   for i in "${!ids[@]}"; do
     [ "${ids[i]}" = "$1" ] || continue
     if [ "$i" -gt 0 ]; then echo "${ids[i - 1]}"
@@ -88,18 +93,18 @@ if [ "${1:-}" = --changed ]; then
   moves() {
     local t
     for t in "$T_TASKS"/*/; do
-      if [ -f "$t/step" ]; then echo "$t $(cat "$t/step") $(state "$t")"; fi
+      if [ -f "$t/step" ]; then echo "$t $(< "$t/step") $(state "$t")"; fi
     done
   }
   put_stats() { [ -n "${T_UI:-}" ] && echo "$1" > "$T_UI/stats.tmp" && mv "$T_UI/stats.tmp" "$T_UI/stats"; }
   was=$(moves) all=$(board -a; t-later --row) i=0
   stats=$(board_stats); put_stats "$stats"
-  while sleep 0.2; do
+  while sleep 0.05; do
     i=$((i + 1))
     if [ -e "$T_UI/changed" ]; then rm -f "$T_UI/changed"; break; fi   # a form enter sent (see --key entered)
-    if [ $((i % 10)) -ne 0 ]; then continue; fi
+    if [ $((i % 40)) -ne 0 ]; then continue; fi
     if [ "$(moves)" != "$was" ]; then break; fi
-    if [ $((i % 70)) -ne 0 ]; then continue; fi
+    if [ $((i % 280)) -ne 0 ]; then continue; fi
     fresh=$(board_stats); put_stats "$fresh"
     [ "$(board -a; t-later --row)" = "$all" ] && [ "$fresh" = "$stats" ] || break
   done
@@ -216,9 +221,9 @@ if [ "${1:-}" = --key ]; then
     if [ -n "$stats" ]; then f="${f:+$f  }$stats"; fi
     echo "$f"
   }
-  back() {   # to the board: its prompt, search and list, and the keys of task $1 (the cursor goes there on load)
+  back() {   # to the board: its prompt, search and list (the rows command $2 prints), and the keys of task $1 (the cursor goes there on load)
     echo board > "$T_UI/mode"
-    echo "change-prompt(task> )+enable-search+change-query()+change-preview-window(~2)+reload-sync~t-ui --rows~+refresh-preview+change-footer~$(footer "${1-$id}")~+rebind($(key_of keys))"
+    echo "change-prompt(task> )+enable-search+change-query()+change-preview-window(~2)+reload-sync~${2:-t-ui --rows}~+refresh-preview+change-footer~$(footer "${1-$id}")~+rebind($(key_of keys))"
   }
   form() {   # the prompt takes words: mode $1 on $2, prompt $3, tab starting at $4, pane $5, keys $6, text $7
     local typed=
@@ -308,10 +313,12 @@ if [ "${1:-}" = --key ]; then
               force=
               if [ "$(state "$task")" = running ]; then force=-f; fi
               setsid -w t-rm $force "$id" < /dev/null > /dev/null 2> "$T_UI/err" &
-              while [ -f "$task/step" ] && kill -0 $! 2> /dev/null; do sleep 0.05; done   # gone from the board, or refused
+              while [ -f "$task/step" ] && kill -0 $! 2> /dev/null; do sleep 0.02; done   # gone from the board, or refused
               if [ -f "$task/step" ]; then failed; fi
+              row=$(row_of "$id")
+              if [ -n "$row" ]; then sed "${row}d" "$T_UI/rows" > "$T_UI/rows.tmp" && mv "$T_UI/rows.tmp" "$T_UI/rows"; fi   # the board less its row, not drawn again
               if [ -n "$cursor" ]; then echo "$cursor" > "$T_UI/new"; fi
-              back "$cursor" ;;
+              back "$cursor" 'cat "$T_UI/rows"' ;;
       say)    say_form "$id" ;;
       stack)  stack_form "$id" ;;
       attach) echo "execute(t-attach $id)+reload-sync~t-ui --rows~" ;;      # the agent's own screen: the one that leaves

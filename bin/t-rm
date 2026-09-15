@@ -11,11 +11,17 @@ for other in "$T_TASKS"/*/; do
     die "task $(task_num "${other%/}") is stacked on $n; remove that one first"
   fi
 done
+running=
 if ! flock -n "$task/lock" true; then
   [ -n "$force" ] || die "task $n is running; stop it and delete it with: t rm -f $n"
-  stop "$task"
+  running=1
 fi
-rm -f "$task/step"     # off the board and out of the tick now; the teardown may take a while
+step=$(cat "$task/step" 2> /dev/null || true)
+rm -f "$task/step"     # off the board and out of the tick now; stopping its run and the teardown may take a while
+if [ -n "$running" ]; then
+  (stop "$task") || { echo "$step" > "$task/step.tmp" && mv "$task/step.tmp" "$task/step"; exit 1; }   # it still runs: back on the board
+  rm -f "$task/step"   # the run may have moved it on before it stopped
+fi
 
 branch=$(cat "$task/branch" 2> /dev/null || true)
 work=$(readlink -f "$task/work" 2> /dev/null || true)
