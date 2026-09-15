@@ -2289,6 +2289,30 @@ test_the_inbox_says_where_a_comment_mentions_you() {
   not grep -q '^#' "$tmp/pane"                                      # markdown is for the agent, not for you
 }
 
+test_opening_a_thread_marks_it_read_and_the_inbox_counts_what_others_wrote_since() {
+  conversation
+  watched > /dev/null
+  inbox --rows | grep -q $'^cnv_x\t.*Invoice question .* unread'
+  opened cnv_x
+  thread --fresh > /dev/null
+  not grep -q 'unread\|new' <(inbox --rows)
+  asks '[{"type": "email", "created_at": 100, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob"}], "text": "Can you resend the invoice?"},
+         {"type": "email", "created_at": 200, "draft_mode": null, "recipients": [{"role": "from", "handle": "Me@example.com"}], "text": "Sent it again."},
+         {"type": "email", "created_at": 300, "draft_mode": null, "recipients": [{"role": "from", "name": "Bob"}], "text": "Got it, thanks!"}]'
+  front_source thread cnv_x > "$T_VAR/mail/front/cnv_x/thread.md"   # as the watch keeps it
+  inbox --rows | grep -q $'^cnv_x\t.*Invoice question .* 1 new'     # your own reply is no news
+  inbox --pane cnv_x | grep -q '3 messages · 1 new'
+  opened cnv_x
+  not grep -q 'new' <(inbox --rows)
+  thread --pane > "$tmp/pane"
+  eq "$(grep -A1 '^── 1 new ──$' "$tmp/pane" | tail -1 | cut -d' ' -f1)" Bob   # over what Bob said, under your reply
+  thread --start | grep -q 'nofollow'                               # opens there, not at the bottom
+  typed unread | grep -q abort
+  inbox --rows | grep -q $'^cnv_x\t.* unread'
+  opened cnv_x
+  not grep -q 'new ──' <(thread --pane)                             # never opened: all of it is new, so no rule
+}
+
 test_the_inbox_pane_lists_every_key() {
   conversation
   watched > /dev/null
@@ -2416,7 +2440,7 @@ test_gmail_reads_one_accounts_threads_the_way_front_does() {
   out=$("$tmp/tick/sources/work" poll $((now - 3600)))
   eq "$(jq -r .from <<< "$out")" bob@shop.example                   # who wrote last that isn't you
   eq "$(jq -r .updated_at <<< "$out")" $((now - 60))                # your draft is not news
-  eq "$(jq -r .why <<< "$out")" "inbox unread"
+  eq "$(jq -r .why <<< "$out")" inbox                               # unread or not is what t thread opened
   grep -q "in%3Ainbox%20after%3A$((now - 3600))" "$FAKE/curl.calls"
   SEARCH='("native app" OR aksel)' "$tmp/tick/sources/work" poll $((now - 3600)) > /dev/null   # a shared inbox, narrowed where Gmail keeps it
   tail -3 "$FAKE/curl.calls" | grep -q "after%3A$((now - 3600))%20%28%22native%20app%22%20OR%20aksel%29"
@@ -2424,7 +2448,12 @@ test_gmail_reads_one_accounts_threads_the_way_front_does() {
   eq "$(head -1 "$tmp/thread.md")" "# Invoice"
   eq "$(grep '^## ' "$tmp/thread.md" | cut -d, -f1)" "$(printf '## email from Me <me@work.example>\n## email from Bob <bob@shop.example>')"
   grep -qx 'Can you resend it?' "$tmp/thread.md"
+  eq "$(grep '^<!-- at ' "$tmp/thread.md")" "$(printf '<!-- at %s yours -->\n<!-- at %s -->' $((now - 120)) $((now - 60)))"
   not grep -q '^> \|half a thought' "$tmp/thread.md"
+  "$tmp/tick/sources/work" read th_1                                # opened in t thread: read in Gmail too
+  "$tmp/tick/sources/work" unread th_1
+  grep -A1 '^POST /gmail/v1/users/me/threads/th_1/modify$' "$FAKE/google.calls" | grep -v '^POST\|^--$' > "$tmp/labels"
+  eq "$(cat "$tmp/labels")" "$(printf '%s\n' '{"removeLabelIds":["UNREAD"]}' '{"addLabelIds":["UNREAD"]}')"
   not "$tmp/tick/sources/gmail" poll 1 2> "$tmp/err"               # gmail itself is no account
   grep -q 'ln -s gmail' "$tmp/err"
 }

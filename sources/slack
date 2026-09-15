@@ -125,6 +125,7 @@ markdown() {
   text=$(jq -r 'if (.text // "") != "" then .text else "(\(.files[0].name // "no text"))" end' <<< "$1")
   printf '\n%s %s, %s\n' "$2" "$user" "$(date -d "@${ts%.*}" '+%a %d %b %H:%M')"
   if [ "$2" = "## message from" ]; then printf '<!-- ts %s -->\n' "$ts"; fi
+  printf '<!-- at %s%s -->\n' "${ts%.*}" "$(if [ "$user" = you ]; then echo " yours"; fi)"
   printf '\n%s\n' "$(plain "$text")"
 }
 

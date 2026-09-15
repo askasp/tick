@@ -350,6 +350,7 @@ image    ctrl-v  the image on the clipboard, for the agents to see'
 # t inbox's keys, on a screen of its own; ? lists them in its pane
 INBOX_KEYS='open     enter   the thread, the width of the screen, with a reply or a comment typed under it
 archive  ctrl-x  archive it, where the mail lives
+unread   alt-u   unread again, as if you never opened it; Gmail is told
 keys     ?       every key, in the pane; again: the thread'
 # t thread's: typing is fzf's query, so the keys are ctrl- ones, and ? and every letter are text
 THREAD_KEYS='line     enter   a new line; backspace on an empty one takes the line above back
@@ -361,7 +362,8 @@ discard  ctrl-x  delete what is held
 up       ctrl-k  where a source has threads, a reply into the thread of the message above; elsewhere the pane scrolls up
 down     ctrl-j  the same for the message below, and past the last, the end again; elsewhere the pane scrolls down
 channel  ctrl-g  where a source has threads: let go of the message, and write to the whole channel
-react    ctrl-r  where a source has reactions, yours on the message, or off it again: it leaves at once'
+react    ctrl-r  where a source has reactions, yours on the message, or off it again: it leaves at once
+unread   alt-u   unread again, as if you never opened it, and back to the inbox'
 # t cal's: answering is the signature, so each answer is a key of its own
 CAL_KEYS='open     enter   open it in the browser
 accept   ctrl-y  accept the invite; the organizer is told
@@ -418,6 +420,23 @@ reply_to() {
     if [ "$(cat "$found/pipeline")" = "$pipeline" ] && [ "$(cat "$found/step")" != done ]; then echo "$found"; return; fi
   done
 }
+
+# a source writes when each message in a thread was said under its header, <!-- at EPOCH -->, and <!-- at EPOCH yours -->
+# for yours: the newest in thread $1, and how many others said after epoch $2
+newest_at() { awk '$1 == "<!--" && $2 == "at" && $3 + 0 > newest { newest = $3 + 0 } END { if (newest) print newest }' "$1"; }
+said_since() { awk -v seen="$2" '$1 == "<!--" && $2 == "at" && $3 + 0 > seen + 0 && $4 != "yours" { n++ } END { print n + 0 }' "$1"; }
+
+# conversation $1 (its directory in $T_VAR/mail) read up to its newest message: what others say after it is new
+mark_read() {
+  local newest
+  [ -f "$1/thread.md" ] || return 0
+  newest=$(newest_at "$1/thread.md")
+  if [ -n "$newest" ]; then echo "$newest" > "$1/read.tmp" && mv "$1/read.tmp" "$1/read"; fi
+}
+
+# read or unread ($2) on conversation $3, told to source $1 if it keeps a read state of its own (Gmail): in the
+# background, since the screen reads its own mark and waits for no one
+tell() { if "$T_ROOT/sources/$1" can "$2" > /dev/null 2>&1; then "$T_ROOT/sources/$1" "$2" "$3" > /dev/null 2>&1 & fi; }
 
 # the actions worth offering for a task now; Enter does the first. A watch offers its mail, and a reply
 # held for your signature the signing.

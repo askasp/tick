@@ -3,7 +3,7 @@
 #   poll SINCE         conversations that involve you with activity since SINCE (epoch seconds), newest first, a JSON
 #                      line each: id, subject, from, updated_at, and why (mention assigned participant recipient)
 #   thread ID          the conversation as markdown: its subject, then messages and comments oldest first, without
-#                      quoted lines or drafts
+#                      quoted lines or drafts, each with when in a comment line: <!-- at EPOCH -->, and yours after it
 #   draft ID [DRAFT]   the reply on stdin as a private draft on conversation ID, or into draft DRAFT; prints its id
 #   send ID            the reply on stdin, sent as you on conversation ID, which is left where it is (not archived)
 #   archive ID         archives conversation ID
@@ -76,16 +76,17 @@ poll() {
 thread() {
   local id=${1:?usage: sources/front thread ID}
   call GET "/conversations/$id" | jq -r '"# \(.subject // "(no subject)")"'
-  { results "/conversations/$id/messages?limit=100"; results "/conversations/$id/comments"; } | jq -rs "$unquoted"'
+  { results "/conversations/$id/messages?limit=100"; results "/conversations/$id/comments"; } | jq -rs --arg me "${FRONT_EMAIL,,}" "$unquoted"'
     def when: strflocaltime("%a %d %b %H:%M");
     def sender: [.recipients[]? | select(.role == "from") | .name // .handle][0] // "?";
+    def at($by): "<!-- at \(floor)\(if ($by // "" | ascii_downcase) == $me then " yours" else "" end) -->";
     def plural($n; $word): if $n == 1 then "1 \($word)" else "\($n) \($word)s" end;
     map(select(.draft_mode == null)) as $all
     | ([$all[] | select(has("posted_at") | not) | select(.is_inbound == true) | sender] | unique | join(", ")) as $outside
     | ($all | map(select(has("posted_at"))) | length) as $comments
     | ($all
-       | map(if has("posted_at") then {t: .posted_at, s: "### └ comment by \(.author.first_name) \(.author.last_name), \(.posted_at | when)\n\n\(.body)"}
-             else {t: .created_at, s: "## \(.type) from \(sender), \(.created_at | when)\n\n\(.text // "" | unquoted)"} end)
+       | map(. as $c | if has("posted_at") then {t: .posted_at, s: "### └ comment by \(.author.first_name) \(.author.last_name), \(.posted_at | when)\n\(.posted_at | at($c.author.email))\n\n\(.body)"}
+             else {t: .created_at, s: "## \(.type) from \(sender), \(.created_at | when)\n\(.created_at | at([$c.recipients[]? | select(.role == "from") | .handle][0]))\n\n\(.text // "" | unquoted)"} end)
        | sort_by(.t)[] | "\n" + .s),
       (if $comments > 0
        then "\n_\(plural($comments; "comment")): only your teammates see \(if $comments == 1 then "it" else "them" end)\(if $outside != "" then ", not \($outside)" else "" end)._"

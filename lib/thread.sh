@@ -1,6 +1,7 @@
 # lib/thread.sh — what t thread draws: the conversation, what you write where it will land, and who will read it.
 # Sourced by bin/t-thread, which keeps the screen in $here: conv (SOURCE ID), kind (reply or comment), at (the message a
-# reply goes under, where the source has threads), mode (write, drafting, held, signed), task, and text.
+# reply goes under, where the source has threads), mode (write, drafting, held, signed), task, text, and seen (when the
+# newest message was the last time you opened it).
 
 kept() { cat "$here/$1" 2> /dev/null || true; }
 keep() { printf '%s\n' "$2" > "$here/$1.tmp" && mv "$here/$1.tmp" "$here/$1"; }
@@ -41,29 +42,34 @@ since() {
 }
 
 # the thread as thread_view takes it, with what you write where it lands: into the thread under message $at, as a
-# comment at the end, or once ended as your message at the end; and a rule before what was said since you wrote it
+# comment at the end, or once ended as your message at the end; a rule before what was said since you wrote it, and one
+# before what others said since you last opened it
 view_md() {
-  local place= since=0 last=
+  local place= since=0 last= news=0
   if [ -n "$(kept task)" ]; then last=$(wrote_after) since=$(since); fi
+  if [ -n "$(kept seen)" ]; then news=$(said_since "$(thread_md)" "$(kept seen)"); fi
   if [ "$(kept kind)" = comment ]; then place=END; printf '### └ comment by you, %s\n\n' "$(yours)" > "$here/block"
   elif [ -n "$(kept at)" ]; then place=$(kept at); printf '### └ reply by you, %s\n\n' "$(yours)" > "$here/block"
   elif [ "$(kept mode)" != write ] && [ -s "$here/text" ]; then place=END; printf '## message from you, %s\n\n' "$(yours)" > "$here/block"
   fi
   if [ -n "$place" ]; then cat "$here/text" >> "$here/block"; fi
-  awk -v place="$place" -v last="$last" -v since="$since" -v block="$here/block" '
+  awk -v place="$place" -v last="$last" -v since="$since" -v seen="$(kept seen)" -v news="$news" -v block="$here/block" '
     function put(  line) { while ((getline line < block) > 0) print line; close(block); pending = 0 }
-    held != "" && /^<!-- ts / {
-      if (last != "" && !ruled && ($3 "") > (last "")) {
+    function release(  i) {
+      if (last != "" && !ruled && (ts "") > (last "")) {
         print "_── " since (since == 1 ? " message" : " messages") " since you wrote yours_"; print ""; ruled = 1
       }
-      print held; held = ""; print
-      if ($3 == place) pending = 1
-      next
+      if (news > 0 && !marked && at + 0 > seen + 0 && !yours) { print "_── " news " new ──_"; print ""; marked = 1 }
+      for (i = 1; i <= held; i++) print header[i]
+      if (ts != "" && ts == place) pending = 1
+      held = 0
     }
-    held != "" { print held; held = "" }
-    /^## / { if (pending) put(); held = $0; next }
+    held && /^<!-- (ts|at) / { header[++held] = $0; if ($2 == "ts") ts = $3; else { at = $3; yours = $4 == "yours" }; next }
+    held { release() }
+    /^## / && pending { put() }
+    /^##+ / { header[++held] = $0; ts = ""; at = ""; yours = 0; next }
     { print }
-    END { if (held != "") print held; if (pending || place == "END") put() }' "$(thread_md)"
+    END { if (held) release(); if (pending || place == "END") put() }' "$(thread_md)"
 }
 
 delivery() {
@@ -128,17 +134,23 @@ pane() {
   fi
 }
 
-# the pane's window: the header and the gist stay put, and the rest follows the end, or with $1 shows line $1 mid-pane
+# the pane's window: the header and the gist stay put, and the rest follows the end, or with $1 shows line $1 mid-pane,
+# or $2 lines down it
 window() {
   local pinned=2
   if [ -s "$(mail)/gist" ]; then pinned=$((3 + $(fold -s -w "${FZF_COLUMNS:-80}" "$(mail)/gist" | wc -l))); fi
-  if [ -n "${1:-}" ]; then echo "change-preview-window(nofollow,~$pinned,+$1-/2)"
+  if [ -n "${1:-}" ]; then echo "change-preview-window(nofollow,~$pinned,+$1-${2:-/2})"
   else echo "change-preview-window(follow,~$pinned)"; fi
 }
 
 # the line of the pane where your reply sits under its message
 marker_line() {
   FZF_PREVIEW_COLUMNS=${FZF_COLUMNS:-80} pane | sed 's/\x1b\[[0-9;]*m//g' | grep -n '^  └ you  ' | tail -1 | cut -d: -f1
+}
+
+# the line of the pane where the rule over what is new since you last opened the thread sits
+rule_line() {
+  FZF_PREVIEW_COLUMNS=${FZF_COLUMNS:-80} pane | sed 's/\x1b\[[0-9;]*m//g' | grep -n '^── [0-9]* new ──$' | head -1 | cut -d: -f1
 }
 
 # the message above ($1 up) or below the one the prompt is under; below the last is the end, and up from there the last
@@ -162,7 +174,7 @@ footer() {
       keys+=("$(key draft)" "agent draft")
       if can threads; then keys+=("$(key up) $(key down)" message "$(key channel)" "to the channel"); else keys+=("$(key up) $(key down)" scroll); fi
       if can react; then keys+=("$(key react)" react); fi
-      keys+=(esc back) ;;
+      keys+=("$(key unread)" unread esc back) ;;
     drafting) keys=(esc "back: it holds on the board once written") ;;
     held)
       keys=("$(key release)" sign "$(key edit)" edit "$(key draft)" redraft)

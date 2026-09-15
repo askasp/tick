@@ -2,9 +2,11 @@
 # sources/gmail VERB … — the mail of one Google account, as a source. Link it under the account's name
 # (ln -s gmail sources/work) and it is that account's (~/.config/google/work/, t google login work). sources/front's verbs:
 #   poll SINCE         inbox threads with mail since SINCE (epoch seconds), newest first, a JSON line each: id, subject,
-#                      from (who wrote last, not you), updated_at, why (inbox, unread); SEARCH= in the watch's pipeline
+#                      from (who wrote last, not you), updated_at, why (inbox); SEARCH= in the watch's pipeline
 #                      env narrows it, in Gmail's search words: SEARCH='("native app" OR aksel)'
-#   thread ID          the thread as markdown: its subject, then each message oldest first, without quoted lines or drafts
+#   thread ID          the thread as markdown: its subject, then each message oldest first, without quoted lines or drafts,
+#                      each with when in a comment line (<!-- at EPOCH -->, and yours after it)
+#   read ID            marks the thread read, as t thread does when it opens it; unread ID marks it unread again
 #   draft ID [DRAFT]   the reply on stdin as a draft in the thread (a Gmail draft is yours alone), or into draft DRAFT
 #   send ID            the reply on stdin, sent as you in the thread
 #   archive ID         takes the thread out of the inbox
@@ -13,7 +15,7 @@
 . "$T_ROOT/lib/google.sh"
 set -euo pipefail
 if [ "${1:-}" = can ]; then                              # what a verb is called here, as sources/front says
-  case ${2:-} in poll | thread | draft | send | archive | sent) echo "$2"; exit 0 ;; *) exit 1 ;; esac
+  case ${2:-} in poll | thread | draft | send | archive | sent | read | unread) echo "$2"; exit 0 ;; *) exit 1 ;; esac
 fi
 account=${0##*/}
 [ "$account" != gmail ] || die "sources/gmail is one account's mail, linked under its name: ln -s gmail $T_ROOT/sources/NAME, then: t google login NAME"
@@ -50,16 +52,24 @@ poll() {
       [.messages[] | select(drafted | not)] as $mail
       | {id, subject: ($mail[0] | header("subject")), updated_at: ($mail[-1] | when),
          from: ([$mail[] | header("from") | address | select(. != $me)] | last // ""),
-         why: (if any($mail[]; (.labelIds // []) | any(. == "UNREAD")) then "inbox unread" else "inbox" end)}'
+         why: "inbox"}'
   done | jq -sc 'sort_by(-.updated_at)[]'
 }
 
 thread() {
-  local id=${1:?usage: sources/$account thread ID}
-  google GET "$api/threads/$id?format=full" | jq -r "$defs"'
+  local id=${1:?usage: sources/$account thread ID} me
+  me=$(me)
+  google GET "$api/threads/$id?format=full" | jq -r --arg me "$me" "$defs"'
     [.messages[] | select(drafted | not)]
     | "# \(.[0] | header("subject") | if . == "" then "(no subject)" else . end)",
-      (.[] | "\n## email from \(header("from")), \(when | strflocaltime("%a %d %b %H:%M"))\n\n\(text | unquoted)")'
+      (.[] | "\n## email from \(header("from")), \(when | strflocaltime("%a %d %b %H:%M"))\n<!-- at \(when)\(if (header("from") | address) == $me then " yours" else "" end) -->\n\n\(text | unquoted)")'
+}
+
+# read ID, unread ID: Gmail's UNREAD label off the thread, or on it again
+labelled() {
+  local how=removeLabelIds
+  if [ "$1" = unread ]; then how=addLabelIds; fi
+  jq -nc --arg how "$how" '{($how): ["UNREAD"]}' | google POST "$api/threads/${2:?usage: sources/$account $1 ID}/modify" > /dev/null
 }
 
 # the reply on stdin as Gmail takes it: a whole mail in thread $1, to whoever wrote its last message (unless that
@@ -115,5 +125,6 @@ sent() {
 
 case ${1:-} in
   poll | thread | draft | send | archive | sent) verb=$1; shift; "$verb" "$@" ;;
-  *) die "usage: sources/$account poll SINCE | thread ID | draft ID [DRAFT] < reply | send ID < reply | archive ID | sent SINCE" ;;
+  read | unread) labelled "$@" ;;
+  *) die "usage: sources/$account poll SINCE | thread ID | draft ID [DRAFT] < reply | send ID < reply | archive ID | sent SINCE | read ID | unread ID" ;;
 esac
